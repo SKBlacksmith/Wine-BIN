@@ -112,11 +112,11 @@ struct gdb_context
 static void gdbctx_delete_xpoint(struct gdb_context *gdbctx, struct dbg_thread *thread,
                                  dbg_ctx_t *ctx, struct gdb_xpoint *x)
 {
-    struct dbg_process *process = gdbctx->process;
+    struct dbg_process *process = thread->process;
     struct backend_cpu *cpu = process->be_cpu;
 
     if (!cpu->remove_Xpoint(process->handle, process->process_io, ctx, x->type, x->addr, x->value, x->size))
-        ERR("%04x:%04x: Couldn't remove breakpoint at:%p/%x type:%d\n", process->pid, thread ? thread->tid : ~0, x->addr, x->size, x->type);
+        ERR("%04x:%04x: Couldn't remove breakpoint at:%p/%x type:%d\n", process->pid, thread->tid, x->addr, x->size, x->type);
 
     list_remove(&x->entry);
     HeapFree(GetProcessHeap(), 0, x);
@@ -404,7 +404,6 @@ static BOOL handle_debug_event(struct gdb_context* gdbctx)
         char                bufferA[256];
         WCHAR               buffer[256];
     } u;
-    DWORD size;
 
     gdbctx->exec_tid = de->dwThreadId;
     gdbctx->other_tid = de->dwThreadId;
@@ -418,8 +417,10 @@ static BOOL handle_debug_event(struct gdb_context* gdbctx)
         if (!gdbctx->process)
             return TRUE;
 
-        size = ARRAY_SIZE(u.buffer);
-        QueryFullProcessImageNameW( gdbctx->process->handle, 0, u.buffer, &size );
+        memory_get_string_indirect(gdbctx->process,
+                                   de->u.CreateProcessInfo.lpImageName,
+                                   de->u.CreateProcessInfo.fUnicode,
+                                   u.buffer, ARRAY_SIZE(u.buffer));
         dbg_set_process_name(gdbctx->process, u.buffer);
 
         fprintf(stderr, "%04x:%04x: create process '%s'/%p @%p (%u<%u>)\n",
@@ -437,17 +438,16 @@ static BOOL handle_debug_event(struct gdb_context* gdbctx)
         fprintf(stderr, "%04x:%04x: create thread I @%p\n", de->dwProcessId,
             de->dwThreadId, de->u.CreateProcessInfo.lpStartAddress);
 
-        dbg_load_module(gdbctx->process->handle, de->u.CreateProcessInfo.hFile, u.buffer,
-                        (DWORD_PTR)de->u.CreateProcessInfo.lpBaseOfImage, 0);
-
         dbg_add_thread(gdbctx->process, de->dwThreadId,
                        de->u.CreateProcessInfo.hThread,
                        de->u.CreateProcessInfo.lpThreadLocalBase);
         return TRUE;
 
     case LOAD_DLL_DEBUG_EVENT:
-        fetch_module_name( de->u.LoadDll.lpImageName, de->u.LoadDll.lpBaseOfDll,
-                           u.buffer, ARRAY_SIZE(u.buffer) );
+        memory_get_string_indirect(gdbctx->process,
+                                   de->u.LoadDll.lpImageName,
+                                   de->u.LoadDll.fUnicode,
+                                   u.buffer, ARRAY_SIZE(u.buffer));
         fprintf(stderr, "%04x:%04x: loads DLL %s @%p (%u<%u>)\n",
                 de->dwProcessId, de->dwThreadId,
                 dbg_W2A(u.buffer, -1),
@@ -701,13 +701,6 @@ static void get_thread_info(struct gdb_context* gdbctx, unsigned tid,
  *          P A C K E T        U T I L S           *
  * =============================================== *
  */
-
-static int addr_width(struct gdb_context* gdbctx)
-{
-    int sz = (gdbctx && gdbctx->process && gdbctx->process->be_cpu) ?
-        gdbctx->process->be_cpu->pointer_size : (int)sizeof(void*);
-    return sz * 2;
-}
 
 enum packet_return {packet_error = 0x00, packet_ok = 0x01, packet_done = 0x02,
                     packet_last_f = 0x80};
@@ -1350,7 +1343,7 @@ static void packet_query_monitor_wnd_helper(struct gdb_context* gdbctx, HWND hWn
                 "%*s%04lx%*s%-17.17s %08x %0*lx %.14s\n",
                 indent, "", (ULONG_PTR)hWnd, 13 - indent, "",
                 clsName, GetWindowLongW(hWnd, GWL_STYLE),
-                addr_width(gdbctx), (ULONG_PTR)GetWindowLongPtrW(hWnd, GWLP_WNDPROC),
+                ADDRWIDTH, (ULONG_PTR)GetWindowLongPtrW(hWnd, GWLP_WNDPROC),
                 wndName);
        packet_reply_hex_to_str(gdbctx, buffer);
        packet_reply_close(gdbctx);
@@ -1459,13 +1452,13 @@ static void packet_query_monitor_mem(struct gdb_context* gdbctx, int len, const 
             }
             memset(prot, ' ' , sizeof(prot)-1);
             prot[sizeof(prot)-1] = '\0';
-            if (mbi.AllocationProtect & (PAGE_READONLY|PAGE_READWRITE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_WRITECOPY|PAGE_EXECUTE_WRITECOPY))
+            if (mbi.AllocationProtect & (PAGE_READONLY|PAGE_READWRITE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE))
                 prot[0] = 'R';
             if (mbi.AllocationProtect & (PAGE_READWRITE|PAGE_EXECUTE_READWRITE))
                 prot[1] = 'W';
             if (mbi.AllocationProtect & (PAGE_WRITECOPY|PAGE_EXECUTE_WRITECOPY))
                 prot[1] = 'C';
-            if (mbi.AllocationProtect & (PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY))
+            if (mbi.AllocationProtect & (PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE))
                 prot[2] = 'X';
         }
         else
@@ -1475,8 +1468,8 @@ static void packet_query_monitor_mem(struct gdb_context* gdbctx, int len, const 
         }
         packet_reply_open(gdbctx);
         snprintf(buffer, sizeof(buffer), "%0*lx %0*lx %s %s %s\n",
-                 addr_width(gdbctx), (DWORD_PTR)addr,
-                 addr_width(gdbctx), mbi.RegionSize, state, type, prot);
+                 (unsigned)sizeof(void*), (DWORD_PTR)addr,
+                 (unsigned)sizeof(void*), mbi.RegionSize, state, type, prot);
         packet_reply_add(gdbctx, "O");
         packet_reply_hex_to_str(gdbctx, buffer);
         packet_reply_close(gdbctx);

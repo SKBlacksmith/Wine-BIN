@@ -6,7 +6,8 @@ EXTRADLLFLAGS = -mno-cygwin
 C_SRCS = \
 	factory.c \
 	gameexplorer.c \
-	gamestatistics.c
+	gamestatistics.c \
+	main.c
 
 IDL_SRCS = gameux_tlb.idl
 

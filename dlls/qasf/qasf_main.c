@@ -22,6 +22,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(qasf);
 
+static HINSTANCE qasf_instance;
+
 struct class_factory
 {
     IClassFactory IClassFactory_iface;
@@ -104,6 +106,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
     if (reason == DLL_PROCESS_ATTACH)
     {
         DisableThreadLibraryCalls(instance);
+        qasf_instance = instance;
     }
     else if (reason == DLL_PROCESS_DETACH && !reserved)
     {
@@ -123,4 +126,19 @@ HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **out)
 
     FIXME("%s not available, returning CLASS_E_CLASSNOTAVAILABLE.\n", debugstr_guid(clsid));
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
+}
+
+HRESULT WINAPI DllRegisterServer(void)
+{
+    return __wine_register_resources(qasf_instance);
+}
+
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    return __wine_unregister_resources(qasf_instance);
 }

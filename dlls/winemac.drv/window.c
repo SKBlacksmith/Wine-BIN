@@ -1798,6 +1798,7 @@ UINT CDECL macdrv_ShowWindow(HWND hwnd, INT cmd, RECT *rect, UINT swp)
           hwnd, data ? data->cocoa_window : NULL, cmd, wine_dbgstr_rect(rect), swp);
 
     if (!data || !data->cocoa_window) goto done;
+    if (IsRectEmpty(rect)) goto done;
     if (GetWindowLongW(hwnd, GWL_STYLE) & WS_MINIMIZE)
     {
         if (rect->left != -32000 || rect->top != -32000)
@@ -2052,7 +2053,7 @@ static inline RECT get_surface_rect(const RECT *visible_rect)
 /***********************************************************************
  *              WindowPosChanging   (MACDRV.@)
  */
-BOOL CDECL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags,
+void CDECL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags,
                                     const RECT *window_rect, const RECT *client_rect,
                                     RECT *visible_rect, struct window_surface **surface)
 {
@@ -2064,7 +2065,7 @@ BOOL CDECL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags
           swp_flags, wine_dbgstr_rect(window_rect), wine_dbgstr_rect(client_rect),
           wine_dbgstr_rect(visible_rect), surface);
 
-    if (!data && !(data = macdrv_create_win_data(hwnd, window_rect, client_rect))) return TRUE;
+    if (!data && !(data = macdrv_create_win_data(hwnd, window_rect, client_rect))) return;
 
     *visible_rect = *window_rect;
     macdrv_window_to_mac_rect(data, style, visible_rect, window_rect, client_rect);
@@ -2097,7 +2098,6 @@ BOOL CDECL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags
 
 done:
     release_win_data(data);
-    return TRUE;
 }
 
 

@@ -141,133 +141,6 @@ static void test_irp_struct(IRP *irp, DEVICE_OBJECT *device)
     IoFreeIrp(irp);
 }
 
-static int cancel_queue_cnt;
-
-static void WINAPI cancel_queued_irp(DEVICE_OBJECT *device, IRP *irp)
-{
-    IoReleaseCancelSpinLock(irp->CancelIrql);
-    ok(irp->Cancel == TRUE, "Cancel = %x\n", irp->Cancel);
-    ok(!irp->CancelRoutine, "CancelRoutine = %p\n", irp->CancelRoutine);
-    irp->IoStatus.Status = STATUS_CANCELLED;
-    irp->IoStatus.Information = 0;
-    cancel_queue_cnt++;
-}
-
-static void test_queue(void)
-{
-    KDEVICE_QUEUE_ENTRY *entry;
-    KDEVICE_QUEUE queue;
-    BOOLEAN ret;
-    KIRQL irql;
-    IRP *irp;
-
-    irp = IoAllocateIrp(1, FALSE);
-
-    memset(&queue, 0xcd, sizeof(queue));
-    KeInitializeDeviceQueue(&queue);
-    ok(!queue.Busy, "unexpected Busy state\n");
-    ok(queue.Size == sizeof(queue), "unexpected Size %x\n", queue.Size);
-    ok(queue.Type == IO_TYPE_DEVICE_QUEUE, "unexpected Type %x\n", queue.Type);
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-
-    ret = KeInsertDeviceQueue(&queue, &irp->Tail.Overlay.DeviceQueueEntry);
-    ok(!ret, "expected KeInsertDeviceQueue to not insert IRP\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(!irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected not inserted\n");
-
-    entry = KeRemoveDeviceQueue(&queue);
-    ok(!entry, "expected KeRemoveDeviceQueue to return NULL\n");
-    ok(!queue.Busy, "unexpected Busy state\n");
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(!irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected not inserted\n");
-
-    ret = KeInsertDeviceQueue(&queue, &irp->Tail.Overlay.DeviceQueueEntry);
-    ok(!ret, "expected KeInsertDeviceQueue to not insert IRP\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(!irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected not inserted\n");
-
-    ret = KeInsertDeviceQueue(&queue, &irp->Tail.Overlay.DeviceQueueEntry);
-    ok(ret, "expected KeInsertDeviceQueue to insert IRP\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(!IsListEmpty(&queue.DeviceListHead), "unexpected empty queue list\n");
-    ok(irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected inserted\n");
-    ok(queue.DeviceListHead.Flink == &irp->Tail.Overlay.DeviceQueueEntry.DeviceListEntry,
-       "unexpected queue list head\n");
-
-    entry = KeRemoveDeviceQueue(&queue);
-    ok(entry != NULL, "expected KeRemoveDeviceQueue to return non-NULL\n");
-    ok(CONTAINING_RECORD(entry, IRP, Tail.Overlay.DeviceQueueEntry) == irp,
-       "unexpected IRP returned\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(!irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected not inserted\n");
-
-    entry = KeRemoveDeviceQueue(&queue);
-    ok(entry == NULL, "expected KeRemoveDeviceQueue to return NULL\n");
-    ok(!queue.Busy, "unexpected Busy state\n");
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(!irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected not inserted\n");
-
-    IoCancelIrp(irp);
-    ok(irp->Cancel, "unexpected non-cancelled state\n");
-
-    ret = KeInsertDeviceQueue(&queue, &irp->Tail.Overlay.DeviceQueueEntry);
-    ok(!ret, "expected KeInsertDeviceQueue to not insert IRP\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(!irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected inserted\n");
-    ret = KeInsertDeviceQueue(&queue, &irp->Tail.Overlay.DeviceQueueEntry);
-    ok(ret, "expected KeInsertDeviceQueue to insert IRP\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(!IsListEmpty(&queue.DeviceListHead), "unexpected empty queue list\n");
-    ok(irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected inserted\n");
-    ok(queue.DeviceListHead.Flink == &irp->Tail.Overlay.DeviceQueueEntry.DeviceListEntry,
-       "unexpected queue list head\n");
-
-    entry = KeRemoveDeviceQueue(&queue);
-    ok(entry != NULL, "expected KeRemoveDeviceQueue to return non-NULL\n");
-    ok(CONTAINING_RECORD(entry, IRP, Tail.Overlay.DeviceQueueEntry) == irp,
-       "unexpected IRP returned\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(!irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected inserted\n");
-    ok(irp->Cancel, "unexpected non-cancelled state\n");
-
-    IoFreeIrp(irp);
-
-    irp = IoAllocateIrp(1, FALSE);
-
-    IoAcquireCancelSpinLock(&irql);
-    IoSetCancelRoutine(irp, cancel_queued_irp);
-    IoReleaseCancelSpinLock(irql);
-
-    ret = KeInsertDeviceQueue(&queue, &irp->Tail.Overlay.DeviceQueueEntry);
-    ok(ret, "expected KeInsertDeviceQueue to insert IRP\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(!IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected inserted\n");
-    ok(queue.DeviceListHead.Flink == &irp->Tail.Overlay.DeviceQueueEntry.DeviceListEntry,
-       "unexpected queue list head\n");
-
-    IoCancelIrp(irp);
-    ok(irp->Cancel, "unexpected non-cancelled state\n");
-    ok(cancel_queue_cnt, "expected cancel routine to be called\n");
-
-    entry = KeRemoveDeviceQueue(&queue);
-    ok(entry != NULL, "expected KeRemoveDeviceQueue to return non-NULL\n");
-    ok(CONTAINING_RECORD(entry, IRP, Tail.Overlay.DeviceQueueEntry) == irp,
-       "unexpected IRP returned\n");
-    ok(irp->Cancel, "unexpected non-cancelled state\n");
-    ok(cancel_queue_cnt, "expected cancel routine to be called\n");
-    ok(queue.Busy, "expected Busy state\n");
-    ok(IsListEmpty(&queue.DeviceListHead), "expected empty queue list\n");
-    ok(!irp->Tail.Overlay.DeviceQueueEntry.Inserted, "expected inserted\n");
-
-    IoFreeIrp(irp);
-}
-
 static void test_mdl_map(void)
 {
     char buffer[20] = "test buffer";
@@ -324,15 +197,10 @@ static void WINAPI test_load_image_notify_routine(UNICODE_STRING *image_name, HA
 
 static void test_load_driver(void)
 {
-    char full_name_buffer[300];
-    OBJECT_NAME_INFORMATION *full_name = (OBJECT_NAME_INFORMATION *)full_name_buffer;
     static WCHAR image_path_key_name[] = L"ImagePath";
     RTL_QUERY_REGISTRY_TABLE query_table[2];
     UNICODE_STRING name, image_path;
-    OBJECT_ATTRIBUTES attr;
-    IO_STATUS_BLOCK io;
     NTSTATUS ret;
-    HANDLE file;
 
     ret = PsSetLoadImageNotifyRoutine(test_load_image_notify_routine);
     ok(ret == STATUS_SUCCESS, "Got unexpected status %#x.\n", ret);
@@ -353,18 +221,6 @@ static void test_load_driver(void)
     ok(ret == STATUS_SUCCESS, "Got unexpected status %#x.\n", ret);
     ok(!!image_path.Buffer, "image_path.Buffer is NULL.\n");
 
-    /* The image path name in the registry may contain NT symlinks (e.g. DOS
-     * drives), which are resolved before the callback is called on Windows 10. */
-    InitializeObjectAttributes(&attr, &image_path, OBJ_KERNEL_HANDLE, NULL, NULL);
-    ret = ZwOpenFile(&file, SYNCHRONIZE, &attr, &io, 0, FILE_SYNCHRONOUS_IO_NONALERT);
-    todo_wine ok(!ret, "Got unexpected status %#x.\n", ret);
-    if (!ret)
-    {
-        ret = ZwQueryObject(file, ObjectNameInformation, full_name_buffer, sizeof(full_name_buffer), NULL);
-        ok(!ret, "Got unexpected status %#x.\n", ret);
-        ZwClose(file);
-    }
-
     RtlInitUnicodeString(&name, driver2_path);
 
     ret = ZwLoadDriver(&name);
@@ -376,9 +232,7 @@ static void test_load_driver(void)
             "Got unexpected ImageAddressingMode %#x.\n", test_image_info.ImageAddressingMode);
     ok(test_image_info.SystemModeImage,
             "Got unexpected SystemModeImage %#x.\n", test_image_info.SystemModeImage);
-    ok(!wcscmp(test_load_image_name, image_path.Buffer) /* Win < 10 */
-            || !wcscmp(test_load_image_name, full_name->Name.Buffer),
-            "Expected image path name %ls, got %ls.\n", full_name->Name.Buffer, test_load_image_name);
+    ok(!wcscmp(test_load_image_name, image_path.Buffer), "Image path names do not match.\n");
 
     test_load_image_notify_count = -1;
 
@@ -883,8 +737,6 @@ static void test_sync(void)
     ok(ret == 0, "got %#x\n", ret);
 
     ret = wait_single(&timer, 0);
-    /* aliasing makes it sometimes succeeds, try again in that case */
-    if (ret == 0) ret = wait_single(&timer, 0);
     ok(ret == WAIT_TIMEOUT, "got %#x\n", ret);
 
     ret = wait_single(&timer, -40 * 10000);
@@ -1295,7 +1147,7 @@ static void WINAPI thread_proc(void *arg)
     PsTerminateSystemThread(STATUS_SUCCESS);
 }
 
-static void test_ob_reference(void)
+static void test_ob_reference(const WCHAR *test_path)
 {
     POBJECT_TYPE (WINAPI *pObGetObjectType)(void*);
     OBJECT_ATTRIBUTES attr = { sizeof(attr) };
@@ -1306,6 +1158,8 @@ static void test_ob_reference(void)
     POBJECT_TYPE obj1_type;
     UNICODE_STRING pathU;
     IO_STATUS_BLOCK io;
+    WCHAR *tmp_path;
+    SIZE_T len;
     NTSTATUS status;
 
     pObGetObjectType = get_proc_address("ObGetObjectType");
@@ -1316,12 +1170,18 @@ static void test_ob_reference(void)
     status = ZwCreateEvent(&event_handle, SYNCHRONIZE, &attr, NotificationEvent, TRUE);
     ok(!status, "ZwCreateEvent failed: %#x\n", status);
 
-    RtlInitUnicodeString(&pathU, L"\\??\\C:\\windows\\winetest_ntoskrnl_file.tmp");
+    len = wcslen(test_path);
+    tmp_path = ExAllocatePool(PagedPool, len * sizeof(WCHAR) + sizeof(L".tmp"));
+    memcpy(tmp_path, test_path, len * sizeof(WCHAR));
+    memcpy(tmp_path + len, L".tmp", sizeof(L".tmp"));
+
+    RtlInitUnicodeString(&pathU, tmp_path);
     attr.ObjectName = &pathU;
-    attr.Attributes = OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE;
+    attr.Attributes = OBJ_KERNEL_HANDLE;
     status = ZwCreateFile(&file_handle,  DELETE | FILE_WRITE_DATA | SYNCHRONIZE, &attr, &io, NULL, 0, 0, FILE_CREATE,
                           FILE_DELETE_ON_CLOSE | FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
     ok(!status, "ZwCreateFile failed: %#x\n", status);
+    ExFreePool(tmp_path);
 
     status = ZwDuplicateObject(NtCurrentProcess(), file_handle, NtCurrentProcess(), &file_handle2,
                                0, OBJ_KERNEL_HANDLE, DUPLICATE_SAME_ACCESS);
@@ -1899,6 +1759,7 @@ static PIO_WORKITEM main_test_work_item;
 static void WINAPI main_test_task(DEVICE_OBJECT *device, void *context)
 {
     IRP *irp = context;
+    void *buffer = irp->AssociatedIrp.SystemBuffer;
 
     IoFreeWorkItem(main_test_work_item);
     main_test_work_item = NULL;
@@ -1910,8 +1771,19 @@ static void WINAPI main_test_task(DEVICE_OBJECT *device, void *context)
     test_stack_limits();
     test_completion();
 
+    /* print process report */
+    if (winetest_debug)
+    {
+        kprintf("%04x:ntoskrnl: %d tests executed (%d marked as todo, %d %s), %d skipped.\n",
+            PsGetCurrentProcessId(), successes + failures + todo_successes + todo_failures,
+            todo_successes, failures + todo_failures,
+            (failures + todo_failures != 1) ? "failures" : "failure", skipped );
+    }
+    ZwClose(okfile);
+
+    *((LONG *)buffer) = failures;
     irp->IoStatus.Status = STATUS_SUCCESS;
-    irp->IoStatus.Information = 0;
+    irp->IoStatus.Information = sizeof(failures);
     IoCompleteRequest(irp, IO_NO_INCREMENT);
 }
 
@@ -1961,7 +1833,7 @@ static void test_affinity(void)
     ok(!!pKeRevertToUserAffinityThreadEx, "KeRevertToUserAffinityThreadEx is not available.\n");
 
     count = pKeQueryActiveProcessorCountEx(1);
-    ok(!count, "Got unexpected count %u.\n", count);
+    todo_wine ok(!count, "Got unexpected count %u.\n", count);
 
     cpu_count = pKeQueryActiveProcessorCountEx(0);
     ok(cpu_count, "Got unexpected cpu_count %u.\n", cpu_count);
@@ -2115,7 +1987,7 @@ static void test_dpc(void)
     KeRevertToUserAffinityThread();
 }
 
-static void test_process_memory(const struct main_test_input *test_input)
+static void test_process_memory(const struct test_input *test_input)
 {
     NTSTATUS (WINAPI *pMmCopyVirtualMemory)(PEPROCESS fromprocess, void *fromaddress, PEPROCESS toprocess,
             void *toaddress, SIZE_T bufsize, KPROCESSOR_MODE mode, SIZE_T *copied);
@@ -2169,7 +2041,7 @@ static void test_process_memory(const struct main_test_input *test_input)
        win_skip("MmCopyVirtualMemory is not available.\n");
     }
 
-    if (!running_under_wine)
+    if (!test_input->running_under_wine)
     {
         KeStackAttachProcess((PKPROCESS)process, &state);
         todo_wine ok(!strcmp(teststr, (char *)(base + test_input->teststr_offset)),
@@ -2230,11 +2102,26 @@ static void test_permanence(void)
 
 static NTSTATUS main_test(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *stack)
 {
+    ULONG length = stack->Parameters.DeviceIoControl.OutputBufferLength;
     void *buffer = irp->AssociatedIrp.SystemBuffer;
-    struct main_test_input *test_input = buffer;
+    struct test_input *test_input = (struct test_input *)buffer;
+    OBJECT_ATTRIBUTES attr = {0};
+    UNICODE_STRING pathU;
+    IO_STATUS_BLOCK io;
 
     if (!buffer)
         return STATUS_ACCESS_VIOLATION;
+    if (length < sizeof(failures))
+        return STATUS_BUFFER_TOO_SMALL;
+
+    attr.Length = sizeof(attr);
+    RtlInitUnicodeString(&pathU, test_input->path);
+    running_under_wine = test_input->running_under_wine;
+    winetest_debug = test_input->winetest_debug;
+    winetest_report_success = test_input->winetest_report_success;
+    attr.ObjectName = &pathU;
+    attr.Attributes = OBJ_KERNEL_HANDLE; /* needed to be accessible from system threads */
+    ZwOpenFile(&okfile, FILE_APPEND_DATA | SYNCHRONIZE, &attr, &io, 0, FILE_SYNCHRONOUS_IO_NONALERT);
 
     pExEventObjectType = get_proc_address("ExEventObjectType");
     ok(!!pExEventObjectType, "ExEventObjectType not found\n");
@@ -2255,11 +2142,10 @@ static NTSTATUS main_test(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *st
     test_init_funcs();
     test_load_driver();
     test_sync();
-    test_queue();
     test_version();
     test_stack_callout();
     test_lookaside_list();
-    test_ob_reference();
+    test_ob_reference(test_input->path);
     test_resource();
     test_lookup_thread();
     test_IoAttachDeviceToDeviceStack();
@@ -2644,8 +2530,6 @@ static VOID WINAPI driver_Unload(DRIVER_OBJECT *driver)
 
     IoDeleteDevice(upper_device);
     IoDeleteDevice(lower_device);
-
-    winetest_cleanup();
 }
 
 NTSTATUS WINAPI DriverEntry(DRIVER_OBJECT *driver, PUNICODE_STRING registry)
@@ -2653,9 +2537,6 @@ NTSTATUS WINAPI DriverEntry(DRIVER_OBJECT *driver, PUNICODE_STRING registry)
     UNICODE_STRING nameW, linkW;
     NTSTATUS status;
     void *obj;
-
-    if ((status = winetest_init()))
-        return status;
 
     DbgPrint("loading driver\n");
 
@@ -2676,26 +2557,38 @@ NTSTATUS WINAPI DriverEntry(DRIVER_OBJECT *driver, PUNICODE_STRING registry)
     pIoDriverObjectType = MmGetSystemRoutineAddress(&nameW);
 
     RtlInitUnicodeString(&nameW, L"\\Driver\\WineTestDriver");
-    status = ObReferenceObjectByName(&nameW, 0, NULL, 0, *pIoDriverObjectType, KernelMode, NULL, &obj);
-    ok(!status, "got %#x\n", status);
-    ok(obj == driver, "expected %p, got %p\n", driver, obj);
+    if ((status = ObReferenceObjectByName(&nameW, 0, NULL, 0, *pIoDriverObjectType, KernelMode, NULL, &obj)))
+        return status;
+    if (obj != driver)
+    {
+        ObDereferenceObject(obj);
+        return STATUS_UNSUCCESSFUL;
+    }
     ObDereferenceObject(obj);
 
     RtlInitUnicodeString(&nameW, L"\\Device\\WineTestDriver");
     RtlInitUnicodeString(&linkW, L"\\DosDevices\\WineTestDriver");
 
-    status = IoCreateDevice(driver, 0, &nameW, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &lower_device);
-    ok(!status, "failed to create device, status %#x\n", status);
-    status = IoCreateSymbolicLink(&linkW, &nameW);
-    ok(!status, "failed to create link, status %#x\n", status);
-    lower_device->Flags &= ~DO_DEVICE_INITIALIZING;
+    if (!(status = IoCreateDevice(driver, 0, &nameW, FILE_DEVICE_UNKNOWN,
+                                  FILE_DEVICE_SECURE_OPEN, FALSE, &lower_device)))
+    {
+        status = IoCreateSymbolicLink(&linkW, &nameW);
+        lower_device->Flags &= ~DO_DEVICE_INITIALIZING;
+    }
 
-    RtlInitUnicodeString(&nameW, L"\\Device\\WineTestUpper");
-    status = IoCreateDevice(driver, 0, &nameW, FILE_DEVICE_UNKNOWN, FILE_DEVICE_SECURE_OPEN, FALSE, &upper_device);
-    ok(!status, "failed to create device, status %#x\n", status);
+    if (!status)
+    {
+        RtlInitUnicodeString(&nameW, L"\\Device\\WineTestUpper");
 
-    IoAttachDeviceToDeviceStack(upper_device, lower_device);
-    upper_device->Flags &= ~DO_DEVICE_INITIALIZING;
+        status = IoCreateDevice(driver, 0, &nameW, FILE_DEVICE_UNKNOWN,
+                                FILE_DEVICE_SECURE_OPEN, FALSE, &upper_device);
+    }
 
-    return STATUS_SUCCESS;
+    if (!status)
+    {
+        IoAttachDeviceToDeviceStack(upper_device, lower_device);
+        upper_device->Flags &= ~DO_DEVICE_INITIALIZING;
+    }
+
+    return status;
 }

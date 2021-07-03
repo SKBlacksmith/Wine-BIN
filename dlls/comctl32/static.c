@@ -505,10 +505,6 @@ static LRESULT CALLBACK STATIC_WindowProc( HWND hwnd, UINT uMsg, WPARAM wParam, 
         STATIC_TryPaintFcn( hwnd, full_style );
         break;
 
-    case WM_THEMECHANGED:
-        InvalidateRect( hwnd, 0, TRUE );
-        break;
-
     case WM_NCCREATE:
         {
             CREATESTRUCTW *cs = (CREATESTRUCTW *)lParam;

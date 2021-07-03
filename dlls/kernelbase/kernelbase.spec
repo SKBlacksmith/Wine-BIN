@@ -601,7 +601,7 @@
 # @ stub GetPackageInfo
 # @ stub GetPackageInstallTime
 # @ stub GetPackageOSMaxVersionTested
-@ stdcall GetPackagePath(ptr long ptr ptr)
+# @ stub GetPackagePath
 # @ stub GetPackagePathByFullName
 # @ stub GetPackagePathOnVolume
 # @ stub GetPackageProperty
@@ -614,7 +614,7 @@
 # @ stub GetPackageStatusForUser
 # @ stub GetPackageTargetPlatformProperty
 # @ stub GetPackageVolumeSisPath
-@ stdcall GetPackagesByPackageFamily(wstr ptr ptr ptr ptr)
+# @ stub GetPackagesByPackageFamily
 @ stdcall GetPerformanceInfo(ptr long)
 @ stdcall GetPhysicallyInstalledSystemMemory(ptr)
 # @ stub GetPreviousFgPolicyRefreshInfoInternal
@@ -623,7 +623,7 @@
 @ stdcall GetProcAddress(long str)
 # @ stub GetProcAddressForCaller
 # @ stub GetProcessDefaultCpuSets
-@ stdcall GetProcessGroupAffinity(long ptr ptr)
+# @ stub GetProcessGroupAffinity
 @ stdcall GetProcessHandleCount(long ptr)
 @ stdcall -norelay GetProcessHeap() kernelbase_GetProcessHeap
 @ stdcall -import GetProcessHeaps(long ptr) RtlGetProcessHeaps
@@ -681,7 +681,7 @@
 @ stdcall GetStringTypeW(long wstr long ptr)
 # @ stub GetSystemAppDataFolder
 # @ stub GetSystemAppDataKey
-@ stdcall GetSystemCpuSetInformation(ptr long ptr ptr long)
+# @ stub GetSystemCpuSetInformation
 @ stdcall GetSystemDefaultLCID()
 @ stdcall GetSystemDefaultLangID()
 @ stdcall GetSystemDefaultLocaleName(ptr long)
@@ -1012,9 +1012,9 @@
 # @ stub PackageFamilyNameFromFullName
 # @ stub PackageFamilyNameFromId
 # @ stub PackageFamilyNameFromProductId
-@ stdcall PackageFullNameFromId(ptr ptr ptr)
+# @ stub PackageFullNameFromId
 # @ stub PackageFullNameFromProductId
-@ stdcall PackageIdFromFullName(wstr long ptr ptr)
+# @ stub PackageIdFromFullName
 # @ stub PackageIdFromProductId
 # @ stub PackageNameAndPublisherIdFromFamilyName
 # @ stub PackageRelativeApplicationIdFromProductId
@@ -1494,7 +1494,7 @@
 @ stdcall SetThreadPreferredUILanguages(long ptr ptr)
 @ stdcall SetThreadPriority(long long)
 @ stdcall SetThreadPriorityBoost(long long)
-@ stdcall SetThreadSelectedCpuSets(ptr ptr long)
+# @ stub SetThreadSelectedCpuSets
 @ stdcall SetThreadStackGuarantee(ptr)
 @ stdcall SetThreadToken(ptr ptr)
 @ stdcall SetThreadUILanguage(long)
@@ -1509,7 +1509,6 @@
 @ stdcall SetTokenInformation(long long ptr long)
 @ stdcall SetUnhandledExceptionFilter(ptr)
 @ stdcall SetUserGeoID(long)
-@ stdcall SetUserGeoName(wstr)
 @ stdcall SetWaitableTimer(long ptr long ptr ptr long)
 @ stdcall SetWaitableTimerEx(long ptr long ptr ptr ptr long)
 @ stdcall -arch=i386,x86_64 SetXStateFeaturesMask(ptr int64)
@@ -1678,7 +1677,7 @@
 @ stdcall VirtualAlloc(ptr long long long)
 @ stdcall VirtualAllocEx(long ptr long long long)
 @ stdcall VirtualAllocExNuma(long ptr long long long long)
-@ stdcall VirtualAllocFromApp(ptr long long long)
+# @ stub VirtualAllocFromApp
 @ stdcall VirtualFree(ptr long long)
 @ stdcall VirtualFreeEx(long ptr long long)
 @ stdcall VirtualLock(ptr long)

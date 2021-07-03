@@ -21,9 +21,6 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
-
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
 #include <windef.h>
 #include <winbase.h>
 #include <winternl.h>
@@ -64,8 +61,6 @@ static PSLIST_ENTRY (__fastcall *pRtlInterlockedPushListSList)(PSLIST_HEADER lis
                                                                PSLIST_ENTRY last, ULONG count);
 static PSLIST_ENTRY (WINAPI *pRtlInterlockedPushListSListEx)(PSLIST_HEADER list, PSLIST_ENTRY first,
                                                              PSLIST_ENTRY last, ULONG count);
-static NTSTATUS (WINAPI *pNtQueueApcThread)(HANDLE,PNTAPCFUNC,ULONG_PTR,ULONG_PTR,ULONG_PTR);
-static NTSTATUS (WINAPI *pNtTestAlert)(void);
 
 #ifdef __i386__
 
@@ -3083,77 +3078,6 @@ static void test_crit_section(void)
     ok(cs.DebugInfo == NULL, "Unexpected debug info pointer %p.\n", cs.DebugInfo);
 }
 
-static DWORD WINAPI thread_proc(LPVOID unused)
-{
-    Sleep(INFINITE);
-    return 0;
-}
-
-static int apc_count;
-
-static void CALLBACK user_apc(ULONG_PTR unused)
-{
-    apc_count++;
-}
-
-static void CALLBACK call_user_apc(ULONG_PTR arg1, ULONG_PTR arg2, ULONG_PTR arg3)
-{
-    PAPCFUNC func = (PAPCFUNC)arg1;
-    func(arg2);
-}
-
-static void test_QueueUserAPC(void)
-{
-    HANDLE thread;
-    DWORD tid, ret;
-    NTSTATUS status;
-
-    thread = CreateThread(NULL, 0, thread_proc, NULL, CREATE_SUSPENDED, &tid);
-    ok(thread != NULL, "CreateThread error %u\n", GetLastError());
-
-    ret = TerminateThread(thread, 0xdeadbeef);
-    ok(ret, "TerminateThread error %u\n", GetLastError());
-
-    ret = WaitForSingleObject(thread, 1000);
-    ok(ret == WAIT_OBJECT_0, "got %u\n", ret);
-
-    ret = pNtQueueApcThread(thread, call_user_apc, (ULONG_PTR)user_apc, 0, 0);
-    ok(ret == STATUS_UNSUCCESSFUL, "got %#x\n", ret);
-    ret = pNtQueueApcThread(thread, NULL, 0, 0, 0);
-    ok(ret == STATUS_UNSUCCESSFUL, "got %#x\n", ret);
-
-    SetLastError(0xdeadbeef);
-    ret = QueueUserAPC(user_apc, thread, 0);
-    ok(!ret, "QueueUserAPC should fail\n");
-    ok(GetLastError() == ERROR_GEN_FAILURE, "got %u\n", GetLastError());
-
-    CloseHandle(thread);
-
-    apc_count = 0;
-    ret = QueueUserAPC(user_apc, GetCurrentThread(), 0);
-    ok(ret, "QueueUserAPC failed err %u\n", GetLastError());
-    ok(!apc_count, "APC count %u\n", apc_count);
-    ret = SleepEx( 100, TRUE );
-    ok( ret == WAIT_IO_COMPLETION, "SleepEx returned %u\n", ret);
-    ok(apc_count == 1, "APC count %u\n", apc_count);
-
-    ret = pNtQueueApcThread( GetCurrentThread(), NULL, 0, 0, 0 );
-    ok( !ret, "got %#x\n", ret);
-    ret = SleepEx( 100, TRUE );
-    ok( ret == WAIT_OBJECT_0, "SleepEx returned %u\n", ret);
-
-    apc_count = 0;
-    ret = QueueUserAPC(user_apc, GetCurrentThread(), 0);
-    ok(ret, "QueueUserAPC failed err %u\n", GetLastError());
-    ok(!apc_count, "APC count %u\n", apc_count);
-    status = pNtTestAlert();
-    ok(!status, "got %x\n", status);
-    ok(apc_count == 1, "APC count %u\n", apc_count);
-    status = pNtTestAlert();
-    ok(!status, "got %x\n", status);
-    ok(apc_count == 1, "APC count %u\n", apc_count);
-}
-
 static int zigzag_state, zigzag_count[2], zigzag_stop;
 
 static DWORD CALLBACK zigzag_event0(void *arg)
@@ -3263,8 +3187,6 @@ START_TEST(sync)
     pNtWaitForMultipleObjects = (void *)GetProcAddress(hntdll, "NtWaitForMultipleObjects");
     pRtlInterlockedPushListSList = (void *)GetProcAddress(hntdll, "RtlInterlockedPushListSList");
     pRtlInterlockedPushListSListEx = (void *)GetProcAddress(hntdll, "RtlInterlockedPushListSListEx");
-    pNtQueueApcThread = (void *)GetProcAddress(hntdll, "NtQueueApcThread");
-    pNtTestAlert = (void *)GetProcAddress(hntdll, "NtTestAlert");
 
     argc = winetest_get_mainargs( &argv );
     if (argc >= 3)
@@ -3277,8 +3199,6 @@ START_TEST(sync)
     }
 
     init_fastcall_thunk();
-
-    test_QueueUserAPC();
     test_signalandwait();
     test_mutex();
     test_slist();

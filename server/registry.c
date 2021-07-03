@@ -145,9 +145,6 @@ struct save_branch_info
 static int save_branch_count;
 static struct save_branch_info save_branch_info[MAX_SAVE_BRANCH_INFO];
 
-unsigned int supported_machines_count = 0;
-unsigned short supported_machines[8];
-unsigned short native_machine = 0;
 
 /* information about a file being loaded */
 struct file_load_info
@@ -414,12 +411,6 @@ static WCHAR *key_get_full_name( struct object *obj, data_size_t *ret_len )
     struct key *key = (struct key *) obj;
     data_size_t len = sizeof(root_name) - sizeof(WCHAR);
     char *ret;
-
-    if (key->flags & KEY_DELETED)
-    {
-        set_error( STATUS_KEY_DELETED );
-        return NULL;
-    }
 
     for (key = (struct key *)obj; key != root_key; key = key->parent) len += key->namelen + sizeof(WCHAR);
     if (!(ret = malloc( len ))) return NULL;
@@ -1778,28 +1769,32 @@ static WCHAR *format_user_registry_path( const SID *sid, struct unicode_str *pat
     return ascii_to_unicode_str( buffer, path );
 }
 
-static void init_supported_machines(void)
+/* get the cpu architectures that can be supported in the current prefix */
+unsigned int get_prefix_cpu_mask(void)
 {
-    unsigned int count = 0;
-#ifdef __i386__
-    if (prefix_type == PREFIX_32BIT) supported_machines[count++] = IMAGE_FILE_MACHINE_I386;
-#elif defined(__x86_64__)
-    if (prefix_type == PREFIX_64BIT) supported_machines[count++] = IMAGE_FILE_MACHINE_AMD64;
-    supported_machines[count++] = IMAGE_FILE_MACHINE_I386;
-#elif defined(__arm__)
-    if (prefix_type == PREFIX_32BIT) supported_machines[count++] = IMAGE_FILE_MACHINE_ARMNT;
-#elif defined(__aarch64__)
-    if (prefix_type == PREFIX_64BIT)
+    /* Allowed server/client/prefix combinations:
+     *
+     *              prefix
+     *            32     64
+     *  server +------+------+ client
+     *         |  ok  | fail | 32
+     *      32 +------+------+---
+     *         | fail | fail | 64
+     *      ---+------+------+---
+     *         |  ok  |  ok  | 32
+     *      64 +------+------+---
+     *         | fail |  ok  | 64
+     *      ---+------+------+---
+     */
+    switch (prefix_type)
     {
-        supported_machines[count++] = IMAGE_FILE_MACHINE_ARM64;
-        supported_machines[count++] = IMAGE_FILE_MACHINE_I386;
+    case PREFIX_64BIT:
+        /* 64-bit prefix requires 64-bit server */
+        return sizeof(void *) > sizeof(int) ? ~0 : 0;
+    case PREFIX_32BIT:
+    default:
+        return ~CPU_64BIT_MASK;  /* only 32-bit cpus supported on 32-bit prefix */
     }
-    supported_machines[count++] = IMAGE_FILE_MACHINE_ARMNT;
-#else
-#error Unsupported machine
-#endif
-    supported_machines_count = count;
-    native_machine = supported_machines[0];
 }
 
 /* registry initialisation */
@@ -1807,26 +1802,17 @@ void init_registry(void)
 {
     static const WCHAR HKLM[] = { 'M','a','c','h','i','n','e' };
     static const WCHAR HKU_default[] = { 'U','s','e','r','\\','.','D','e','f','a','u','l','t' };
-    static const WCHAR classes_i386[] = {'S','o','f','t','w','a','r','e','\\',
-                                         'C','l','a','s','s','e','s','\\',
-                                         'W','o','w','6','4','3','2','N','o','d','e'};
-    static const WCHAR classes_amd64[] = {'S','o','f','t','w','a','r','e','\\',
-                                          'C','l','a','s','s','e','s','\\',
-                                          'W','o','w','6','4','6','4','N','o','d','e'};
-    static const WCHAR classes_arm[] = {'S','o','f','t','w','a','r','e','\\',
-                                        'C','l','a','s','s','e','s','\\',
-                                        'W','o','w','A','A','3','2','N','o','d','e'};
-    static const WCHAR classes_arm64[] = {'S','o','f','t','w','a','r','e','\\',
-                                          'C','l','a','s','s','e','s','\\',
-                                          'W','o','w','A','A','6','4','N','o','d','e'};
+    static const WCHAR classes[] = {'S','o','f','t','w','a','r','e','\\',
+                                    'C','l','a','s','s','e','s','\\',
+                                    'W','o','w','6','4','3','2','N','o','d','e'};
     static const struct unicode_str root_name = { NULL, 0 };
     static const struct unicode_str HKLM_name = { HKLM, sizeof(HKLM) };
     static const struct unicode_str HKU_name = { HKU_default, sizeof(HKU_default) };
+    static const struct unicode_str classes_name = { classes, sizeof(classes) };
 
     WCHAR *current_user_path;
     struct unicode_str current_user_str;
     struct key *key, *hklm, *hkcu;
-    unsigned int i;
     char *p;
 
     /* switch to the config dir */
@@ -1853,8 +1839,6 @@ void init_registry(void)
     else if (prefix_type == PREFIX_UNKNOWN)
         prefix_type = PREFIX_32BIT;
 
-    init_supported_machines();
-
     /* load userdef.reg into Registry\User\.Default */
 
     if (!(key = create_key_recursive( root_key, &HKU_name, current_time )))
@@ -1873,19 +1857,10 @@ void init_registry(void)
     free( current_user_path );
     load_init_registry_from_file( "user.reg", hkcu );
 
-    /* set the shared flag on Software\Classes\Wow6432Node for all platforms */
-    for (i = 1; i < supported_machines_count; i++)
+    /* set the shared flag on Software\Classes\Wow6432Node */
+    if (prefix_type == PREFIX_64BIT)
     {
-        struct unicode_str name;
-
-        switch (supported_machines[i])
-        {
-        case IMAGE_FILE_MACHINE_I386:  name.str = classes_i386;  name.len = sizeof(classes_i386);  break;
-        case IMAGE_FILE_MACHINE_ARMNT: name.str = classes_arm;   name.len = sizeof(classes_arm);   break;
-        case IMAGE_FILE_MACHINE_AMD64: name.str = classes_amd64; name.len = sizeof(classes_amd64); break;
-        case IMAGE_FILE_MACHINE_ARM64: name.str = classes_arm64; name.len = sizeof(classes_arm64); break;
-        }
-        if ((key = create_key_recursive( hklm, &name, current_time )))
+        if ((key = create_key_recursive( hklm, &classes_name, current_time )))
         {
             key->flags |= KEY_WOWSHARE;
             release_object( key );
@@ -1904,16 +1879,7 @@ void init_registry(void)
     if (!mkdir( "drive_c/windows", 0777 ))
     {
         mkdir( "drive_c/windows/system32", 0777 );
-        for (i = 1; i < supported_machines_count; i++)
-        {
-            switch (supported_machines[i])
-            {
-            case IMAGE_FILE_MACHINE_I386:  mkdir( "drive_c/windows/syswow64", 0777 ); break;
-            case IMAGE_FILE_MACHINE_ARMNT: mkdir( "drive_c/windows/sysarm32", 0777 ); break;
-            case IMAGE_FILE_MACHINE_AMD64: mkdir( "drive_c/windows/sysx8664", 0777 ); break;
-            case IMAGE_FILE_MACHINE_ARM64: mkdir( "drive_c/windows/sysarm64", 0777 ); break;
-            }
-        }
+        if (prefix_type == PREFIX_64BIT) mkdir( "drive_c/windows/syswow64", 0777 );
     }
 
     /* go back to the server dir */
@@ -2081,7 +2047,7 @@ void flush_registry(void)
 /* determine if the thread is wow64 (32-bit client running on 64-bit prefix) */
 static int is_wow64_thread( struct thread *thread )
 {
-    return (is_machine_64bit( native_machine ) && !is_machine_64bit( thread->process->machine ));
+    return (prefix_type == PREFIX_64BIT && !(CPU_FLAG(thread->process->cpu) & CPU_64BIT_MASK));
 }
 
 

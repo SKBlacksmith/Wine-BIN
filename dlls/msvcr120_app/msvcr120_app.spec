@@ -1809,19 +1809,19 @@
 @ cdecl fdim(double double) msvcr120.fdim
 @ cdecl fdimf(float float) msvcr120.fdimf
 @ cdecl fdiml(double double) msvcr120.fdiml
-@ cdecl feclearexcept(long) msvcr120.feclearexcept
+@ stub feclearexcept
 @ cdecl fegetenv(ptr) msvcr120.fegetenv
-@ cdecl fegetexceptflag(ptr long) msvcr120.fegetexceptflag
+@ stub fegetexceptflag
 @ cdecl fegetround() msvcr120.fegetround
 @ stub feholdexcept
 @ cdecl feof(ptr) msvcr120.feof
-@ cdecl feraiseexcept(long) msvcr120.feraiseexcept
+@ stub feraiseexcept
 @ cdecl ferror(ptr) msvcr120.ferror
 @ cdecl fesetenv(ptr) msvcr120.fesetenv
-@ cdecl fesetexceptflag(ptr long) msvcr120.fesetexceptflag
+@ stub fesetexceptflag
 @ cdecl fesetround(long) msvcr120.fesetround
-@ cdecl fetestexcept(long) msvcr120.fetestexcept
-@ cdecl feupdateenv(ptr) msvcr120.feupdateenv
+@ stub fetestexcept
+@ stub feupdateenv
 @ cdecl fflush(ptr) msvcr120.fflush
 @ cdecl fgetc(ptr) msvcr120.fgetc
 @ cdecl fgetpos(ptr ptr) msvcr120.fgetpos

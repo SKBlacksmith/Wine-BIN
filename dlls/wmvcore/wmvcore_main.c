@@ -25,6 +25,13 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(wmvcore);
 
+HRESULT WINAPI DllRegisterServer(void)
+{
+    FIXME("(): stub\n");
+
+    return S_OK;
+}
+
 HRESULT WINAPI WMCheckURLExtension(const WCHAR *url)
 {
     FIXME("(%s): stub\n", wine_dbgstr_w(url));

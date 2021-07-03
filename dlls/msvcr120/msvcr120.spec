@@ -2143,19 +2143,19 @@
 @ cdecl fdim(double double)
 @ cdecl fdimf(float float)
 @ cdecl fdiml(double double) fdim
-@ cdecl feclearexcept(long)
+@ stub feclearexcept
 @ cdecl fegetenv(ptr)
-@ cdecl fegetexceptflag(ptr long)
+@ stub fegetexceptflag
 @ cdecl fegetround()
 @ stub feholdexcept
 @ cdecl feof(ptr)
-@ cdecl feraiseexcept(long)
+@ stub feraiseexcept
 @ cdecl ferror(ptr)
 @ cdecl fesetenv(ptr)
-@ cdecl fesetexceptflag(ptr long)
+@ stub fesetexceptflag
 @ cdecl fesetround(long)
-@ cdecl fetestexcept(long)
-@ cdecl feupdateenv(ptr)
+@ stub fetestexcept
+@ stub feupdateenv
 @ cdecl fflush(ptr)
 @ cdecl fgetc(ptr)
 @ cdecl fgetpos(ptr ptr)

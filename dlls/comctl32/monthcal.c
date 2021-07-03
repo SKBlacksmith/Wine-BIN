@@ -1799,7 +1799,6 @@ MONTHCAL_HitTest(const MONTHCAL_INFO *infoPtr, MCHITTESTINFO *lpht)
   if(!lpht || lpht->cbSize < MCHITTESTINFO_V1_SIZE) return -1;
 
   htinfo.st = st_null;
-  htinfo.uHit = 0;
 
   /* we should preserve passed fields if hit area doesn't need them */
   if (lpht->cbSize == sizeof(MCHITTESTINFO))
@@ -2698,7 +2697,6 @@ static LRESULT theme_changed (const MONTHCAL_INFO* infoPtr)
     HTHEME theme = GetWindowTheme (infoPtr->hwndSelf);
     CloseThemeData (theme);
     OpenThemeData (infoPtr->hwndSelf, themeClass);
-    InvalidateRect (infoPtr->hwndSelf, NULL, TRUE);
     return 0;
 }
 

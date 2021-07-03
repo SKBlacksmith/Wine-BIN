@@ -218,18 +218,18 @@ dnl
 AC_DEFUN([WINE_CHECK_MINGW_PROG],
 [case "$host_cpu" in
   aarch64*)
-    ac_prefix_list="aarch64-w64-mingw32-clang aarch64-w64-mingw32-gcc clang" ;;
+    ac_prefix_list="aarch64-w64-mingw32-clang aarch64-w64-mingw32-gcc" ;;
   arm*)
-    ac_prefix_list="armv7-w64-mingw32-clang armv7-w64-mingw32-gcc clang" ;;
+    ac_prefix_list="armv7-w64-mingw32-clang armv7-w64-mingw32-gcc" ;;
   i[[3456789]]86*)
     ac_prefix_list="m4_foreach([ac_wine_prefix],[w64-mingw32, pc-mingw32, mingw32msvc, mingw32],
                         m4_foreach([ac_wine_cpu],[i686,i586,i486,i386],[ac_wine_cpu-ac_wine_prefix-gcc ]))
                      m4_foreach([ac_wine_cpu],[i686,i586,i486,i386],[ac_wine_cpu-w64-mingw32-clang ])
-                     mingw32-gcc clang" ;;
+                     mingw32-gcc" ;;
   x86_64)
     ac_prefix_list="m4_foreach([ac_wine_prefix],[pc-mingw32, w64-mingw32, mingw32msvc],
                         m4_foreach([ac_wine_cpu],[x86_64,amd64],[ac_wine_cpu-ac_wine_prefix-gcc ]))
-                    m4_foreach([ac_wine_cpu],[x86_64,amd64],[ac_wine_cpu-w64-mingw32-clang ]) clang" ;;
+                    m4_foreach([ac_wine_cpu],[x86_64,amd64],[ac_wine_cpu-w64-mingw32-clang ])" ;;
   *)
     ac_prefix_list="" ;;
 esac

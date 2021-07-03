@@ -21,7 +21,6 @@
  */
 
 #include <stdarg.h>
-#include <stdlib.h>
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -33,9 +32,9 @@
 #include "ntsecpkg.h"
 #include "winternl.h"
 #include "rpc.h"
+#include "secur32_priv.h"
 
 #include "wine/debug.h"
-#include "secur32_priv.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(secur32);
 
@@ -92,7 +91,7 @@ NTSTATUS WINAPI LsaCallAuthenticationPackage(HANDLE lsa_handle, ULONG package_id
 static struct lsa_connection *alloc_lsa_connection(void)
 {
     struct lsa_connection *ret;
-    if (!(ret = malloc(sizeof(*ret)))) return NULL;
+    if (!(ret = heap_alloc(sizeof(*ret)))) return NULL;
     ret->magic = LSA_MAGIC;
     return ret;
 }
@@ -128,7 +127,7 @@ NTSTATUS WINAPI LsaDeregisterLogonProcess(HANDLE LsaHandle)
 
     if (!lsa_conn || lsa_conn->magic != LSA_MAGIC) return STATUS_INVALID_HANDLE;
     lsa_conn->magic = 0;
-    free(lsa_conn);
+    heap_free(lsa_conn);
 
     return STATUS_SUCCESS;
 }
@@ -146,7 +145,7 @@ NTSTATUS WINAPI LsaEnumerateLogonSessions(PULONG LogonSessionCount,
 NTSTATUS WINAPI LsaFreeReturnBuffer(PVOID buffer)
 {
     TRACE("%p\n", buffer);
-    free(buffer);
+    heap_free(buffer);
     return STATUS_SUCCESS;
 }
 
@@ -210,26 +209,26 @@ static NTSTATUS NTAPI lsa_DeleteCredential(LUID *logon_id, ULONG package_id, LSA
 static void * NTAPI lsa_AllocateLsaHeap(ULONG size)
 {
     TRACE("%u\n", size);
-    return malloc(size);
+    return heap_alloc(size);
 }
 
 static void NTAPI lsa_FreeLsaHeap(void *p)
 {
     TRACE("%p\n", p);
-    free(p);
+    heap_free(p);
 }
 
 static NTSTATUS NTAPI lsa_AllocateClientBuffer(PLSA_CLIENT_REQUEST req, ULONG size, void **p)
 {
     TRACE("%p,%u,%p\n", req, size, p);
-    *p = malloc(size);
+    *p = heap_alloc(size);
     return *p ? STATUS_SUCCESS : STATUS_NO_MEMORY;
 }
 
 static NTSTATUS NTAPI lsa_FreeClientBuffer(PLSA_CLIENT_REQUEST req, void *p)
 {
     TRACE("%p,%p\n", req, p);
-    free(p);
+    heap_free(p);
     return STATUS_SUCCESS;
 }
 
@@ -352,13 +351,13 @@ static SECURITY_STATUS WINAPI lsa_AcquireCredentialsHandleA(
     if (principal)
     {
         int len = MultiByteToWideChar( CP_ACP, 0, principal, -1, NULL, 0 );
-        if (!(principalW = malloc( len * sizeof(SEC_WCHAR) ))) goto done;
+        if (!(principalW = heap_alloc( len * sizeof(SEC_WCHAR) ))) goto done;
         MultiByteToWideChar( CP_ACP, 0, principal, -1, principalW, len );
     }
     if (package)
     {
         int len = MultiByteToWideChar( CP_ACP, 0, package, -1, NULL, 0 );
-        if (!(packageW = malloc( len * sizeof(SEC_WCHAR) ))) goto done;
+        if (!(packageW = heap_alloc( len * sizeof(SEC_WCHAR) ))) goto done;
         MultiByteToWideChar( CP_ACP, 0, package, -1, packageW, len );
     }
     if (auth_data)
@@ -367,23 +366,23 @@ static SECURITY_STATUS WINAPI lsa_AcquireCredentialsHandleA(
 
         if (id->Flags == SEC_WINNT_AUTH_IDENTITY_ANSI)
         {
-            if (!(auth_dataW = malloc( sizeof(SEC_WINNT_AUTH_IDENTITY_W) ))) goto done;
+            if (!(auth_dataW = heap_alloc( sizeof(SEC_WINNT_AUTH_IDENTITY_W) ))) goto done;
             if (id->UserLength)
             {
                 len_user = MultiByteToWideChar( CP_ACP, 0, (char *)id->User, id->UserLength, NULL, 0 );
-                if (!(user = malloc( len_user * sizeof(SEC_WCHAR) ))) goto done;
+                if (!(user = heap_alloc( len_user * sizeof(SEC_WCHAR) ))) goto done;
                 MultiByteToWideChar( CP_ACP, 0, (char *)id->User, id->UserLength, user, len_user );
             }
             if (id->DomainLength)
             {
                 len_domain = MultiByteToWideChar( CP_ACP, 0, (char *)id->Domain, id->DomainLength, NULL, 0 );
-                if (!(domain = malloc( len_domain * sizeof(SEC_WCHAR) ))) goto done;
+                if (!(domain = heap_alloc( len_domain * sizeof(SEC_WCHAR) ))) goto done;
                 MultiByteToWideChar( CP_ACP, 0, (char *)id->Domain, id->DomainLength, domain, len_domain );
             }
             if (id->PasswordLength)
             {
                 len_passwd = MultiByteToWideChar( CP_ACP, 0, (char *)id->Password, id->PasswordLength, NULL, 0 );
-                if (!(passwd = malloc( len_passwd * sizeof(SEC_WCHAR) ))) goto done;
+                if (!(passwd = heap_alloc( len_passwd * sizeof(SEC_WCHAR) ))) goto done;
                 MultiByteToWideChar( CP_ACP, 0, (char *)id->Password, id->PasswordLength, passwd, len_passwd );
             }
             auth_dataW->Flags          = SEC_WINNT_AUTH_IDENTITY_UNICODE;
@@ -400,12 +399,12 @@ static SECURITY_STATUS WINAPI lsa_AcquireCredentialsHandleA(
     status = lsa_AcquireCredentialsHandleW( principalW, packageW, credentials_use, logon_id, auth_dataW, get_key_fn,
                                             get_key_arg, credential, ts_expiry );
 done:
-    if (auth_dataW != (SEC_WINNT_AUTH_IDENTITY_W *)id) free( auth_dataW );
-    free( packageW );
-    free( principalW );
-    free( user );
-    free( domain );
-    free( passwd );
+    if (auth_dataW != (SEC_WINNT_AUTH_IDENTITY_W *)id) heap_free( auth_dataW );
+    heap_free( packageW );
+    heap_free( principalW );
+    heap_free( user );
+    heap_free( domain );
+    heap_free( passwd );
     return status;
 }
 
@@ -488,13 +487,13 @@ static SECURITY_STATUS WINAPI lsa_InitializeSecurityContextA(
     if (target_name)
     {
         int len = MultiByteToWideChar( CP_ACP, 0, target_name, -1, NULL, 0 );
-        if (!(targetW = malloc( len * sizeof(SEC_WCHAR) ))) return SEC_E_INSUFFICIENT_MEMORY;
+        if (!(targetW = heap_alloc( len * sizeof(SEC_WCHAR) ))) return SEC_E_INSUFFICIENT_MEMORY;
         MultiByteToWideChar( CP_ACP, 0, target_name, -1, targetW, len );
     }
 
     status = lsa_InitializeSecurityContextW( credential, context, targetW, context_req, reserved1, target_data_rep,
                                              input, reserved2, new_context, output, context_attr, ts_expiry );
-    free( targetW );
+    heap_free( targetW );
     return status;
 }
 
@@ -584,8 +583,7 @@ static SecPkgInfoA *package_infoWtoA( const SecPkgInfoW *info )
     int size_name = WideCharToMultiByte( CP_ACP, 0, info->Name, -1, NULL, 0, NULL, NULL );
     int size_comment = WideCharToMultiByte( CP_ACP, 0, info->Comment, -1, NULL, 0, NULL, NULL );
 
-    /* freed with FreeContextBuffer */
-    if (!(ret = RtlAllocateHeap( GetProcessHeap(), 0, sizeof(*ret) + size_name + size_comment ))) return NULL;
+    if (!(ret = heap_alloc( sizeof(*ret) + size_name + size_comment ))) return NULL;
     ret->fCapabilities = info->fCapabilities;
     ret->wVersion      = info->wVersion;
     ret->wRPCID        = info->wRPCID;
@@ -803,9 +801,9 @@ static void add_package(struct lsa_package *package)
     struct lsa_package *new_loaded_packages;
 
     if (!loaded_packages)
-        new_loaded_packages = malloc(sizeof(*new_loaded_packages));
+        new_loaded_packages = heap_alloc(sizeof(*new_loaded_packages));
     else
-        new_loaded_packages = realloc(loaded_packages, sizeof(*new_loaded_packages) * (loaded_packages_count + 1));
+        new_loaded_packages = heap_realloc(loaded_packages, sizeof(*new_loaded_packages) * (loaded_packages_count + 1));
 
     if (new_loaded_packages)
     {
@@ -865,11 +863,14 @@ static BOOL load_package(const WCHAR *name, struct lsa_package *package, ULONG p
 
 void load_auth_packages(void)
 {
+    static const WCHAR LSA_KEY[] = { 'S','y','s','t','e','m','\\',
+        'C','u','r','r','e','n','t','C','o','n','t','r','o','l','S','e','t','\\',
+        'C','o','n','t','r','o','l','\\','L','s','a',0 };
     DWORD err, i;
     HKEY root;
     SecureProvider *provider;
 
-    err = RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"System\\CurrentControlSet\\Control\\Lsa", 0, KEY_READ, &root);
+    err = RegOpenKeyExW(HKEY_LOCAL_MACHINE, LSA_KEY, 0, KEY_READ, &root);
     if (err != ERROR_SUCCESS) return;
 
     i = 0;
@@ -906,7 +907,7 @@ void load_auth_packages(void)
     {
         SecPkgInfoW *info;
 
-        info = malloc(loaded_packages[i].lsa_table_count * sizeof(*info));
+        info = heap_alloc(loaded_packages[i].lsa_table_count * sizeof(*info));
         if (info)
         {
             NTSTATUS status;
@@ -915,7 +916,7 @@ void load_auth_packages(void)
             if (status == STATUS_SUCCESS)
                 SECUR32_addPackages(provider, loaded_packages[i].lsa_table_count, NULL, info);
 
-            free(info);
+            heap_free(info);
         }
     }
 }

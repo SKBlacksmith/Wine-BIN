@@ -16,9 +16,7 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-var tests = [];
-
-sync_test("input_selection", function() {
+function test_input_selection() {
     var input = document.createElement("input");
     input.type = "text";
     input.value = "test";
@@ -57,9 +55,11 @@ sync_test("input_selection", function() {
 
     input.setSelectionRange(3, 3);
     test_range(3, 3);
-});
 
-sync_test("textContent", function() {
+    next_test();
+}
+
+function test_textContent() {
     var text = document.createTextNode("test");
     ok(text.textContent === "test", "text.textContent = " + text.textContent);
 
@@ -85,9 +85,11 @@ sync_test("textContent", function() {
     ok(div.textContent === "10.5", "div.textContent = " + div.textContent);
 
     ok(document.textContent === null, "document.textContent = " + document.textContent);
-});
 
-sync_test("ElementTraversal", function() {
+    next_test();
+}
+
+function test_ElementTraversal() {
     var div = document.createElement("div");
     div.innerHTML = "abc<b>bold</b><script>/* */<script><div>text</div>def";
     ok(div.firstElementChild.outerHTML === "<b>bold</b>",
@@ -97,15 +99,19 @@ sync_test("ElementTraversal", function() {
     ok(div.firstElementChild === null, "div.firstElementChild = " + div.firstElementChild);
 
     ok(!("firstElementChild" in document), "firstElementChild found in document");
-});
 
-sync_test("head", function() {
+    next_test();
+}
+
+function test_head() {
     var h = document.head;
     ok(h.tagName === "HEAD", "h.tagName = " + h.tagName);
     ok(h === document.getElementsByTagName("head")[0], "unexpected head element");
-});
 
-async_test("iframe", function() {
+    next_test();
+}
+
+function test_iframe() {
     document.body.innerHTML = '<iframe src="runscript.html?frame.js"></iframe>'
     var iframe = document.body.firstChild;
 
@@ -118,9 +124,9 @@ async_test("iframe", function() {
 
         next_test();
     });
-});
+}
 
-async_test("iframe_location", function() {
+function test_iframe_location() {
     document.body.innerHTML = '<iframe src="emptyfile"></iframe>'
     var iframe = document.body.firstChild;
 
@@ -134,9 +140,9 @@ async_test("iframe_location", function() {
         }
         iframe.src = "empty/file";
     }
-});
+}
 
-sync_test("anchor", function() {
+function test_anchor() {
     var iframe = document.body.firstChild;
     var anchor = document.createElement("a");
 
@@ -156,9 +162,11 @@ sync_test("anchor", function() {
         todo_wine_if("todo_host" in t).
         ok(anchor.host === t.host, "anchor(" + t.href + ").host = " + anchor.host);
     }
-});
 
-sync_test("getElementsByClassName", function() {
+    next_test();
+}
+
+function test_getElementsByClassName() {
     var elems;
 
     document.body.innerHTML = '<div class="class1">'
@@ -179,9 +187,11 @@ sync_test("getElementsByClassName", function() {
 
     elems = document.getElementsByClassName("classnotfound");
     ok(elems.length == 0, "elems.length = " + elems.length);
-});
 
-sync_test("createElementNS", function() {
+    next_test();
+}
+
+function test_createElementNS() {
     var svg_ns = "http://www.w3.org/2000/svg";
     var elem;
 
@@ -200,9 +210,11 @@ sync_test("createElementNS", function() {
     elem = document.createElementNS("test", "svg");
     ok(elem.tagName === "svg", "elem.tagName = " + elem.tagName);
     ok(elem.namespaceURI === "test", "elem.namespaceURI = " + elem.namespaceURI);
-});
 
-sync_test("query_selector", function() {
+    next_test();
+}
+
+function test_query_selector() {
     document.body.innerHTML = '<div class="class1">'
         + '<div class="class1"></div>'
         + '<a id="class1" class="class2"></a>'
@@ -225,9 +237,11 @@ sync_test("query_selector", function() {
     ok(e.tagName === "A", "e.tagName = " + e.tagName);
     e = document.body.querySelector("a");
     ok(e.tagName === "A", "e.tagName = " + e.tagName);
-});
 
-sync_test("compare_position", function() {
+    next_test();
+}
+
+function test_compare_position() {
     document.body.innerHTML = '<div><div></div><div></div></div>';
 
     var parent = document.body.firstChild;
@@ -247,9 +261,11 @@ sync_test("compare_position", function() {
     compare_position(parent, child2, 0x14);
     compare_position(parent, elem, 0x21, 6);
     compare_position(elem, parent, 0x21, 6);
-});
 
-sync_test("rects", function() {
+    next_test();
+}
+
+function test_rects() {
     document.body.innerHTML = '<div>test</div>';
     var elem = document.body.firstChild;
     var rects = elem.getClientRects();
@@ -262,9 +278,11 @@ sync_test("rects", function() {
     elem = document.createElement("style");
     rects = elem.getClientRects();
     ok(rects.length === 0, "rect.length = " + rects.length);
-});
 
-sync_test("document_owner", function() {
+    next_test();
+}
+
+function test_document_owner() {
     var node;
 
     ok(document.ownerDocument === null, "ownerDocument = " + document.ownerDocument);
@@ -281,9 +299,11 @@ sync_test("document_owner", function() {
 
     node = document.createTextNode("test");
     ok(node.ownerDocument === document, "text.ownerDocument = " + node.ownerDocument);
-});
 
-sync_test("style_properties", function() {
+    next_test();
+}
+
+function test_style_properties() {
     document.body.innerHTML = '<div>test</div><svg></svg>';
     var elem = document.body.firstChild;
     var style = elem.style;
@@ -334,6 +354,7 @@ sync_test("style_properties", function() {
         ok(style.borderWidth === "5px", "style.borderWidth = " + style.borderWidth);
     }catch(e) {
         win_skip("skipping setProperty tests on too old IE version");
+        next_test();
         return;
     }
 
@@ -377,11 +398,12 @@ sync_test("style_properties", function() {
     ok(computed_style.zIndex === 4, "computed_style.zIndex = " + computed_style.zIndex);
 
     window.getComputedStyle(elem, null);
-});
 
-sync_test("stylesheets", function() {
+    next_test();
+}
+
+function test_stylesheets() {
     document.body.innerHTML = '<style>.div { margin-right: 1px; }</style>';
-    var elem = document.body.firstChild;
 
     ok(document.styleSheets.length === 1, "document.styleSheets.length = " + document.styleSheets.length);
 
@@ -395,116 +417,32 @@ sync_test("stylesheets", function() {
         ok(false, "expected exception");
     }catch(e) {}
 
-    ok(stylesheet.href === null, "stylesheet.href = " + stylesheet.href);
+    next_test();
+}
 
-    var id = stylesheet.insertRule(".input { margin-left: 1px; }", 0);
-    ok(id === 0, "id = " + id);
-    ok(document.styleSheets.length === 1, "document.styleSheets.length = " + document.styleSheets.length);
-
-    try {
-        stylesheet.insertRule(".input { margin-left: 1px; }", 3);
-        ok(false, "expected exception");
-    }catch(e) {}
-});
-
-sync_test("storage", function() {
+function test_storage() {
     ok(typeof(window.sessionStorage) === "object",
        "typeof(window.sessionStorage) = " + typeof(window.sessionStorage));
-    ok(typeof(window.localStorage) === "object" || typeof(window.localStorage) === "unknown",
+    ok(typeof(window.localStorage) === "object",
        "typeof(window.localStorage) = " + typeof(window.localStorage));
+    next_test();
+}
 
-    var item = sessionStorage.getItem("nonexisting");
-    ok(item === null, "item = " + item);
-});
-
-async_test("animation", function() {
-    document.body.innerHTML =
-        "<style>" +
-        "  @keyframes testAnimation {0% { opacity: 0; } 100% { opacity: 1; }}" +
-        "  .testAnimation { animation-name: testAnimation; animation-duration: 0.01s; }" +
-        "</style>";
-    var div = document.createElement("div");
-    div.addEventListener("animationstart", function() {
-        div.addEventListener("animationend", next_test);
-    });
-    document.body.appendChild(div);
-    div.className = "testAnimation";
-});
-
-sync_test("navigator", function() {
-    ok(typeof(window.navigator) === "object",
-       "typeof(window.navigator) = " + typeof(window.navigator));
-
-    var v = window.navigator;
-    ok(v === window.navigator, "v != window.navigator");
-    v.testProp = true;
-    ok(window.navigator.testProp, "window.navigator.testProp = " + window.navigator.testProp);
-});
-
-sync_test("elem_props", function() {
-    var elem = document.body;
-
-    ok(elem.accessKey === "", "accessKey = " + elem.accessKey);
-    elem.accessKey = "q";
-    ok(elem.accessKey === "q", "accessKey = " + elem.accessKey + " expected q");
-});
-
-async_test("animation_frame", function() {
-    var id = requestAnimationFrame(function(x) {
-        ok(this === window, "this != window");
-        ok(typeof(x) === "number", "x = " + x);
-        ok(arguments.length === 1, "arguments.length = " + arguments.length);
-        next_test();
-    });
-    ok(typeof(id) === "number", "id = " + id);
-});
-
-sync_test("title", function() {
-    var elem = document.createElement("div");
-    ok(elem.title === "", "div.title = " + elem.title);
-    ok(elem.getAttribute("title") === null, "title attribute = " + elem.getAttribute("title"));
-    elem.title = "test";
-    ok(elem.title === "test", "div.title = " + elem.title);
-    ok(elem.getAttribute("title") === "test", "title attribute = " + elem.getAttribute("title"));
-});
-
-sync_test("disabled", function() {
-    var elem = document.createElement("div");
-    document.body.appendChild(elem);
-    ok(elem.disabled === false, "div.disabled = " + elem.disabled);
-    ok(elem.getAttribute("disabled") === null, "disabled attribute = " + elem.getAttribute("disabled") + " expected null");
-
-    elem.disabled = true;
-    ok(elem.disabled === true, "div.disabled = " + elem.disabled);
-    ok(elem.getAttribute("disabled") === "", "disabled attribute = " + elem.getAttribute("disabled") + " expected \"\"");
-
-    elem.disabled = false;
-    ok(elem.disabled === false, "div.disabled = " + elem.disabled);
-    ok(elem.getAttribute("disabled") === null, "disabled attribute = " + elem.getAttribute("disabled") + " expected null");
-
-    elem.setAttribute("disabled", "false");
-    ok(elem.disabled === true, "div.disabled = " + elem.disabled);
-    ok(elem.getAttribute("disabled") === "false", "disabled attribute = " + elem.getAttribute("disabled"));
-
-    elem.removeAttribute("disabled");
-    ok(elem.disabled === false, "div.disabled = " + elem.disabled);
-    ok(elem.getAttribute("disabled") === null, "disabled attribute = " + elem.getAttribute("disabled") + " expected null");
-});
-
-sync_test("hasAttribute", function() {
-    document.body.innerHTML = '<div attr="test"></div>';
-    var elem = document.body.firstChild, r;
-
-    r = elem.hasAttribute("attr");
-    ok(r === true, "hasAttribute(attr) returned " + r);
-    r = elem.hasAttribute("attr2");
-    ok(r === false, "hasAttribute(attr2) returned " + r);
-
-    elem.setAttribute("attr2", "abc");
-    r = elem.hasAttribute("attr2");
-    ok(r === true, "hasAttribute(attr2) returned " + r);
-
-    elem.removeAttribute("attr");
-    r = elem.hasAttribute("attr");
-    ok(r === false, "hasAttribute(attr) returned " + r);
-});
+var tests = [
+    test_input_selection,
+    test_textContent,
+    test_ElementTraversal,
+    test_getElementsByClassName,
+    test_createElementNS,
+    test_head,
+    test_iframe,
+    test_iframe_location,
+    test_anchor,
+    test_query_selector,
+    test_compare_position,
+    test_rects,
+    test_document_owner,
+    test_style_properties,
+    test_stylesheets,
+    test_storage
+];

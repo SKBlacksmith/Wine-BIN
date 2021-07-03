@@ -46,9 +46,13 @@
  */
 NTSTATUS WINAPI RtlWow64EnableFsRedirection( BOOLEAN enable )
 {
+#ifdef _WIN64
+     return STATUS_NOT_IMPLEMENTED;
+#else
     if (!NtCurrentTeb64()) return STATUS_NOT_IMPLEMENTED;
     NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR] = !enable;
     return STATUS_SUCCESS;
+#endif
 }
 
 
@@ -57,6 +61,9 @@ NTSTATUS WINAPI RtlWow64EnableFsRedirection( BOOLEAN enable )
  */
 NTSTATUS WINAPI RtlWow64EnableFsRedirectionEx( ULONG disable, ULONG *old_value )
 {
+#ifdef _WIN64
+     return STATUS_NOT_IMPLEMENTED;
+#else
     if (!NtCurrentTeb64()) return STATUS_NOT_IMPLEMENTED;
 
     __TRY
@@ -71,6 +78,7 @@ NTSTATUS WINAPI RtlWow64EnableFsRedirectionEx( ULONG disable, ULONG *old_value )
 
     NtCurrentTeb64()->TlsSlots[WOW64_TLS_FILESYSREDIR] = disable;
     return STATUS_SUCCESS;
+#endif
 }
 
 

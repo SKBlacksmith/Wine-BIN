@@ -452,7 +452,7 @@
 @ stub LsaDelete
 @ stdcall LsaDeleteTrustedDomain(ptr ptr)
 @ stdcall LsaEnumerateAccountRights(ptr ptr ptr ptr)
-@ stdcall LsaEnumerateAccounts(ptr ptr ptr long ptr)
+@ stub LsaEnumerateAccounts
 @ stdcall LsaEnumerateAccountsWithUserRight(ptr ptr ptr ptr)
 @ stub LsaEnumeratePrivileges
 @ stub LsaEnumeratePrivilegesOfAccount
@@ -603,7 +603,7 @@
 @ stdcall -import QueryServiceObjectSecurity(long long ptr long ptr)
 @ stdcall -import QueryServiceStatus(long ptr)
 @ stdcall -import QueryServiceStatusEx (long long ptr long ptr)
-@ stdcall QueryTraceA(int64 str ptr)
+# @ stub QueryTraceA
 @ stdcall QueryTraceW(int64 wstr ptr)
 # @ stub QueryUserServiceName
 # @ stub QueryUsersOnEncryptedFile

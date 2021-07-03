@@ -34,6 +34,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(comsvcs);
 
+static HINSTANCE COMSVCS_hInstance;
+
 typedef struct dispensermanager
 {
     IDispenserManager IDispenserManager_iface;
@@ -352,6 +354,20 @@ static HRESULT WINAPI dispenser_manager_cf_CreateInstance(IClassFactory *iface, 
     dismanager_Release(&dismanager->IDispenserManager_iface);
 
     return ret;
+}
+
+BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID lpv)
+{
+    switch(reason)
+    {
+    case DLL_WINE_PREATTACH:
+        return FALSE;    /* prefer native version */
+    case DLL_PROCESS_ATTACH:
+        COMSVCS_hInstance = hinst;
+        DisableThreadLibraryCalls(hinst);
+        break;
+    }
+    return TRUE;
 }
 
 static HRESULT WINAPI comsvcscf_QueryInterface(IClassFactory *iface, REFIID riid, void **ppv )
@@ -1016,4 +1032,28 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
 
     FIXME("%s %s %p\n", debugstr_guid(rclsid), debugstr_guid(riid), ppv);
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+/******************************************************************
+ * DllCanUnloadNow
+ */
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
+}
+
+/***********************************************************************
+ *		DllRegisterServer (comsvcs.@)
+ */
+HRESULT WINAPI DllRegisterServer(void)
+{
+    return __wine_register_resources( COMSVCS_hInstance );
+}
+
+/***********************************************************************
+ *		DllUnregisterServer (comsvcs.@)
+ */
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    return __wine_unregister_resources( COMSVCS_hInstance );
 }

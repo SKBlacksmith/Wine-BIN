@@ -38,7 +38,7 @@ static const struct gdi_dc_funcs emfdrv_driver =
 {
     NULL,                            /* pAbortDoc */
     EMFDRV_AbortPath,                /* pAbortPath */
-    EMFDRV_AlphaBlend,               /* pAlphaBlend */
+    NULL,                            /* pAlphaBlend */
     EMFDRV_AngleArc,                 /* pAngleArc */
     EMFDRV_Arc,                      /* pArc */
     EMFDRV_ArcTo,                    /* pArcTo */
@@ -196,7 +196,8 @@ static BOOL CDECL EMFDRV_DeleteDC( PHYSDEV dev )
  */
 BOOL EMFDRV_WriteRecord( PHYSDEV dev, EMR *emr )
 {
-    DWORD len, size;
+    DWORD len;
+    DWORD bytes_written;
     ENHMETAHEADER *emh;
     EMFDRV_PDEVICE *physDev = get_emf_physdev( dev );
 
@@ -208,16 +209,21 @@ BOOL EMFDRV_WriteRecord( PHYSDEV dev, EMR *emr )
     physDev->emh->nBytes += emr->nSize;
     physDev->emh->nRecords++;
 
-    size = HeapSize(GetProcessHeap(), 0, physDev->emh);
-    len = physDev->emh->nBytes;
-    if (len > size) {
-        size += (size / 2) + emr->nSize;
-        emh = HeapReAlloc(GetProcessHeap(), 0, physDev->emh, size);
-        if (!emh) return FALSE;
-        physDev->emh = emh;
+    if(physDev->hFile) {
+        if (!WriteFile(physDev->hFile, emr, emr->nSize, &bytes_written, NULL))
+	    return FALSE;
+    } else {
+        DWORD nEmfSize = HeapSize(GetProcessHeap(), 0, physDev->emh);
+        len = physDev->emh->nBytes;
+        if (len > nEmfSize) {
+            nEmfSize += (nEmfSize / 2) + emr->nSize;
+            emh = HeapReAlloc(GetProcessHeap(), 0, physDev->emh, nEmfSize);
+            if (!emh) return FALSE;
+            physDev->emh = emh;
+        }
+        memcpy((CHAR *)physDev->emh + physDev->emh->nBytes - emr->nSize, emr,
+               emr->nSize);
     }
-    memcpy((CHAR *)physDev->emh + physDev->emh->nBytes - emr->nSize, emr,
-           emr->nSize);
     return TRUE;
 }
 
@@ -331,6 +337,7 @@ HDC WINAPI CreateEnhMetaFileW(
     EMFDRV_PDEVICE *physDev;
     HANDLE hFile;
     DWORD size = 0, length = 0;
+    DWORD bytes_written;
     int cap;
 
     TRACE("(%p %s %s %s)\n", hdc, debugstr_w(filename), wine_dbgstr_rect(rect), debugstr_w(description) );
@@ -365,7 +372,6 @@ HDC WINAPI CreateEnhMetaFileW(
     physDev->dc_brush = 0;
     physDev->dc_pen = 0;
     physDev->restoring = 0;
-    physDev->modifying_transform = 0;
     physDev->path = FALSE;
 
     if (hdc)  /* if no ref, use current display */
@@ -432,6 +438,11 @@ HDC WINAPI CreateEnhMetaFileW(
             free_dc_ptr( dc );
             return 0;
         }
+        if (!WriteFile( hFile, physDev->emh, size, &bytes_written, NULL )) {
+            free_dc_ptr( dc );
+            CloseHandle( hFile );
+            return 0;
+	}
 	physDev->hFile = hFile;
     }
 
@@ -496,7 +507,14 @@ HENHMETAFILE WINAPI CloseEnhMetaFile(HDC hdc) /* [in] metafile DC */
 
     if (physDev->hFile)  /* disk based metafile */
     {
-        if (!WriteFile(physDev->hFile, physDev->emh, physDev->emh->nBytes,
+        if (SetFilePointer(physDev->hFile, 0, NULL, FILE_BEGIN) != 0)
+        {
+            CloseHandle( physDev->hFile );
+            free_dc_ptr( dc );
+            return 0;
+        }
+
+        if (!WriteFile(physDev->hFile, physDev->emh, sizeof(*physDev->emh),
                        NULL, NULL))
         {
             CloseHandle( physDev->hFile );

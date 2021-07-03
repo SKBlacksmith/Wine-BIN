@@ -16,17 +16,14 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
 #include <stdarg.h>
-#include <stdlib.h>
 #include "windef.h"
 #include "winbase.h"
-#include "winternl.h"
 #include "winnls.h"
 #include "sspi.h"
+#include "secur32_priv.h"
 
 #include "wine/debug.h"
-#include "secur32_priv.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(secur32);
 
@@ -34,7 +31,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(secur32);
  * phSec->dwUpper) and a copy of realHandle (stored in phSec->dwLower).
  * SecHandle is equivalent to both a CredHandle and a CtxtHandle.
  */
-static SECURITY_STATUS make_sec_handle(PSecHandle phSec, SecurePackage *package, PSecHandle realHandle)
+static SECURITY_STATUS SECUR32_makeSecHandle(PSecHandle phSec,
+ SecurePackage *package, PSecHandle realHandle)
 {
     SECURITY_STATUS ret;
 
@@ -42,7 +40,8 @@ static SECURITY_STATUS make_sec_handle(PSecHandle phSec, SecurePackage *package,
 
     if (phSec && package && realHandle)
     {
-        PSecHandle newSec = malloc(sizeof(*newSec));
+        PSecHandle newSec = heap_alloc(sizeof(SecHandle));
+
         if (newSec)
         {
             *newSec = *realHandle;
@@ -87,7 +86,7 @@ SECURITY_STATUS WINAPI AcquireCredentialsHandleA(
                  ptsExpiry);
                 if (ret == SEC_E_OK)
                 {
-                    ret = make_sec_handle(phCredential, package, &myCred);
+                    ret = SECUR32_makeSecHandle(phCredential, package, &myCred);
                     if (ret != SEC_E_OK)
                         package->provider->fnTableW.FreeCredentialsHandle(
                          &myCred);
@@ -133,7 +132,7 @@ SECURITY_STATUS WINAPI AcquireCredentialsHandleW(
                  ptsExpiry);
                 if (ret == SEC_E_OK)
                 {
-                    ret = make_sec_handle(phCredential, package, &myCred);
+                    ret = SECUR32_makeSecHandle(phCredential, package, &myCred);
                     if (ret != SEC_E_OK)
                         package->provider->fnTableW.FreeCredentialsHandle(
                          &myCred);
@@ -169,7 +168,7 @@ SECURITY_STATUS WINAPI FreeCredentialsHandle(
             ret = package->provider->fnTableW.FreeCredentialsHandle(cred);
         else
             ret = SEC_E_INVALID_HANDLE;
-        free(cred);
+        heap_free(cred);
     }
     else
         ret = SEC_E_INVALID_HANDLE;
@@ -287,7 +286,7 @@ SECURITY_STATUS WINAPI InitializeSecurityContextA(
                 phNewContext && phNewContext != phContext)
             {
                 SECURITY_STATUS ret2;
-                ret2 = make_sec_handle(phNewContext, package, &myCtxt);
+                ret2 = SECUR32_makeSecHandle(phNewContext, package, &myCtxt);
                 if (ret2 != SEC_E_OK)
                     package->provider->fnTableA.DeleteSecurityContext(&myCtxt);
             }
@@ -351,7 +350,7 @@ SECURITY_STATUS WINAPI InitializeSecurityContextW(
                 phNewContext && phNewContext != phContext)
             {
                 SECURITY_STATUS ret2;
-                ret2 = make_sec_handle(phNewContext, package, &myCtxt);
+                ret2 = SECUR32_makeSecHandle(phNewContext, package, &myCtxt);
                 if (ret2 != SEC_E_OK)
                     package->provider->fnTableW.DeleteSecurityContext(&myCtxt);
             }
@@ -395,7 +394,7 @@ SECURITY_STATUS WINAPI AcceptSecurityContext(
                     myCtxt.dwUpper = realCtxt->dwUpper;
                     myCtxt.dwLower = realCtxt->dwLower;
                 }
-
+                
                 ret = package->provider->fnTableW.AcceptSecurityContext(
                  cred, phContext ? &myCtxt : NULL, pInput, fContextReq,
                  TargetDataRep, &myCtxt, pOutput, pfContextAttr, ptsExpiry);
@@ -403,7 +402,7 @@ SECURITY_STATUS WINAPI AcceptSecurityContext(
                     phNewContext && phNewContext != phContext)
                 {
                     SECURITY_STATUS ret2;
-                    ret2 = make_sec_handle(phNewContext, package, &myCtxt);
+                    ret2 = SECUR32_makeSecHandle(phNewContext, package, &myCtxt);
                     if (ret2 != SEC_E_OK)
                         package->provider->fnTableW.DeleteSecurityContext(
                          &myCtxt);
@@ -468,7 +467,7 @@ SECURITY_STATUS WINAPI DeleteSecurityContext(PCtxtHandle phContext)
             ret = package->provider->fnTableW.DeleteSecurityContext(ctxt);
         else
             ret = SEC_E_INVALID_HANDLE;
-        free(ctxt);
+        heap_free(ctxt);
     }
     else
         ret = SEC_E_INVALID_HANDLE;
@@ -690,7 +689,7 @@ SECURITY_STATUS WINAPI QuerySecurityPackageInfoA(SEC_CHAR *pszPackageName,
  PSecPkgInfoA *ppPackageInfo)
 {
     SECURITY_STATUS ret;
-
+   
     TRACE("%s %p\n", debugstr_a(pszPackageName), ppPackageInfo);
     if (pszPackageName)
     {
@@ -713,8 +712,8 @@ SECURITY_STATUS WINAPI QuerySecurityPackageInfoA(SEC_CHAR *pszPackageName,
                  package->infoW.Comment, -1, NULL, 0, NULL, NULL);
                 bytesNeeded += commentLen;
             }
-            /* freed with FreeContextBuffer */
-            if ((*ppPackageInfo = RtlAllocateHeap(GetProcessHeap(), 0, bytesNeeded)))
+            *ppPackageInfo = heap_alloc(bytesNeeded);
+            if (*ppPackageInfo)
             {
                 PSTR nextString = (PSTR)((PBYTE)*ppPackageInfo +
                  sizeof(SecPkgInfoA));
@@ -775,8 +774,8 @@ SECURITY_STATUS WINAPI QuerySecurityPackageInfoW(SEC_WCHAR *pszPackageName,
             commentLen = lstrlenW(package->infoW.Comment) + 1;
             bytesNeeded += commentLen * sizeof(WCHAR);
         }
-        /* freed with FreeContextBuffer */
-        if ((*ppPackageInfo = RtlAllocateHeap(GetProcessHeap(), 0, bytesNeeded)))
+        *ppPackageInfo = heap_alloc(bytesNeeded);
+        if (*ppPackageInfo)
         {
             PWSTR nextString = (PWSTR)((PBYTE)*ppPackageInfo +
              sizeof(SecPkgInfoW));
@@ -845,7 +844,7 @@ SECURITY_STATUS WINAPI ImportSecurityContextA(SEC_CHAR *pszPackage,
 {
     SECURITY_STATUS ret;
     SecurePackage *package = SECUR32_findPackageA(pszPackage);
-
+ 
     TRACE("%s %p %p %p\n", debugstr_a(pszPackage), pPackedContext, Token,
      phContext);
     if (package && package->provider)
@@ -858,7 +857,7 @@ SECURITY_STATUS WINAPI ImportSecurityContextA(SEC_CHAR *pszPackage,
              pszPackage, pPackedContext, Token, &myCtxt);
             if (ret == SEC_E_OK)
             {
-                ret = make_sec_handle(phContext, package, &myCtxt);
+                ret = SECUR32_makeSecHandle(phContext, package, &myCtxt);
                 if (ret != SEC_E_OK)
                     package->provider->fnTableW.DeleteSecurityContext(&myCtxt);
             }
@@ -893,7 +892,7 @@ SECURITY_STATUS WINAPI ImportSecurityContextW(SEC_WCHAR *pszPackage,
              pszPackage, pPackedContext, Token, &myCtxt);
             if (ret == SEC_E_OK)
             {
-                ret = make_sec_handle(phContext, package, &myCtxt);
+                ret = SECUR32_makeSecHandle(phContext, package, &myCtxt);
                 if (ret != SEC_E_OK)
                     package->provider->fnTableW.DeleteSecurityContext(&myCtxt);
             }

@@ -119,7 +119,6 @@
 #include "wine/unicode.h"
 #include "wine/debug.h"
 #include "wine/list.h"
-#include "wine/heap.h"
 #include "winnls.h"
 
 #include "ddk/winsplp.h"
@@ -444,61 +443,6 @@ static DEVMODEA *DEVMODEdupWtoA( const DEVMODEW *dmW )
     return dmA;
 }
 
-static void packed_string_WtoA( WCHAR *strW )
-{
-    DWORD len = strlenW( strW ), size = (len + 1) * sizeof(WCHAR), ret;
-    char *str;
-
-    if (!len) return;
-    str = heap_alloc( size );
-    ret = WideCharToMultiByte( CP_ACP, 0, strW, len, str, size - 1, NULL, NULL );
-    memcpy( strW, str, ret );
-    memset( (BYTE *)strW + ret, 0, size - ret );
-    heap_free( str );
-}
-
-/*********************************************************************
- *                 packed_struct_WtoA
- *
- * Convert a packed struct from W to A overwriting the unicode strings
- * with their ansi equivalents.
- */
-static void packed_struct_WtoA( BYTE *data, const DWORD *string_info )
-{
-    WCHAR *strW;
-
-    string_info++; /* sizeof */
-    while (*string_info != ~0u)
-    {
-        strW = *(WCHAR **)(data + *string_info);
-        if (strW) packed_string_WtoA( strW );
-        string_info++;
-    }
-}
-
-static inline const DWORD *form_string_info( DWORD level )
-{
-    static const DWORD info_1[] =
-    {
-        sizeof( FORM_INFO_1W ),
-        FIELD_OFFSET( FORM_INFO_1W, pName ),
-        ~0u
-    };
-    static const DWORD info_2[] =
-    {
-        sizeof( FORM_INFO_2W ),
-        FIELD_OFFSET( FORM_INFO_2W, pName ),
-        FIELD_OFFSET( FORM_INFO_2W, pMuiDll ),
-        FIELD_OFFSET( FORM_INFO_2W, pDisplayName ),
-        ~0u
-    };
-
-    if (level == 1) return info_1;
-    if (level == 2) return info_2;
-
-    SetLastError( ERROR_INVALID_LEVEL );
-    return NULL;
-}
 
 /******************************************************************
  * verify, that the filename is a local file
@@ -580,13 +524,6 @@ static LPCWSTR get_opened_printer_name(HANDLE hprn)
     opened_printer_t *printer = get_opened_printer(hprn);
     if(!printer) return NULL;
     return printer->name;
-}
-
-static HANDLE get_backend_handle( HANDLE hprn )
-{
-    opened_printer_t *printer = get_opened_printer( hprn );
-    if (!printer) return NULL;
-    return printer->backend_printer;
 }
 
 static DWORD open_printer_reg_key( const WCHAR *name, HKEY *key )
@@ -784,18 +721,13 @@ fail:
 static WCHAR *get_ppd_filename( const WCHAR *dir, const WCHAR *file_name )
 {
     static const WCHAR dot_ppd[] = {'.','p','p','d',0};
-    static const WCHAR invalid_chars[] = {'*','?','<','>','|','"','/','\\',0};
-    int dir_len = strlenW( dir ), file_len = strlenW( file_name );
-    int len = (dir_len + file_len + ARRAY_SIZE( dot_ppd )) * sizeof(WCHAR);
-    WCHAR *ppd = HeapAlloc( GetProcessHeap(), 0, len ), *p;
+    int len = (strlenW( dir ) + strlenW( file_name )) * sizeof(WCHAR) + sizeof(dot_ppd);
+    WCHAR *ppd = HeapAlloc( GetProcessHeap(), 0, len );
 
     if (!ppd) return NULL;
-    memcpy( ppd, dir, dir_len * sizeof(WCHAR) );
-    memcpy( ppd + dir_len, file_name, file_len * sizeof(WCHAR) );
-    memcpy( ppd + dir_len + file_len, dot_ppd, sizeof(dot_ppd) );
-
-    p = ppd + dir_len;
-    while ((p = strpbrkW( p, invalid_chars ))) *p++ = '_';
+    strcpyW( ppd, dir );
+    strcatW( ppd, file_name );
+    strcatW( ppd, dot_ppd );
 
     return ppd;
 }
@@ -2967,19 +2899,10 @@ BOOL WINAPI AddFormA(HANDLE hPrinter, DWORD Level, LPBYTE pForm)
 /*****************************************************************************
  *          AddFormW  [WINSPOOL.@]
  */
-BOOL WINAPI AddFormW( HANDLE printer, DWORD level, BYTE *form )
+BOOL WINAPI AddFormW(HANDLE hPrinter, DWORD Level, LPBYTE pForm)
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %d, %p)\n", printer, level, form );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    return backend->fpAddForm( handle, level, form );
+    FIXME("(%p,%d,%p): stub\n", hPrinter, Level, pForm);
+    return TRUE;
 }
 
 /*****************************************************************************
@@ -3478,19 +3401,10 @@ BOOL WINAPI DeleteFormA(HANDLE hPrinter, LPSTR pFormName)
 /*****************************************************************************
  *          DeleteFormW  [WINSPOOL.@]
  */
-BOOL WINAPI DeleteFormW( HANDLE printer, WCHAR *name )
+BOOL WINAPI DeleteFormW(HANDLE hPrinter, LPWSTR pFormName)
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %s)\n", printer, debugstr_w( name ) );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    return backend->fpDeleteForm( handle, name );
+    FIXME("(%p,%s): stub\n", hPrinter, debugstr_w(pFormName));
+    return TRUE;
 }
 
 /*****************************************************************************
@@ -3950,39 +3864,23 @@ BOOL WINAPI StartPagePrinter(HANDLE hPrinter)
 /*****************************************************************************
  *          GetFormA  [WINSPOOL.@]
  */
-BOOL WINAPI GetFormA( HANDLE printer, char *name, DWORD level, BYTE *form, DWORD size, DWORD *needed )
+BOOL WINAPI GetFormA(HANDLE hPrinter, LPSTR pFormName, DWORD Level,
+                 LPBYTE pForm, DWORD cbBuf, LPDWORD pcbNeeded)
 {
-    UNICODE_STRING nameW;
-    const DWORD *string_info = form_string_info( level );
-    BOOL ret;
-
-    if (!string_info) return FALSE;
-
-    asciitounicode( &nameW, name );
-
-    ret = GetFormW( printer, nameW.Buffer, level, form, size, needed );
-    if (ret) packed_struct_WtoA( form, string_info );
-
-    RtlFreeUnicodeString( &nameW );
-    return ret;
+    FIXME("(%p,%s,%d,%p,%d,%p): stub\n",hPrinter,pFormName,
+         Level,pForm,cbBuf,pcbNeeded);
+    return FALSE;
 }
 
 /*****************************************************************************
  *          GetFormW  [WINSPOOL.@]
  */
-BOOL WINAPI GetFormW( HANDLE printer, WCHAR *name, DWORD level, BYTE *form, DWORD size, DWORD *needed )
+BOOL WINAPI GetFormW(HANDLE hPrinter, LPWSTR pFormName, DWORD Level,
+                 LPBYTE pForm, DWORD cbBuf, LPDWORD pcbNeeded)
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %s, %d, %p, %d, %p)\n", printer, debugstr_w( name ), level, form, size, needed );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    return backend->fpGetForm( handle, name, level, form, size, needed );
+    FIXME("(%p,%s,%d,%p,%d,%p): stub\n",hPrinter,
+	  debugstr_w(pFormName),Level,pForm,cbBuf,pcbNeeded);
+    return FALSE;
 }
 
 /*****************************************************************************
@@ -3998,19 +3896,11 @@ BOOL WINAPI SetFormA(HANDLE hPrinter, LPSTR pFormName, DWORD Level,
 /*****************************************************************************
  *          SetFormW  [WINSPOOL.@]
  */
-BOOL WINAPI SetFormW( HANDLE printer, WCHAR *name, DWORD level, BYTE *form )
+BOOL WINAPI SetFormW(HANDLE hPrinter, LPWSTR pFormName, DWORD Level,
+                        LPBYTE pForm)
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %s, %d, %p)\n", printer, debugstr_w( name ), level, form );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    return backend->fpSetForm( handle, name, level, form );
+    FIXME("(%p,%p,%d,%p): stub\n",hPrinter,pFormName,Level,pForm);
+    return FALSE;
 }
 
 /*****************************************************************************
@@ -7457,50 +7347,23 @@ BOOL WINAPI DeletePrintProvidorW(LPWSTR pName, LPWSTR pEnvironment, LPWSTR pPrin
 /******************************************************************************
  *      EnumFormsA (WINSPOOL.@)
  */
-BOOL WINAPI EnumFormsA( HANDLE printer, DWORD level, BYTE *form, DWORD size, DWORD *needed, DWORD *count )
+BOOL WINAPI EnumFormsA( HANDLE hPrinter, DWORD Level, LPBYTE pForm,
+    DWORD cbBuf, LPDWORD pcbNeeded, LPDWORD pcReturned )
 {
-    const DWORD *string_info = form_string_info( level );
-    BOOL ret;
-    DWORD i;
-
-    if (!string_info) return FALSE;
-
-    ret = EnumFormsW( printer, level, form, size, needed, count );
-    if (ret)
-        for (i = 0; i < *count; i++)
-            packed_struct_WtoA( form + i * string_info[0], string_info );
-
-    return ret;
+    FIXME("%p %x %p %x %p %p\n", hPrinter, Level, pForm, cbBuf, pcbNeeded, pcReturned);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
 }
 
 /******************************************************************************
  *      EnumFormsW (WINSPOOL.@)
  */
-BOOL WINAPI EnumFormsW( HANDLE printer, DWORD level, BYTE *form, DWORD size, DWORD *needed, DWORD *count )
+BOOL WINAPI EnumFormsW( HANDLE hPrinter, DWORD Level, LPBYTE pForm,
+    DWORD cbBuf, LPDWORD pcbNeeded, LPDWORD pcReturned )
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %d, %p, %d, %p, %p)\n", printer, level, form, size, needed, count );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    if (!needed || !count)
-    {
-        SetLastError( RPC_X_NULL_REF_POINTER );
-        return FALSE;
-    }
-
-    if (!form && size)
-    {
-        SetLastError( ERROR_INVALID_USER_BUFFER );
-        return FALSE;
-    }
-
-    return backend->fpEnumForms( handle, level, form, size, needed, count );
+    FIXME("%p %x %p %x %p %p\n", hPrinter, Level, pForm, cbBuf, pcbNeeded, pcReturned);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
 }
 
 /*****************************************************************************

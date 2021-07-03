@@ -287,11 +287,7 @@ char * CDECL strtok( char *str, const char *delim )
         if (!(str = data->strtok_next)) return NULL;
 
     while (*str && strchr( delim, *str )) str++;
-    if (!*str)
-    {
-        data->strtok_next = str;
-        return NULL;
-    }
+    if (!*str) return NULL;
     ret = str++;
     while (*str && !strchr( delim, *str )) str++;
     if (*str) *str++ = 0;

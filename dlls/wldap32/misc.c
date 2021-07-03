@@ -18,15 +18,22 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdarg.h>
-#include <stdlib.h>
+#include <stdio.h>
+#ifdef HAVE_LDAP_H
+#include <ldap.h>
+#endif
+
 #include "windef.h"
 #include "winbase.h"
 #include "winnls.h"
-#include "winldap.h"
 
-#include "wine/debug.h"
 #include "winldap_private.h"
+#include "wldap32.h"
+#include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wldap32);
 
@@ -43,12 +50,18 @@ WINE_DEFAULT_DEBUG_CHANNEL(wldap32);
  *  Success: LDAP_SUCCESS
  *  Failure: An LDAP error code.
  */
-ULONG CDECL ldap_abandon( LDAP *ld, ULONG msgid )
+ULONG CDECL WLDAP32_ldap_abandon( WLDAP32_LDAP *ld, ULONG msgid )
 {
+    ULONG ret = WLDAP32_LDAP_NOT_SUPPORTED;
+#ifdef HAVE_LDAP
+
     TRACE( "(%p, 0x%08x)\n", ld, msgid );
 
     if (!ld) return ~0u;
-    return map_error( ldap_funcs->fn_ldap_abandon_ext( CTX(ld), msgid, NULL, NULL ) );
+    ret = map_error( ldap_abandon_ext( ld->ld, msgid, NULL, NULL ));
+
+#endif
+    return ret;
 }
 
 /***********************************************************************
@@ -56,19 +69,23 @@ ULONG CDECL ldap_abandon( LDAP *ld, ULONG msgid )
  *
  * See ldap_check_filterW.
  */
-ULONG CDECL ldap_check_filterA( LDAP *ld, char *filter )
+ULONG CDECL ldap_check_filterA( WLDAP32_LDAP *ld, PCHAR filter )
 {
     ULONG ret;
     WCHAR *filterW = NULL;
 
     TRACE( "(%p, %s)\n", ld, debugstr_a(filter) );
 
-    if (!ld) return LDAP_PARAM_ERROR;
-    if (filter && !(filterW = strAtoW( filter ))) return LDAP_NO_MEMORY;
+    if (!ld) return WLDAP32_LDAP_PARAM_ERROR;
+
+    if (filter) {
+        filterW = strAtoW( filter );
+        if (!filterW) return WLDAP32_LDAP_NO_MEMORY;
+    }
 
     ret = ldap_check_filterW( ld, filterW );
 
-    free( filterW );
+    strfreeW( filterW );
     return ret;
 }
 
@@ -85,12 +102,12 @@ ULONG CDECL ldap_check_filterA( LDAP *ld, char *filter )
  *  Success: LDAP_SUCCESS
  *  Failure: An LDAP error code.
  */
-ULONG CDECL ldap_check_filterW( LDAP *ld, WCHAR *filter )
+ULONG CDECL ldap_check_filterW( WLDAP32_LDAP *ld, PWCHAR filter )
 {
     TRACE( "(%p, %s)\n", ld, debugstr_w(filter) );
 
-    if (!ld) return LDAP_PARAM_ERROR;
-    return LDAP_SUCCESS; /* FIXME: do some checks */
+    if (!ld) return WLDAP32_LDAP_PARAM_ERROR;
+    return WLDAP32_LDAP_SUCCESS; /* FIXME: do some checks */
 }
 
 /***********************************************************************
@@ -99,7 +116,7 @@ ULONG CDECL ldap_check_filterW( LDAP *ld, WCHAR *filter )
 ULONG CDECL ldap_cleanup( HANDLE instance )
 {
     TRACE( "(%p)\n", instance );
-    return LDAP_SUCCESS;
+    return WLDAP32_LDAP_SUCCESS;
 }
 
 /***********************************************************************
@@ -115,7 +132,7 @@ ULONG CDECL ldap_cleanup( HANDLE instance )
  *  Success: Pointer to an LDAP context.
  *  Failure: NULL
  */
-LDAP * CDECL ldap_conn_from_msg( LDAP *ld, LDAPMessage *res )
+WLDAP32_LDAP * CDECL ldap_conn_from_msg( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *res )
 {
     TRACE( "(%p, %p)\n", ld, res );
 
@@ -136,12 +153,18 @@ LDAP * CDECL ldap_conn_from_msg( LDAP *ld, LDAPMessage *res )
  *  Success: The number of entries.
  *  Failure: ~0u
  */
-ULONG CDECL ldap_count_entries( LDAP *ld, LDAPMessage *res )
+ULONG CDECL WLDAP32_ldap_count_entries( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *res )
 {
+    ULONG ret = WLDAP32_LDAP_NOT_SUPPORTED;
+#ifdef HAVE_LDAP
+
     TRACE( "(%p, %p)\n", ld, res );
 
     if (!ld) return ~0u;
-    return ldap_funcs->fn_ldap_count_entries( CTX(ld), MSG(res) );
+    ret = ldap_count_entries( ld->ld, res );
+
+#endif
+    return ret;
 }
 
 /***********************************************************************
@@ -157,12 +180,18 @@ ULONG CDECL ldap_count_entries( LDAP *ld, LDAPMessage *res )
  *  Success: The number of references.
  *  Failure: ~0u
  */
-ULONG CDECL ldap_count_references( LDAP *ld, LDAPMessage *res )
+ULONG CDECL WLDAP32_ldap_count_references( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *res )
 {
+    ULONG ret = WLDAP32_LDAP_NOT_SUPPORTED;
+#ifdef HAVE_LDAP_COUNT_REFERENCES
+
     TRACE( "(%p, %p)\n", ld, res );
 
     if (!ld) return 0;
-    return ldap_funcs->fn_ldap_count_references( CTX(ld), MSG(res) );
+    ret = ldap_count_references( ld->ld, res );
+
+#endif
+    return ret;
 }
 
 static ULONG get_escape_size( PCHAR src, ULONG srclen )
@@ -184,7 +213,7 @@ static ULONG get_escape_size( PCHAR src, ULONG srclen )
     return size + 1;
 }
 
-static void escape_filter_element( char *src, ULONG srclen, char *dst )
+static void escape_filter_element( PCHAR src, ULONG srclen, PCHAR dst )
 {
     ULONG i;
     static const char fmt[] = "\\%02X";
@@ -207,17 +236,22 @@ static void escape_filter_element( char *src, ULONG srclen, char *dst )
  *
  * See ldap_escape_filter_elementW.
  */
-ULONG CDECL ldap_escape_filter_elementA( char *src, ULONG srclen, char *dst, ULONG dstlen )
+ULONG CDECL ldap_escape_filter_elementA( PCHAR src, ULONG srclen, PCHAR dst, ULONG dstlen )
 {
-    ULONG len = get_escape_size( src, srclen );
+    ULONG len;
 
     TRACE( "(%p, 0x%08x, %p, 0x%08x)\n", src, srclen, dst, dstlen );
 
+    len = get_escape_size( src, srclen );
     if (!dst) return len;
-    if (!src || dstlen < len) return LDAP_PARAM_ERROR;
 
-    escape_filter_element( src, srclen, dst );
-    return LDAP_SUCCESS;
+    if (!src || dstlen < len)
+        return WLDAP32_LDAP_PARAM_ERROR;
+    else
+    {
+        escape_filter_element( src, srclen, dst );
+        return WLDAP32_LDAP_SUCCESS;
+    }
 }
 
 /***********************************************************************
@@ -235,16 +269,17 @@ ULONG CDECL ldap_escape_filter_elementA( char *src, ULONG srclen, char *dst, ULO
  *  Success: LDAP_SUCCESS
  *  Failure: An LDAP error code.
  */
-ULONG CDECL ldap_escape_filter_elementW( char *src, ULONG srclen, WCHAR *dst, ULONG dstlen )
+ULONG CDECL ldap_escape_filter_elementW( PCHAR src, ULONG srclen, PWCHAR dst, ULONG dstlen )
 {
-    ULONG len = get_escape_size( src, srclen );
+    ULONG len;
 
     TRACE( "(%p, 0x%08x, %p, 0x%08x)\n", src, srclen, dst, dstlen );
 
+    len = get_escape_size( src, srclen );
     if (!dst) return len;
 
     /* no matter what you throw at it, this is what native returns */
-    return LDAP_PARAM_ERROR;
+    return WLDAP32_LDAP_PARAM_ERROR;
 }
 
 /***********************************************************************
@@ -252,29 +287,29 @@ ULONG CDECL ldap_escape_filter_elementW( char *src, ULONG srclen, WCHAR *dst, UL
  *
  * See ldap_first_attributeW.
  */
-char * CDECL ldap_first_attributeA( LDAP *ld, LDAPMessage *entry, BerElement **ber )
+PCHAR CDECL ldap_first_attributeA( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *entry,
+    WLDAP32_BerElement** ptr )
 {
-    char *ret = NULL;
+    PCHAR ret = NULL;
+#ifdef HAVE_LDAP
     WCHAR *retW;
 
-    TRACE( "(%p, %p, %p)\n", ld, entry, ber );
+    TRACE( "(%p, %p, %p)\n", ld, entry, ptr );
 
     if (!ld || !entry) return NULL;
+    retW = ldap_first_attributeW( ld, entry, ptr );
 
-    retW = ldap_first_attributeW( ld, entry, ber );
-    if (retW)
-    {
-        ret = strWtoA( retW );
-        ldap_memfreeW( retW );
-    }
+    ret = strWtoA( retW );
+    ldap_memfreeW( retW );
 
+#endif
     return ret;
 }
 
 /***********************************************************************
  *      ldap_first_attributeW     (WLDAP32.@)
  *
- * Get the first attribute for a given entry.
+ * Get the first attribute for a given entry. 
  *
  * PARAMS
  *  ld    [I] Pointer to an LDAP context.
@@ -288,26 +323,22 @@ char * CDECL ldap_first_attributeA( LDAP *ld, LDAPMessage *entry, BerElement **b
  * NOTES
  *  Use ldap_memfree to free the returned string.
  */
-WCHAR * CDECL ldap_first_attributeW( LDAP *ld, LDAPMessage *entry, BerElement **ptr )
+PWCHAR CDECL ldap_first_attributeW( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *entry,
+    WLDAP32_BerElement** ptr )
 {
-    WCHAR *ret = NULL;
-    BerElement *ber;
+    PWCHAR ret = NULL;
+#ifdef HAVE_LDAP
     char *retU;
-    void *berU;
 
     TRACE( "(%p, %p, %p)\n", ld, entry, ptr );
 
     if (!ld || !entry) return NULL;
+    retU = ldap_first_attribute( ld->ld, entry, ptr );
 
-    retU = ldap_funcs->fn_ldap_first_attribute( CTX(ld), MSG(entry), &berU );
-    if (retU && (ber = malloc( sizeof(*ber) )))
-    {
-        BER(ber) = (char *)berU;
-        *ptr = ber;
-        ret = strUtoW( retU );
-    }
+    ret = strUtoW( retU );
+    ldap_memfree( retU );
 
-    ldap_funcs->fn_ldap_memfree( retU );
+#endif
     return ret;
 }
 
@@ -325,24 +356,20 @@ WCHAR * CDECL ldap_first_attributeW( LDAP *ld, LDAPMessage *entry, BerElement **
  *  Failure: NULL
  *
  * NOTES
- *  The returned entry will be freed when the message is freed.
+ *  The returned entry will be freed when the message is freed. 
  */
-LDAPMessage * CDECL ldap_first_entry( LDAP *ld, LDAPMessage *res )
+WLDAP32_LDAPMessage * CDECL WLDAP32_ldap_first_entry( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *res )
 {
-    void *msgU;
+#ifdef HAVE_LDAP
 
     TRACE( "(%p, %p)\n", ld, res );
 
     if (!ld || !res) return NULL;
+    return ldap_first_entry( ld->ld, res );
 
-    msgU = ldap_funcs->fn_ldap_first_entry( CTX(ld), MSG(res) );
-    if (msgU)
-    {
-        assert( msgU == MSG(res) );
-        return res;
-    }
-
+#else
     return NULL;
+#endif
 }
 
 /***********************************************************************
@@ -358,22 +385,18 @@ LDAPMessage * CDECL ldap_first_entry( LDAP *ld, LDAPMessage *res )
  *  Success: The first reference.
  *  Failure: NULL
  */
-LDAPMessage * CDECL ldap_first_reference( LDAP *ld, LDAPMessage *res )
+WLDAP32_LDAPMessage * CDECL WLDAP32_ldap_first_reference( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *res )
 {
-    void *msgU;
+#ifdef HAVE_LDAP_FIRST_REFERENCE
 
     TRACE( "(%p, %p)\n", ld, res );
 
     if (!ld) return NULL;
+    return ldap_first_reference( ld->ld, res );
 
-    msgU = ldap_funcs->fn_ldap_first_reference( CTX(ld), MSG(res) );
-    if (msgU)
-    {
-        assert( msgU == MSG(res) );
-        return res;
-    }
-
+#else
     return NULL;
+#endif
 }
 
 /***********************************************************************
@@ -381,10 +404,10 @@ LDAPMessage * CDECL ldap_first_reference( LDAP *ld, LDAPMessage *res )
  *
  * See ldap_memfreeW.
  */
-void CDECL ldap_memfreeA( char *block )
+void CDECL ldap_memfreeA( PCHAR block )
 {
     TRACE( "(%p)\n", block );
-    free( block );
+    strfreeA( block );
 }
 
 /***********************************************************************
@@ -395,10 +418,10 @@ void CDECL ldap_memfreeA( char *block )
  * PARAMS
  *  block [I] Pointer to memory block to be freed.
  */
-void CDECL ldap_memfreeW( WCHAR *block )
+void CDECL ldap_memfreeW( PWCHAR block )
 {
     TRACE( "(%p)\n", block );
-    free( block );
+    strfreeW( block );
 }
 
 /***********************************************************************
@@ -409,23 +432,16 @@ void CDECL ldap_memfreeW( WCHAR *block )
  * PARAMS
  *  res [I] Message to be freed.
  */
-ULONG CDECL ldap_msgfree( LDAPMessage *res )
+ULONG CDECL WLDAP32_ldap_msgfree( WLDAP32_LDAPMessage *res )
 {
-    LDAPMessage *entry, *list = res;
+    ULONG ret = WLDAP32_LDAP_SUCCESS;
+#ifdef HAVE_LDAP
 
     TRACE( "(%p)\n", res );
+    ldap_msgfree( res );
 
-    if (!res) return LDAP_SUCCESS;
-
-    ldap_funcs->fn_ldap_msgfree( MSG(res) );
-    while (list)
-    {
-        entry = list;
-        list = entry->lm_next;
-        free( entry );
-    }
-
-    return LDAP_SUCCESS;
+#endif
+    return ret;
 }
 
 /***********************************************************************
@@ -433,22 +449,22 @@ ULONG CDECL ldap_msgfree( LDAPMessage *res )
  *
  * See ldap_next_attributeW.
  */
-char * CDECL ldap_next_attributeA( LDAP *ld, LDAPMessage *entry, BerElement *ptr )
+PCHAR CDECL ldap_next_attributeA( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *entry,
+    WLDAP32_BerElement *ptr )
 {
-    char *ret = NULL;
+    PCHAR ret = NULL;
+#ifdef HAVE_LDAP
     WCHAR *retW;
 
     TRACE( "(%p, %p, %p)\n", ld, entry, ptr );
 
     if (!ld || !entry || !ptr) return NULL;
-
     retW = ldap_next_attributeW( ld, entry, ptr );
-    if (retW)
-    {
-        ret = strWtoA( retW );
-        ldap_memfreeW( retW );
-    }
 
+    ret = strWtoA( retW );
+    ldap_memfreeW( retW );
+
+#endif
     return ret;
 }
 
@@ -470,22 +486,22 @@ char * CDECL ldap_next_attributeA( LDAP *ld, LDAPMessage *entry, BerElement *ptr
  *  Free the returned string after each iteration with ldap_memfree.
  *  When done iterating and when ptr != NULL, call ber_free( ptr, 0 ).
  */
-WCHAR * CDECL ldap_next_attributeW( LDAP *ld, LDAPMessage *entry, BerElement *ptr )
+PWCHAR CDECL ldap_next_attributeW( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *entry,
+    WLDAP32_BerElement *ptr )
 {
-    WCHAR *ret = NULL;
+    PWCHAR ret = NULL;
+#ifdef HAVE_LDAP
     char *retU;
 
     TRACE( "(%p, %p, %p)\n", ld, entry, ptr );
 
     if (!ld || !entry || !ptr) return NULL;
+    retU = ldap_next_attribute( ld->ld, entry, ptr );
 
-    retU = ldap_funcs->fn_ldap_next_attribute( CTX(ld), MSG(entry), BER(ptr) );
-    if (retU)
-    {
-        ret = strUtoW( retU );
-        ldap_funcs->fn_ldap_memfree( retU );
-    }
+    ret = strUtoW( retU );
+    ldap_memfree( retU );
 
+#endif
     return ret;
 }
 
@@ -505,25 +521,18 @@ WCHAR * CDECL ldap_next_attributeW( LDAP *ld, LDAPMessage *entry, BerElement *pt
  * NOTES
  *  The returned entry will be freed when the message is freed.
  */
-LDAPMessage * CDECL ldap_next_entry( LDAP *ld, LDAPMessage *entry )
+WLDAP32_LDAPMessage * CDECL WLDAP32_ldap_next_entry( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *entry )
 {
-    LDAPMessage *msg = NULL;
-    void *msgU;
+#ifdef HAVE_LDAP
 
     TRACE( "(%p, %p)\n", ld, entry );
 
     if (!ld || !entry) return NULL;
+    return ldap_next_entry( ld->ld, entry );
 
-    if (entry->lm_next) return entry->lm_next;
-
-    msgU = ldap_funcs->fn_ldap_next_entry( CTX(ld), MSG(entry) );
-    if (msgU && (msg = calloc( 1, sizeof(*msg) )))
-    {
-        MSG(msg) = msgU;
-        entry->lm_next = msg;
-    }
-
-    return msg;
+#else
+    return NULL;
+#endif
 }
 
 /***********************************************************************
@@ -542,25 +551,18 @@ LDAPMessage * CDECL ldap_next_entry( LDAP *ld, LDAPMessage *entry )
  * NOTES
  *  The returned entry will be freed when the message is freed.
  */
-LDAPMessage * CDECL ldap_next_reference( LDAP *ld, LDAPMessage *entry )
+WLDAP32_LDAPMessage * CDECL WLDAP32_ldap_next_reference( WLDAP32_LDAP *ld, WLDAP32_LDAPMessage *entry )
 {
-    LDAPMessage *msg = NULL;
-    void *msgU;
+#ifdef HAVE_LDAP_NEXT_REFERENCE
 
     TRACE( "(%p, %p)\n", ld, entry );
 
     if (!ld || !entry) return NULL;
+    return ldap_next_reference( ld->ld, entry );
 
-    if (entry->lm_next) return entry->lm_next;
-
-    msgU = ldap_funcs->fn_ldap_next_reference( CTX(ld), MSG(entry) );
-    if (msgU && (msg = calloc( 1, sizeof(*msg) )))
-    {
-        MSG(msg) = msgU;
-        entry->lm_next = msg;
-    }
-
-    return msg;
+#else
+    return NULL;
+#endif
 }
 
 /***********************************************************************
@@ -599,30 +601,18 @@ LDAPMessage * CDECL ldap_next_reference( LDAP *ld, LDAPMessage *entry )
  *  to immediately return any available results. Free returned results
  *  with ldap_msgfree.
  */
-ULONG CDECL ldap_result( LDAP *ld, ULONG msgid, ULONG all, struct l_timeval *timeout, LDAPMessage **res )
+ULONG CDECL WLDAP32_ldap_result( WLDAP32_LDAP *ld, ULONG msgid, ULONG all,
+    struct l_timeval *timeout, WLDAP32_LDAPMessage **res )
 {
-    LDAPMessage *msg;
-    struct timevalU timeval;
-    void *msgU = NULL;
-    ULONG ret;
+    ULONG ret = WLDAP32_LDAP_NOT_SUPPORTED;
+#ifdef HAVE_LDAP
 
     TRACE( "(%p, 0x%08x, 0x%08x, %p, %p)\n", ld, msgid, all, timeout, res );
 
     if (!ld || !res || msgid == ~0u) return ~0u;
+    ret = ldap_result( ld->ld, msgid, all, (struct timeval *)timeout, res );
 
-    if (timeout)
-    {
-        timeval.tv_sec = timeout->tv_sec;
-        timeval.tv_usec = timeout->tv_usec;
-    }
-
-    ret = ldap_funcs->fn_ldap_result( CTX(ld), msgid, all, timeout ? &timeval : NULL, &msgU );
-    if (msgU && (msg = calloc( 1, sizeof(*msg) )))
-    {
-        MSG(msg) = msgU;
-        *res = msg;
-    }
-
+#endif
     return ret;
 }
 
@@ -635,7 +625,7 @@ ULONG CDECL ldap_result( LDAP *ld, ULONG msgid, ULONG all, struct l_timeval *tim
  *  src    [I] Wide character string to convert.
  *  srclen [I] Size of string to convert, in characters.
  *  dst    [O] Pointer to a buffer that receives the converted string.
- *  dstlen [I] Size of the destination buffer in characters.
+ *  dstlen [I] Size of the destination buffer in characters. 
  *
  * RETURNS
  *  The number of characters written into the destination buffer.
@@ -643,7 +633,7 @@ ULONG CDECL ldap_result( LDAP *ld, ULONG msgid, ULONG all, struct l_timeval *tim
  * NOTES
  *  Set dstlen to zero to ask for the required buffer size.
  */
-int CDECL LdapUnicodeToUTF8( const WCHAR *src, int srclen, char *dst, int dstlen )
+int CDECL LdapUnicodeToUTF8( LPCWSTR src, int srclen, LPSTR dst, int dstlen )
 {
     return WideCharToMultiByte( CP_UTF8, 0, src, srclen, dst, dstlen, NULL, NULL );
 }
@@ -657,7 +647,7 @@ int CDECL LdapUnicodeToUTF8( const WCHAR *src, int srclen, char *dst, int dstlen
  *  src    [I] UTF8 string to convert.
  *  srclen [I] Size of string to convert, in characters.
  *  dst    [O] Pointer to a buffer that receives the converted string.
- *  dstlen [I] Size of the destination buffer in characters.
+ *  dstlen [I] Size of the destination buffer in characters. 
  *
  * RETURNS
  *  The number of characters written into the destination buffer.
@@ -665,7 +655,7 @@ int CDECL LdapUnicodeToUTF8( const WCHAR *src, int srclen, char *dst, int dstlen
  * NOTES
  *  Set dstlen to zero to ask for the required buffer size.
  */
-int CDECL LdapUTF8ToUnicode( const char *src, int srclen, WCHAR *dst, int dstlen )
+int CDECL LdapUTF8ToUnicode( LPCSTR src, int srclen, LPWSTR dst, int dstlen )
 {
     return MultiByteToWideChar( CP_UTF8, 0, src, srclen, dst, dstlen );
 }

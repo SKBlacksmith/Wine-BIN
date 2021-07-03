@@ -57,6 +57,18 @@ static const WCHAR wQTVName[] =
 static const WCHAR wQTDName[] =
 {'Q','T',' ','V','i','d','e','o',' ','D','e','m','u','x',0};
 
+static HINSTANCE wineqtdecoder_instance;
+
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
+{
+    if (reason == DLL_PROCESS_ATTACH)
+    {
+        wineqtdecoder_instance = instance;
+        DisableThreadLibraryCalls(instance);
+    }
+    return TRUE;
+}
+
 struct class_factory
 {
     IClassFactory IClassFactory_iface;
@@ -209,7 +221,7 @@ HRESULT WINAPI DllRegisterServer(void)
 
     TRACE(".\n");
 
-    if (FAILED(hr = __wine_register_resources()))
+    if (FAILED(hr = __wine_register_resources(wineqtdecoder_instance)))
         return hr;
 
     if (FAILED(hr = CoCreateInstance(&CLSID_FilterMapper2, NULL, CLSCTX_INPROC_SERVER,
@@ -230,7 +242,7 @@ HRESULT WINAPI DllUnregisterServer(void)
 
     TRACE(".\n");
 
-    if (FAILED(hr = __wine_unregister_resources()))
+    if (FAILED(hr = __wine_unregister_resources(wineqtdecoder_instance)))
         return hr;
 
     if (FAILED(hr = CoCreateInstance(&CLSID_FilterMapper2, NULL, CLSCTX_INPROC_SERVER,
@@ -242,4 +254,10 @@ HRESULT WINAPI DllUnregisterServer(void)
 
     IFilterMapper2_Release(mapper);
     return S_OK;
+}
+
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    TRACE(".\n");
+    return S_FALSE;
 }

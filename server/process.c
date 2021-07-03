@@ -191,7 +191,6 @@ static void job_destroy( struct object *obj );
 struct job
 {
     struct object obj;             /* object header */
-    struct list process_list;      /* list of processes */
     int num_processes;             /* count of running processes */
     int total_processes;           /* count of processes which have been assigned */
     unsigned int limit_flags;      /* limit flags */
@@ -200,8 +199,6 @@ struct job
     struct completion *completion_port; /* associated completion port */
     apc_param_t completion_key;    /* key to send with completion messages */
     struct job *parent;
-    struct list parent_job_entry;  /* list entry for parent job */
-    struct list child_job_list;    /* list of child jobs */
 };
 
 static const struct object_ops job_ops =
@@ -240,8 +237,6 @@ static struct job *create_job_object( struct object *root, const struct unicode_
         if (get_error() != STATUS_OBJECT_NAME_EXISTS)
         {
             /* initialize it if it didn't already exist */
-            list_init( &job->process_list );
-            list_init( &job->child_job_list );
             job->num_processes = 0;
             job->total_processes = 0;
             job->limit_flags = 0;
@@ -266,83 +261,19 @@ static void add_job_completion( struct job *job, apc_param_t msg, apc_param_t pi
         add_completion( job->completion_port, job->completion_key, pid, STATUS_SUCCESS, msg );
 }
 
-static void add_job_completion_existing_processes( struct job *job, struct job *completion_job )
+static void add_job_process( struct job *job, struct process *process, struct job *last_parent )
 {
-    struct process *process;
-    struct job *j;
-
-    assert( completion_job->obj.ops == &job_ops );
-
-    LIST_FOR_EACH_ENTRY( j, &job->child_job_list, struct job, parent_job_entry )
-    {
-        add_job_completion_existing_processes( j, completion_job );
-    }
-
-    LIST_FOR_EACH_ENTRY( process, &job->process_list, struct process, job_entry )
-    {
-        if (process->running_threads)
-            add_job_completion( completion_job, JOB_OBJECT_MSG_NEW_PROCESS, get_process_id( process ));
-    }
-}
-
-static int process_in_job( struct job *job, struct process *process )
-{
-    struct job *j;
-
-    LIST_FOR_EACH_ENTRY( j, &job->child_job_list, struct job, parent_job_entry )
-    {
-        assert( j->parent == job );
-        if (process_in_job( j, process )) return 1;
-    }
-    return process->job == job;
-}
-
-static void add_job_process( struct job *job, struct process *process )
-{
-    struct job *j, *common_parent;
-    process_id_t pid;
-
-    if (job == process->job) return;
-
-    if ((common_parent = process->job))
-    {
-        if (job->parent)
-        {
-            for (j = job->parent; j; j = j->parent)
-                if (j == common_parent) break;
-
-            if (j != common_parent)
-            {
-                /* Job already has parent and the process is not in the job's chain. */
-                set_error( STATUS_ACCESS_DENIED );
-                return;
-            }
-            /* process->job is referenced in the job->parent chain. */
-            release_object( process->job );
-        }
-        else
-        {
-            if (job->total_processes)
-            {
-                set_error( STATUS_ACCESS_DENIED );
-                return;
-            }
-            /* transfer reference. */
-            job->parent = process->job;
-            list_add_tail( &job->parent->child_job_list, &job->parent_job_entry );
-        }
-        list_remove( &process->job_entry );
-    }
     process->job = (struct job *)grab_object( job );
-    list_add_tail( &job->process_list, &process->job_entry );
-
-    pid = get_process_id( process );
-    for (j = job; j != common_parent; j = j->parent)
+    do
     {
-        j->num_processes++;
-        j->total_processes++;
-        add_job_completion( j, JOB_OBJECT_MSG_NEW_PROCESS, pid );
+        job->num_processes++;
+        job->total_processes++;
+        add_job_completion( job, JOB_OBJECT_MSG_NEW_PROCESS, get_process_id(process) );
+
+        job = job->parent;
     }
+    while (job != last_parent);
+
 }
 
 /* called when a process has terminated, allow one additional process */
@@ -367,24 +298,29 @@ static void release_job_process( struct process *process )
 
 static void terminate_job( struct job *job, int exit_code )
 {
-    struct process *process, *next_process;
-    struct job *j, *next_job;
+    struct job *curr_job;
 
-    LIST_FOR_EACH_ENTRY_SAFE( j, next_job, &job->child_job_list, struct job, parent_job_entry )
-    {
-        assert( j->parent == job );
-
-        grab_object( j );
-        terminate_job( j, exit_code );
-        release_object( j );
-    }
-
+    /* don't report completion events for terminated processes */
     job->terminating = 1;
-    LIST_FOR_EACH_ENTRY_SAFE( process, next_process, &job->process_list, struct process, job_entry )
+
+    for (;;)  /* restart from the beginning of the list every time */
     {
-        assert( process->job == job );
-        if (process->running_threads) terminate_process( process, NULL, exit_code );
+        struct process *process;
+
+        curr_job = NULL;
+
+        /* find the first process associated with this job and still running */
+        LIST_FOR_EACH_ENTRY( process, &process_list, struct process, entry )
+        {
+            for(curr_job = process->job; curr_job; curr_job = curr_job->parent)
+                if (curr_job == job) break;
+
+            if (curr_job == job && process->running_threads) break;
+        }
+        if (curr_job != job) break;  /* no process found */
+        terminate_process( process, NULL, exit_code );
     }
+
     job->terminating = 0;
     job->signaled = 1;
     wake_up( &job->obj, 0 );
@@ -409,23 +345,16 @@ static void job_destroy( struct object *obj )
     assert( obj->ops == &job_ops );
 
     assert( !job->num_processes );
-    assert( list_empty( &job->process_list ));
-    assert( list_empty( &job->child_job_list ));
 
     if (job->completion_port) release_object( job->completion_port );
-    if (job->parent)
-    {
-        list_remove( &job->parent_job_entry );
-        release_object( job->parent );
-    }
+    if (job->parent) release_object( job->parent );
 }
 
 static void job_dump( struct object *obj, int verbose )
 {
     struct job *job = (struct job *)obj;
     assert( obj->ops == &job_ops );
-    fprintf( stderr, "Job processes=%d child_jobs=%d parent=%p\n",
-             list_count(&job->process_list), list_count(&job->child_job_list), job->parent );
+    fprintf( stderr, "Job parent=%p\n", job->parent );
 }
 
 static int job_signaled( struct object *obj, struct wait_queue_entry *entry )
@@ -607,7 +536,7 @@ static void start_sigkill_timer( struct process *process )
 
 /* create a new process */
 /* if the function fails the fd is closed */
-struct process *create_process( int fd, struct process *parent, unsigned int flags, const startup_info_t *info,
+struct process *create_process( int fd, struct process *parent, int inherit_all, const startup_info_t *info,
                                 const struct security_descriptor *sd, const obj_handle_t *handles,
                                 unsigned int handle_count, struct token *token )
 {
@@ -632,8 +561,6 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     process->is_system       = 0;
     process->debug_children  = 1;
     process->is_terminating  = 0;
-    process->imagelen        = 0;
-    process->image           = NULL;
     process->job             = NULL;
     process->console         = NULL;
     process->startup_state   = STARTUP_IN_PROGRESS;
@@ -678,7 +605,7 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     if (!parent)
     {
         process->handles = alloc_handle_table( process, 0 );
-        process->token = token_create_admin( TRUE, -1, TokenElevationTypeFull, default_session_id );
+        process->token = token_create_admin( TokenElevationTypeFull );
         process->affinity = ~0;
     }
     else
@@ -690,17 +617,14 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
         std_handles[2] = info->hstderr;
 
         process->parent_id = parent->id;
-        if (flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES)
-            process->handles = copy_handle_table( process, parent, handles, handle_count, std_handles );
-        else
-            process->handles = alloc_handle_table( process, 0 );
+        process->handles = inherit_all ? copy_handle_table( process, parent, handles, handle_count, std_handles )
+                                       : alloc_handle_table( process, 0 );
         /* Note: for security reasons, starting a new process does not attempt
          * to use the current impersonation token for the new process */
         process->token = token_duplicate( token ? token : parent->token, TRUE, 0, NULL, NULL, 0, NULL, 0 );
         process->affinity = parent->affinity;
     }
     if (!process->handles || !process->token) goto error;
-    process->session_id = token_get_session_id( process->token );
 
     /* Assign a high security label to the token. The default would be medium
      * but Wine provides admin access to all applications right now so high
@@ -748,18 +672,13 @@ static void process_destroy( struct object *obj )
     close_process_handles( process );
     set_process_startup_state( process, STARTUP_ABORTED );
 
-    if (process->job)
-    {
-        list_remove( &process->job_entry );
-        release_object( process->job );
-    }
+    if (process->job) release_object( process->job );
     if (process->console) release_object( process->console );
     if (process->msg_fd) release_object( process->msg_fd );
     if (process->idle_event) release_object( process->idle_event );
     if (process->id) free_ptid( process->id );
     if (process->token) release_object( process->token );
     free( process->dir_cache );
-    free( process->image );
     if (do_esync()) close( process->esync_fd );
 }
 
@@ -962,11 +881,11 @@ static void process_killed( struct process *process )
 
     assert( list_empty( &process->thread_list ));
     process->end_time = current_time;
-    close_process_desktop( process );
+    if (!process->is_system) close_process_desktop( process );
     process->winstation = 0;
     process->desktop = 0;
-    cancel_process_asyncs( process );
     close_process_handles( process );
+    cancel_process_asyncs( process );
     if (process->idle_event) release_object( process->idle_event );
     process->idle_event = NULL;
     assert( !process->console );
@@ -1122,13 +1041,8 @@ void enum_processes( int (*cb)(struct process*, void*), void *user )
 int set_process_debug_flag( struct process *process, int flag )
 {
     char data = (flag != 0);
-    client_ptr_t peb32 = 0;
-
-    if (!is_machine_64bit( process->machine ) && is_machine_64bit( native_machine ))
-        peb32 = process->peb + 0x1000;
 
     /* BeingDebugged flag is the byte at offset 2 in the PEB */
-    if (peb32 && !write_process_memory( process, peb32 + 2, 1, &data )) return 0;
     return write_process_memory( process, process->peb + 2, 1, &data );
 }
 
@@ -1147,9 +1061,6 @@ DECL_HANDLER(new_process)
     struct thread *parent_thread = current;
     int socket_fd = thread_get_inflight_fd( current, req->socket_fd );
     const obj_handle_t *handles = NULL;
-    const obj_handle_t *job_handles = NULL;
-    unsigned int i, job_handle_count;
-    struct job *job;
 
     if (socket_fd == -1)
     {
@@ -1174,6 +1085,11 @@ DECL_HANDLER(new_process)
         close( socket_fd );
         return;
     }
+    if (!is_cpu_supported( req->cpu ))
+    {
+        close( socket_fd );
+        return;
+    }
 
     if (req->parent_process)
     {
@@ -1186,9 +1102,7 @@ DECL_HANDLER(new_process)
     }
     else parent = (struct process *)grab_object( current->process );
 
-    /* If a job further in the job chain does not permit breakaway process creation
-     * succeeds and the process which is trying to breakaway is assigned to that job. */
-    if (parent->job && (req->flags & PROCESS_CREATE_FLAGS_BREAKAWAY) &&
+    if (parent->job && (req->create_flags & CREATE_BREAKAWAY_FROM_JOB) &&
         !(parent->job->limit_flags & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)))
     {
         set_error( STATUS_ACCESS_DENIED );
@@ -1221,31 +1135,6 @@ DECL_HANDLER(new_process)
         info_ptr = (const char *)info_ptr + req->handles_size;
         info->data_size -= req->handles_size;
     }
-
-    if ((req->jobs_size & 3) || req->jobs_size > info->data_size)
-    {
-        set_error( STATUS_INVALID_PARAMETER );
-        close( socket_fd );
-        goto done;
-    }
-    if (req->jobs_size)
-    {
-        job_handles = info_ptr;
-        info_ptr = (const char *)info_ptr + req->jobs_size;
-        info->data_size -= req->jobs_size;
-    }
-
-    job_handle_count = req->jobs_size / sizeof(*handles);
-    for (i = 0; i < job_handle_count; ++i)
-    {
-        if (!(job = get_job_obj( current->process, job_handles[i], JOB_OBJECT_ASSIGN_PROCESS )))
-        {
-            close( socket_fd );
-            goto done;
-        }
-        release_object( job );
-    }
-
     info->info_size = min( req->info_size, info->data_size );
 
     if (req->info_size < sizeof(*info->data))
@@ -1297,37 +1186,16 @@ DECL_HANDLER(new_process)
         goto done;
     }
 
-    if (!(process = create_process( socket_fd, parent, req->flags, info->data, sd,
+    if (!(process = create_process( socket_fd, parent, req->inherit_all, info->data, sd,
                                     handles, req->handles_size / sizeof(*handles), token )))
         goto done;
 
     process->startup_info = (struct startup_info *)grab_object( info );
 
-    job = parent->job;
-    while (job)
-    {
-        if (!(job->limit_flags & JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
-                && !(req->flags & PROCESS_CREATE_FLAGS_BREAKAWAY
-                && job->limit_flags & JOB_OBJECT_LIMIT_BREAKAWAY_OK))
-        {
-            add_job_process( job, process );
-            assert( !get_error() );
-            break;
-        }
-        job = job->parent;
-    }
-
-    for (i = 0; i < job_handle_count; ++i)
-    {
-        job = get_job_obj( current->process, job_handles[i], JOB_OBJECT_ASSIGN_PROCESS );
-        add_job_process( job, process );
-        release_object( job );
-        if (get_error())
-        {
-            release_job_process( process );
-            goto done;
-        }
-    }
+    if (parent->job
+       && !(req->create_flags & CREATE_BREAKAWAY_FROM_JOB)
+       && !(parent->job->limit_flags & JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK))
+         add_job_process( parent->job, process, NULL );
 
     /* connect to the window station */
     connect_process_winstation( process, parent_thread, parent );
@@ -1337,7 +1205,7 @@ DECL_HANDLER(new_process)
         info->data->console = duplicate_handle( parent, info->data->console, process,
                                                 0, 0, DUPLICATE_SAME_ACCESS );
 
-    if (!(req->flags & PROCESS_CREATE_FLAGS_INHERIT_HANDLES) && info->data->console != 1)
+    if (!req->inherit_all && !(req->create_flags & CREATE_NEW_CONSOLE))
     {
         info->data->hstdin  = duplicate_handle( parent, info->data->hstdin, process,
                                                 0, OBJ_INHERIT, DUPLICATE_SAME_ACCESS );
@@ -1354,7 +1222,7 @@ DECL_HANDLER(new_process)
     if (debug_obj)
     {
         process->debug_obj = debug_obj;
-        process->debug_children = !(req->flags & PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT);
+        process->debug_children = !(req->create_flags & DEBUG_ONLY_THIS_PROCESS);
     }
     else if (parent->debug_children)
     {
@@ -1362,7 +1230,8 @@ DECL_HANDLER(new_process)
         /* debug_children is set to 1 by default */
     }
 
-    if (!info->data->console_flags) process->group_id = parent->group_id;
+    if (!(req->create_flags & CREATE_NEW_PROCESS_GROUP))
+        process->group_id = parent->group_id;
 
     info->process = (struct process *)grab_object( process );
     reply->info = alloc_handle( current->process, info, SYNCHRONIZE, 0 );
@@ -1375,6 +1244,39 @@ DECL_HANDLER(new_process)
     if (token) release_object( token );
     release_object( parent );
     release_object( info );
+}
+
+/* execute a new process, replacing the existing one */
+DECL_HANDLER(exec_process)
+{
+    struct process *process;
+    int socket_fd = thread_get_inflight_fd( current, req->socket_fd );
+
+    if (socket_fd == -1)
+    {
+        set_error( STATUS_INVALID_PARAMETER );
+        return;
+    }
+    if (fcntl( socket_fd, F_SETFL, O_NONBLOCK ) == -1)
+    {
+        set_error( STATUS_INVALID_HANDLE );
+        close( socket_fd );
+        return;
+    }
+    if (shutdown_stage)
+    {
+        set_error( STATUS_SHUTDOWN_IN_PROGRESS );
+        close( socket_fd );
+        return;
+    }
+    if (!is_cpu_supported( req->cpu ))
+    {
+        close( socket_fd );
+        return;
+    }
+    if (!(process = create_process( socket_fd, NULL, 0, NULL, NULL, NULL, 0, NULL ))) return;
+    create_thread( -1, process, NULL );
+    release_object( process );
 }
 
 /* Retrieve information about a newly started process */
@@ -1413,11 +1315,11 @@ DECL_HANDLER(get_startup_info)
 DECL_HANDLER(init_process_done)
 {
     struct process *process = current->process;
-    const struct cpu_topology_override *cpu_override = get_req_data();
-    unsigned int have_cpu_override = get_req_data_size() / sizeof(*cpu_override);
     struct memory_view *view;
     client_ptr_t base;
     const pe_image_info_t *image_info;
+    const struct cpu_topology_override *cpu_override = get_req_data();
+    unsigned int have_cpu_override = get_req_data_size() / sizeof(*cpu_override);
 
     if (is_process_init_done(process))
     {
@@ -1430,10 +1332,6 @@ DECL_HANDLER(init_process_done)
         return;
     }
     if (!(image_info = get_view_image_info( view, &base ))) return;
-
-    current->teb      = req->teb;
-    process->peb      = req->peb;
-    process->ldt_copy = req->ldt_copy;
 
     process->start_time = current_time;
     current->entry_point = image_info->entry_point;
@@ -1496,19 +1394,14 @@ DECL_HANDLER(get_process_info)
         reply->peb              = process->peb;
         reply->start_time       = process->start_time;
         reply->end_time         = process->end_time;
-        reply->session_id       = process->session_id;
-        reply->machine          = process->machine;
+        reply->cpu              = process->cpu;
         if (get_reply_max_size())
         {
             client_ptr_t base;
             const pe_image_info_t *info;
             struct memory_view *view = get_exe_view( process );
-            if (view)
-            {
-                if ((info = get_view_image_info( view, &base )))
-                    set_reply_data( info, min( sizeof(*info), get_reply_max_size() ));
-            }
-            else set_error( STATUS_PROCESS_IS_TERMINATING );
+            if (view && (info = get_view_image_info( view, &base )))
+                set_reply_data( info, min( sizeof(*info), get_reply_max_size() ));
         }
         release_object( process );
     }
@@ -1530,12 +1423,13 @@ DECL_HANDLER(get_process_debug_info)
 /* fetch the name of the process image */
 DECL_HANDLER(get_process_image_name)
 {
+    struct unicode_str name;
+    struct memory_view *view;
     struct process *process = get_process_from_handle( req->handle, PROCESS_QUERY_LIMITED_INFORMATION );
 
     if (!process) return;
-    if (process->image)
+    if ((view = get_exe_view( process )) && get_view_nt_name( view, &name ))
     {
-        struct unicode_str name = { process->image, process->imagelen };
         /* skip the \??\ prefix */
         if (req->win32 && name.len > 6 * sizeof(WCHAR) && name.str[5] == ':')
         {
@@ -1553,6 +1447,7 @@ DECL_HANDLER(get_process_image_name)
         }
         else set_error( STATUS_BUFFER_TOO_SMALL );
     }
+    else set_error( STATUS_INVALID_HANDLE );
     release_object( process );
 }
 
@@ -1597,6 +1492,22 @@ DECL_HANDLER(get_process_vm_counters)
     release_object( process );
 }
 
+static void set_process_priority( struct process *process, int priority )
+{
+    struct thread *thread;
+
+    if (!process->running_threads)
+    {
+        set_error( STATUS_PROCESS_IS_TERMINATING );
+        return;
+    }
+
+    LIST_FOR_EACH_ENTRY( thread, &process->thread_list, struct thread, proc_entry )
+        set_thread_priority( thread, priority, thread->priority );
+
+    process->priority = priority;
+}
+
 static void set_process_affinity( struct process *process, affinity_t affinity )
 {
     struct thread *thread;
@@ -1622,7 +1533,7 @@ DECL_HANDLER(set_process_info)
 
     if ((process = get_process_from_handle( req->handle, PROCESS_SET_INFORMATION )))
     {
-        if (req->mask & SET_PROCESS_INFO_PRIORITY) process->priority = req->priority;
+        if (req->mask & SET_PROCESS_INFO_PRIORITY) set_process_priority( process, req->priority );
         if (req->mask & SET_PROCESS_INFO_AFFINITY) set_process_affinity( process, req->affinity );
         release_object( process );
     }
@@ -1635,6 +1546,8 @@ DECL_HANDLER(read_process_memory)
     data_size_t len = get_reply_max_size();
 
     if (!(process = get_process_from_handle( req->handle, PROCESS_VM_READ ))) return;
+
+    reply->unix_pid = process->unix_pid;
 
     if (len)
     {
@@ -1682,8 +1595,7 @@ DECL_HANDLER(get_process_idle_event)
 /* make the current process a system process */
 DECL_HANDLER(make_process_system)
 {
-    struct process *process;
-    struct thread *thread;
+    struct process *process = current->process;
 
     if (!shutdown_event)
     {
@@ -1691,23 +1603,16 @@ DECL_HANDLER(make_process_system)
         release_object( shutdown_event );
     }
 
-    if (!(process = get_process_from_handle( req->handle, PROCESS_SET_INFORMATION ))) return;
-
     if (!(reply->event = alloc_handle( current->process, shutdown_event, SYNCHRONIZE, 0 )))
-    {
-        release_object( process );
         return;
-    }
 
     if (!process->is_system)
     {
-        LIST_FOR_EACH_ENTRY( thread, &process->thread_list, struct thread, proc_entry )
-            release_thread_desktop( thread, 0 );
         process->is_system = 1;
+        close_process_desktop( process );
         if (!--user_processes && !shutdown_stage && master_socket_timeout != TIMEOUT_INFINITE)
             shutdown_timeout = add_timeout_user( master_socket_timeout, server_shutdown_timeout, NULL );
     }
-    release_object( process );
 }
 
 /* create a new job object */
@@ -1747,13 +1652,35 @@ DECL_HANDLER(assign_job)
 {
     struct process *process;
     struct job *job = get_job_obj( current->process, req->job, JOB_OBJECT_ASSIGN_PROCESS );
+    struct job *curr_job;
 
     if (!job) return;
 
     if ((process = get_process_from_handle( req->process, PROCESS_SET_QUOTA | PROCESS_TERMINATE )))
     {
         if (!process->running_threads) set_error( STATUS_PROCESS_IS_TERMINATING );
-        else add_job_process( job, process );
+        else if (process->job != job)
+        {
+            if (!process->job || !job->parent)
+            {
+                struct job *parent = process->job;
+
+                add_job_process( job, process, NULL );
+                if (parent) job->parent = parent;
+            }
+            else
+            {
+                for (curr_job = job->parent; curr_job; curr_job = curr_job->parent)
+                    if (curr_job == process->job) break;
+
+                if (curr_job == process->job)
+                {
+                    release_object( process->job );
+                    add_job_process( job, process, process->job );
+                }
+                else set_error( STATUS_ACCESS_DENIED );
+            }
+        }
         release_object( process );
     }
     release_object( job );
@@ -1764,7 +1691,7 @@ DECL_HANDLER(assign_job)
 DECL_HANDLER(process_in_job)
 {
     struct process *process;
-    struct job *job;
+    struct job *job, *curr_job;
 
     if (!(process = get_process_from_handle( req->process, PROCESS_QUERY_INFORMATION )))
         return;
@@ -1775,7 +1702,10 @@ DECL_HANDLER(process_in_job)
     }
     else if ((job = get_job_obj( current->process, req->job, JOB_OBJECT_QUERY )))
     {
-        set_error( process_in_job( job, process ) ? STATUS_PROCESS_IN_JOB : STATUS_PROCESS_NOT_IN_JOB );
+        for (curr_job = process->job; curr_job; curr_job = curr_job->parent)
+            if (curr_job == job) break;
+
+        set_error( curr_job == job ? STATUS_PROCESS_IN_JOB : STATUS_PROCESS_NOT_IN_JOB );
         release_object( job );
     }
     release_object( process );
@@ -1826,8 +1756,6 @@ DECL_HANDLER(set_job_completion_port)
     {
         job->completion_port = get_completion_obj( current->process, req->port, IO_COMPLETION_MODIFY_STATE );
         job->completion_key = req->key;
-
-        add_job_completion_existing_processes( job, job );
     }
     else
         set_error( STATUS_INVALID_PARAMETER );
@@ -1878,6 +1806,7 @@ DECL_HANDLER(list_processes)
 {
     struct process *process;
     struct thread *thread;
+    struct unicode_str nt_name;
     unsigned int pos = 0;
     char *buffer;
 
@@ -1886,8 +1815,10 @@ DECL_HANDLER(list_processes)
 
     LIST_FOR_EACH_ENTRY( process, &process_list, struct process, entry )
     {
+        struct memory_view *view = get_exe_view( process );
+        if (!view || !get_view_nt_name( view, &nt_name )) nt_name.len = 0;
         reply->info_size = (reply->info_size + 7) & ~7;
-        reply->info_size += sizeof(struct process_info) + process->imagelen;
+        reply->info_size += sizeof(struct process_info) + nt_name.len;
         reply->info_size = (reply->info_size + 7) & ~7;
         reply->info_size += process->running_threads * sizeof(struct thread_info);
         reply->process_count++;
@@ -1905,21 +1836,22 @@ DECL_HANDLER(list_processes)
     LIST_FOR_EACH_ENTRY( process, &process_list, struct process, entry )
     {
         struct process_info *process_info;
+        struct memory_view *view = get_exe_view( process );
 
         pos = (pos + 7) & ~7;
+        if (!view || !get_view_nt_name( view, &nt_name )) nt_name.len = 0;
         process_info = (struct process_info *)(buffer + pos);
         process_info->start_time = process->start_time;
-        process_info->name_len = process->imagelen;
+        process_info->name_len = nt_name.len;
         process_info->thread_count = process->running_threads;
         process_info->priority = process->priority;
         process_info->pid = process->id;
         process_info->parent_pid = process->parent_id;
-        process_info->session_id = process->session_id;
         process_info->handle_count = get_handle_table_count(process);
         process_info->unix_pid = process->unix_pid;
         pos += sizeof(*process_info);
-        memcpy( buffer + pos, process->image, process->imagelen );
-        pos += process->imagelen;
+        memcpy( buffer + pos, nt_name.str, nt_name.len );
+        pos += nt_name.len;
         pos = (pos + 7) & ~7;
         LIST_FOR_EACH_ENTRY( thread, &process->thread_list, struct thread, proc_entry )
         {
@@ -1933,4 +1865,9 @@ DECL_HANDLER(list_processes)
             pos += sizeof(*thread_info);
         }
     }
+}
+
+DECL_HANDLER(prevent_kill)
+{
+    current->process->unix_pid = -1;
 }

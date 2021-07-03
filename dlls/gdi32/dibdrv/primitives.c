@@ -3503,40 +3503,16 @@ static inline BOOL color_tables_match(const dib_info *d1, const dib_info *d2)
     return !memcmp(d1->color_table, d2->color_table, (1 << d1->bit_count) * sizeof(d1->color_table[0]));
 }
 
-/*
- * To translate an RGB value into a colour table index Windows uses the 5 msbs of each component.
- * We thus create a lookup table with 32^3 entries.
- */
-struct rgb_lookup_colortable_ctx
+static inline DWORD rgb_lookup_colortable(const dib_info *dst, BYTE r, BYTE g, BYTE b)
 {
-    const dib_info *dib;
-    BYTE map[32 * 32 * 32];
-    BYTE valid[32 * 32 * 32 / 8];
-};
-
-static void rgb_lookup_colortable_init(const dib_info *dib, struct rgb_lookup_colortable_ctx *ctx)
-{
-    ctx->dib = dib;
-    memset(ctx->valid, 0, sizeof(ctx->valid));
-}
-
-static inline BYTE rgb_lookup_colortable(struct rgb_lookup_colortable_ctx *ctx, DWORD r, DWORD g, DWORD b)
-{
-    DWORD pos = ((r & 0xf8) >> 3) | ((g & 0xf8) << 2) | ((b & 0xf8) << 7);
-
-    if (!(ctx->valid[pos / 8] & pixel_masks_1[pos & 7]))
-    {
-        ctx->valid[pos / 8] |= pixel_masks_1[pos & 7];
-        ctx->map[pos] = rgb_to_pixel_colortable(ctx->dib, (r & 0xf8) | 4, (g & 0xf8) | 4, (b & 0xf8) | 4);
-    }
-    return ctx->map[pos];
+    /* Windows reduces precision to 5 bits, probably in order to build some sort of lookup cache */
+    return rgb_to_pixel_colortable( dst, (r & ~7) + 4, (g & ~7) + 4, (b & ~7) + 4 );
 }
 
 static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rect, BOOL dither)
 {
     BYTE *dst_start = get_pixel_ptr_8(dst, 0, 0), *dst_pixel;
     INT x, y, pad_size = ((dst->width + 3) & ~3) - (src_rect->right - src_rect->left);
-    struct rgb_lookup_colortable_ctx lookup_ctx;
     DWORD src_val;
 
     switch(src->bit_count)
@@ -3545,7 +3521,6 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
     {
         DWORD *src_start = get_pixel_ptr_32(src, src_rect->left, src_rect->top), *src_pixel;
 
-        rgb_lookup_colortable_init(dst, &lookup_ctx);
         if(src->funcs == &funcs_8888)
         {
             for(y = src_rect->top; y < src_rect->bottom; y++)
@@ -3555,7 +3530,7 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
                 for(x = src_rect->left; x < src_rect->right; x++)
                 {
                     src_val = *src_pixel++;
-                    *dst_pixel++ = rgb_lookup_colortable(&lookup_ctx, src_val >> 16, src_val >> 8, src_val );
+                    *dst_pixel++ = rgb_lookup_colortable(dst, src_val >> 16, src_val >> 8, src_val );
                 }
                 if(pad_size) memset(dst_pixel, 0, pad_size);
                 dst_start += dst->stride;
@@ -3571,7 +3546,7 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
                 for(x = src_rect->left; x < src_rect->right; x++)
                 {
                     src_val = *src_pixel++;
-                    *dst_pixel++ = rgb_lookup_colortable(&lookup_ctx,
+                    *dst_pixel++ = rgb_lookup_colortable(dst,
                                                          src_val >> src->red_shift,
                                                          src_val >> src->green_shift,
                                                          src_val >> src->blue_shift );
@@ -3590,7 +3565,7 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
                 for(x = src_rect->left; x < src_rect->right; x++)
                 {
                     src_val = *src_pixel++;
-                    *dst_pixel++ = rgb_lookup_colortable(&lookup_ctx,
+                    *dst_pixel++ = rgb_lookup_colortable(dst,
                                                          get_field(src_val, src->red_shift, src->red_len),
                                                          get_field(src_val, src->green_shift, src->green_len),
                                                          get_field(src_val, src->blue_shift, src->blue_len));
@@ -3607,14 +3582,13 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
     {
         BYTE *src_start = get_pixel_ptr_24(src, src_rect->left, src_rect->top), *src_pixel;
 
-        rgb_lookup_colortable_init(dst, &lookup_ctx);
         for(y = src_rect->top; y < src_rect->bottom; y++)
         {
             dst_pixel = dst_start;
             src_pixel = src_start;
             for(x = src_rect->left; x < src_rect->right; x++, src_pixel += 3)
             {
-                *dst_pixel++ = rgb_lookup_colortable(&lookup_ctx, src_pixel[2], src_pixel[1], src_pixel[0] );
+                *dst_pixel++ = rgb_lookup_colortable(dst, src_pixel[2], src_pixel[1], src_pixel[0] );
             }
             if(pad_size) memset(dst_pixel, 0, pad_size);
             dst_start += dst->stride;
@@ -3626,7 +3600,6 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
     case 16:
     {
         WORD *src_start = get_pixel_ptr_16(src, src_rect->left, src_rect->top), *src_pixel;
-        rgb_lookup_colortable_init(dst, &lookup_ctx);
         if(src->funcs == &funcs_555)
         {
             for(y = src_rect->top; y < src_rect->bottom; y++)
@@ -3636,7 +3609,7 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
                 for(x = src_rect->left; x < src_rect->right; x++)
                 {
                     src_val = *src_pixel++;
-                    *dst_pixel++ = rgb_lookup_colortable(&lookup_ctx,
+                    *dst_pixel++ = rgb_lookup_colortable(dst,
                                                          ((src_val >> 7) & 0xf8) | ((src_val >> 12) & 0x07),
                                                          ((src_val >> 2) & 0xf8) | ((src_val >> 7) & 0x07),
                                                          ((src_val << 3) & 0xf8) | ((src_val >> 2) & 0x07) );
@@ -3655,7 +3628,7 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
                 for(x = src_rect->left; x < src_rect->right; x++)
                 {
                     src_val = *src_pixel++;
-                    *dst_pixel++ = rgb_lookup_colortable(&lookup_ctx,
+                    *dst_pixel++ = rgb_lookup_colortable(dst,
                                                          (((src_val >> src->red_shift)   << 3) & 0xf8) |
                                                          (((src_val >> src->red_shift)   >> 2) & 0x07),
                                                          (((src_val >> src->green_shift) << 3) & 0xf8) |
@@ -3677,7 +3650,7 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
                 for(x = src_rect->left; x < src_rect->right; x++)
                 {
                     src_val = *src_pixel++;
-                    *dst_pixel++ = rgb_lookup_colortable(&lookup_ctx,
+                    *dst_pixel++ = rgb_lookup_colortable(dst,
                                                          (((src_val >> src->red_shift)   << 3) & 0xf8) |
                                                          (((src_val >> src->red_shift)   >> 2) & 0x07),
                                                          (((src_val >> src->green_shift) << 2) & 0xfc) |
@@ -3699,7 +3672,7 @@ static void convert_to_8(dib_info *dst, const dib_info *src, const RECT *src_rec
                 for(x = src_rect->left; x < src_rect->right; x++)
                 {
                     src_val = *src_pixel++;
-                    *dst_pixel++ = rgb_lookup_colortable(&lookup_ctx,
+                    *dst_pixel++ = rgb_lookup_colortable(dst,
                                                          get_field(src_val, src->red_shift, src->red_len),
                                                          get_field(src_val, src->green_shift, src->green_len),
                                                          get_field(src_val, src->blue_shift, src->blue_len));
@@ -4678,140 +4651,60 @@ static inline DWORD blend_rgb( BYTE dst_r, BYTE dst_g, BYTE dst_b, DWORD src, BL
             blend_color( dst_r, src >> 16, blend.SourceConstantAlpha ) << 16);
 }
 
-static void blend_rects_8888(const dib_info *dst, int num, const RECT *rc,
-                             const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
+static void blend_rect_8888(const dib_info *dst, const RECT *rc,
+                            const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
 {
-    int i, x, y;
+    DWORD *src_ptr = get_pixel_ptr_32( src, origin->x, origin->y );
+    DWORD *dst_ptr = get_pixel_ptr_32( dst, rc->left, rc->top );
+    int x, y;
 
-    for (i = 0; i < num; i++, rc++)
+    if (blend.AlphaFormat & AC_SRC_ALPHA)
     {
-        DWORD *src_ptr = get_pixel_ptr_32( src, rc->left + offset->x, rc->top + offset->y );
-        DWORD *dst_ptr = get_pixel_ptr_32( dst, rc->left, rc->top );
-
-        if (blend.AlphaFormat & AC_SRC_ALPHA)
-        {
-            if (blend.SourceConstantAlpha == 255)
-                for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
-                    for (x = 0; x < rc->right - rc->left; x++)
-                        dst_ptr[x] = blend_argb( dst_ptr[x], src_ptr[x] );
-            else
-                for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
-                    for (x = 0; x < rc->right - rc->left; x++)
-                        dst_ptr[x] = blend_argb_alpha( dst_ptr[x], src_ptr[x], blend.SourceConstantAlpha );
-        }
-        else if (src->compression == BI_RGB)
-            for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
-                for (x = 0; x < rc->right - rc->left; x++)
-                    dst_ptr[x] = blend_argb_constant_alpha( dst_ptr[x], src_ptr[x], blend.SourceConstantAlpha );
+	if (blend.SourceConstantAlpha == 255)
+	    for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
+		for (x = 0; x < rc->right - rc->left; x++)
+		    dst_ptr[x] = blend_argb( dst_ptr[x], src_ptr[x] );
         else
-            for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
-                for (x = 0; x < rc->right - rc->left; x++)
-                    dst_ptr[x] = blend_argb_no_src_alpha( dst_ptr[x], src_ptr[x], blend.SourceConstantAlpha );
+	    for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
+		for (x = 0; x < rc->right - rc->left; x++)
+		    dst_ptr[x] = blend_argb_alpha( dst_ptr[x], src_ptr[x], blend.SourceConstantAlpha );
     }
+    else if (src->compression == BI_RGB)
+	for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
+	    for (x = 0; x < rc->right - rc->left; x++)
+		dst_ptr[x] = blend_argb_constant_alpha( dst_ptr[x], src_ptr[x], blend.SourceConstantAlpha );
+    else
+	for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
+	    for (x = 0; x < rc->right - rc->left; x++)
+		dst_ptr[x] = blend_argb_no_src_alpha( dst_ptr[x], src_ptr[x], blend.SourceConstantAlpha );
 }
 
-static void blend_rects_32(const dib_info *dst, int num, const RECT *rc,
-                           const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
+static void blend_rect_32(const dib_info *dst, const RECT *rc,
+                          const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
 {
-    int i, x, y;
+    DWORD *src_ptr = get_pixel_ptr_32( src, origin->x, origin->y );
+    DWORD *dst_ptr = get_pixel_ptr_32( dst, rc->left, rc->top );
+    int x, y;
 
-    for (i = 0; i < num; i++, rc++)
+    if (dst->red_len == 8 && dst->green_len == 8 && dst->blue_len == 8)
     {
-        DWORD *src_ptr = get_pixel_ptr_32( src, rc->left + offset->x, rc->top + offset->y );
-        DWORD *dst_ptr = get_pixel_ptr_32( dst, rc->left, rc->top );
-
-        if (dst->red_len == 8 && dst->green_len == 8 && dst->blue_len == 8)
-        {
-            for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
-            {
-                for (x = 0; x < rc->right - rc->left; x++)
-                {
-                    DWORD val = blend_rgb( dst_ptr[x] >> dst->red_shift,
-                                           dst_ptr[x] >> dst->green_shift,
-                                           dst_ptr[x] >> dst->blue_shift,
-                                           src_ptr[x], blend );
-                    dst_ptr[x] = ((( val        & 0xff) << dst->blue_shift) |
-                                  (((val >> 8)  & 0xff) << dst->green_shift) |
-                                  (((val >> 16) & 0xff) << dst->red_shift));
-                }
-            }
-        }
-        else
-        {
-            for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
-            {
-                for (x = 0; x < rc->right - rc->left; x++)
-                {
-                    DWORD val = blend_rgb( get_field( dst_ptr[x], dst->red_shift, dst->red_len ),
-                                           get_field( dst_ptr[x], dst->green_shift, dst->green_len ),
-                                           get_field( dst_ptr[x], dst->blue_shift, dst->blue_len ),
-                                           src_ptr[x], blend );
-                    dst_ptr[x] = rgb_to_pixel_masks( dst, val >> 16, val >> 8, val );
-                }
-            }
-        }
-    }
-}
-
-static void blend_rects_24(const dib_info *dst, int num, const RECT *rc,
-                           const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
-{
-    int i, x, y;
-
-    for (i = 0; i < num; i++, rc++)
-    {
-        DWORD *src_ptr = get_pixel_ptr_32( src, rc->left + offset->x, rc->top + offset->y );
-        BYTE *dst_ptr = get_pixel_ptr_24( dst, rc->left, rc->top );
-
-        for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride, src_ptr += src->stride / 4)
+        for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
         {
             for (x = 0; x < rc->right - rc->left; x++)
             {
-                DWORD val = blend_rgb( dst_ptr[x * 3 + 2], dst_ptr[x * 3 + 1], dst_ptr[x * 3],
+                DWORD val = blend_rgb( dst_ptr[x] >> dst->red_shift,
+                                       dst_ptr[x] >> dst->green_shift,
+                                       dst_ptr[x] >> dst->blue_shift,
                                        src_ptr[x], blend );
-                dst_ptr[x * 3]     = val;
-                dst_ptr[x * 3 + 1] = val >> 8;
-                dst_ptr[x * 3 + 2] = val >> 16;
+                dst_ptr[x] = ((( val        & 0xff) << dst->blue_shift) |
+                              (((val >> 8)  & 0xff) << dst->green_shift) |
+                              (((val >> 16) & 0xff) << dst->red_shift));
             }
         }
     }
-}
-
-static void blend_rects_555(const dib_info *dst, int num, const RECT *rc,
-                            const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
-{
-    int i, x, y;
-
-    for (i = 0; i < num; i++, rc++)
+    else
     {
-        DWORD *src_ptr = get_pixel_ptr_32( src, rc->left + offset->x, rc->top + offset->y );
-        WORD *dst_ptr = get_pixel_ptr_16( dst, rc->left, rc->top );
-
-        for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 2, src_ptr += src->stride / 4)
-        {
-            for (x = 0; x < rc->right - rc->left; x++)
-            {
-                DWORD val = blend_rgb( ((dst_ptr[x] >> 7) & 0xf8) | ((dst_ptr[x] >> 12) & 0x07),
-                                       ((dst_ptr[x] >> 2) & 0xf8) | ((dst_ptr[x] >>  7) & 0x07),
-                                       ((dst_ptr[x] << 3) & 0xf8) | ((dst_ptr[x] >>  2) & 0x07),
-                                       src_ptr[x], blend );
-                dst_ptr[x] = ((val >> 9) & 0x7c00) | ((val >> 6) & 0x03e0) | ((val >> 3) & 0x001f);
-            }
-        }
-    }
-}
-
-static void blend_rects_16(const dib_info *dst, int num, const RECT *rc,
-                           const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
-{
-    int i, x, y;
-
-    for (i = 0; i < num; i++, rc++)
-    {
-        DWORD *src_ptr = get_pixel_ptr_32( src, rc->left + offset->x, rc->top + offset->y );
-        WORD *dst_ptr = get_pixel_ptr_16( dst, rc->left, rc->top );
-
-        for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 2, src_ptr += src->stride / 4)
+        for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 4, src_ptr += src->stride / 4)
         {
             for (x = 0; x < rc->right - rc->left; x++)
             {
@@ -4825,88 +4718,132 @@ static void blend_rects_16(const dib_info *dst, int num, const RECT *rc,
     }
 }
 
-static void blend_rects_8(const dib_info *dst, int num, const RECT *rc,
-                          const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
+static void blend_rect_24(const dib_info *dst, const RECT *rc,
+                          const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
+{
+    DWORD *src_ptr = get_pixel_ptr_32( src, origin->x, origin->y );
+    BYTE *dst_ptr = get_pixel_ptr_24( dst, rc->left, rc->top );
+    int x, y;
+
+    for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride, src_ptr += src->stride / 4)
+    {
+        for (x = 0; x < rc->right - rc->left; x++)
+        {
+            DWORD val = blend_rgb( dst_ptr[x * 3 + 2], dst_ptr[x * 3 + 1], dst_ptr[x * 3],
+                                   src_ptr[x], blend );
+            dst_ptr[x * 3]     = val;
+            dst_ptr[x * 3 + 1] = val >> 8;
+            dst_ptr[x * 3 + 2] = val >> 16;
+        }
+    }
+}
+
+static void blend_rect_555(const dib_info *dst, const RECT *rc,
+                           const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
+{
+    DWORD *src_ptr = get_pixel_ptr_32( src, origin->x, origin->y );
+    WORD *dst_ptr = get_pixel_ptr_16( dst, rc->left, rc->top );
+    int x, y;
+
+    for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 2, src_ptr += src->stride / 4)
+    {
+        for (x = 0; x < rc->right - rc->left; x++)
+        {
+            DWORD val = blend_rgb( ((dst_ptr[x] >> 7) & 0xf8) | ((dst_ptr[x] >> 12) & 0x07),
+                                   ((dst_ptr[x] >> 2) & 0xf8) | ((dst_ptr[x] >>  7) & 0x07),
+                                   ((dst_ptr[x] << 3) & 0xf8) | ((dst_ptr[x] >>  2) & 0x07),
+                                   src_ptr[x], blend );
+            dst_ptr[x] = ((val >> 9) & 0x7c00) | ((val >> 6) & 0x03e0) | ((val >> 3) & 0x001f);
+        }
+    }
+}
+
+static void blend_rect_16(const dib_info *dst, const RECT *rc,
+                          const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
+{
+    DWORD *src_ptr = get_pixel_ptr_32( src, origin->x, origin->y );
+    WORD *dst_ptr = get_pixel_ptr_16( dst, rc->left, rc->top );
+    int x, y;
+
+    for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride / 2, src_ptr += src->stride / 4)
+    {
+        for (x = 0; x < rc->right - rc->left; x++)
+        {
+            DWORD val = blend_rgb( get_field( dst_ptr[x], dst->red_shift, dst->red_len ),
+                                   get_field( dst_ptr[x], dst->green_shift, dst->green_len ),
+                                   get_field( dst_ptr[x], dst->blue_shift, dst->blue_len ),
+                                   src_ptr[x], blend );
+            dst_ptr[x] = rgb_to_pixel_masks( dst, val >> 16, val >> 8, val );
+        }
+    }
+}
+
+static void blend_rect_8(const dib_info *dst, const RECT *rc,
+                         const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
 {
     const RGBQUAD *color_table = get_dib_color_table( dst );
-    struct rgb_lookup_colortable_ctx lookup_ctx;
+    DWORD *src_ptr = get_pixel_ptr_32( src, origin->x, origin->y );
+    BYTE *dst_ptr = get_pixel_ptr_8( dst, rc->left, rc->top );
+    int x, y;
+
+    for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride, src_ptr += src->stride / 4)
+    {
+        for (x = 0; x < rc->right - rc->left; x++)
+        {
+            RGBQUAD rgb = color_table[dst_ptr[x]];
+            DWORD val = blend_rgb( rgb.rgbRed, rgb.rgbGreen, rgb.rgbBlue, src_ptr[x], blend );
+            dst_ptr[x] = rgb_lookup_colortable( dst, val >> 16, val >> 8, val );
+        }
+    }
+}
+
+static void blend_rect_4(const dib_info *dst, const RECT *rc,
+                         const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
+{
+    const RGBQUAD *color_table = get_dib_color_table( dst );
+    DWORD *src_ptr = get_pixel_ptr_32( src, origin->x, origin->y );
+    BYTE *dst_ptr = get_pixel_ptr_4( dst, rc->left, rc->top );
     int i, x, y;
 
-    rgb_lookup_colortable_init( dst, &lookup_ctx );
-    for (i = 0; i < num; i++, rc++)
+    for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride, src_ptr += src->stride / 4)
     {
-        DWORD *src_ptr = get_pixel_ptr_32( src, rc->left + offset->x, rc->top + offset->y );
-        BYTE *dst_ptr = get_pixel_ptr_8( dst, rc->left, rc->top );
-
-        for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride, src_ptr += src->stride / 4)
+        for (i = 0, x = (dst->rect.left + rc->left) & 1; i < rc->right - rc->left; i++, x++)
         {
-            for (x = 0; x < rc->right - rc->left; x++)
-            {
-                RGBQUAD rgb = color_table[dst_ptr[x]];
-                DWORD val = blend_rgb( rgb.rgbRed, rgb.rgbGreen, rgb.rgbBlue, src_ptr[x], blend );
-                dst_ptr[x] = rgb_lookup_colortable( &lookup_ctx, val >> 16, val >> 8, val );
-            }
+            DWORD val = ((x & 1) ? dst_ptr[x / 2] : (dst_ptr[x / 2] >> 4)) & 0x0f;
+            RGBQUAD rgb = color_table[val];
+            val = blend_rgb( rgb.rgbRed, rgb.rgbGreen, rgb.rgbBlue, src_ptr[i], blend );
+            val = rgb_lookup_colortable( dst, val >> 16, val >> 8, val );
+            if (x & 1)
+                dst_ptr[x / 2] = val | (dst_ptr[x / 2] & 0xf0);
+            else
+                dst_ptr[x / 2] = (val << 4) | (dst_ptr[x / 2] & 0x0f);
         }
     }
 }
 
-static void blend_rects_4(const dib_info *dst, int num, const RECT *rc,
-                          const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
+static void blend_rect_1(const dib_info *dst, const RECT *rc,
+                         const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
 {
     const RGBQUAD *color_table = get_dib_color_table( dst );
-    struct rgb_lookup_colortable_ctx lookup_ctx;
-    int i, j, x, y;
+    DWORD *src_ptr = get_pixel_ptr_32( src, origin->x, origin->y );
+    BYTE *dst_ptr = get_pixel_ptr_1( dst, rc->left, rc->top );
+    int i, x, y;
 
-    rgb_lookup_colortable_init( dst, &lookup_ctx );
-    for (i = 0; i < num; i++, rc++)
+    for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride, src_ptr += src->stride / 4)
     {
-        DWORD *src_ptr = get_pixel_ptr_32( src, rc->left + offset->x, rc->top + offset->y );
-        BYTE *dst_ptr = get_pixel_ptr_4( dst, rc->left, rc->top );
-
-        for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride, src_ptr += src->stride / 4)
+        for (i = 0, x = (dst->rect.left + rc->left) & 7; i < rc->right - rc->left; i++, x++)
         {
-            for (j = 0, x = (dst->rect.left + rc->left) & 1; j < rc->right - rc->left; j++, x++)
-            {
-                DWORD val = ((x & 1) ? dst_ptr[x / 2] : (dst_ptr[x / 2] >> 4)) & 0x0f;
-                RGBQUAD rgb = color_table[val];
-                val = blend_rgb( rgb.rgbRed, rgb.rgbGreen, rgb.rgbBlue, src_ptr[j], blend );
-                val = rgb_lookup_colortable( &lookup_ctx, val >> 16, val >> 8, val );
-                if (x & 1)
-                    dst_ptr[x / 2] = val | (dst_ptr[x / 2] & 0xf0);
-                else
-                    dst_ptr[x / 2] = (val << 4) | (dst_ptr[x / 2] & 0x0f);
-            }
+            DWORD val = (dst_ptr[x / 8] & pixel_masks_1[x % 8]) ? 1 : 0;
+            RGBQUAD rgb = color_table[val];
+            val = blend_rgb( rgb.rgbRed, rgb.rgbGreen, rgb.rgbBlue, src_ptr[i], blend );
+            val = rgb_to_pixel_colortable(dst, val >> 16, val >> 8, val) ? 0xff : 0;
+            dst_ptr[x / 8] = (dst_ptr[x / 8] & ~pixel_masks_1[x % 8]) | (val & pixel_masks_1[x % 8]);
         }
     }
 }
 
-static void blend_rects_1(const dib_info *dst, int num, const RECT *rc,
-                          const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
-{
-    const RGBQUAD *color_table = get_dib_color_table( dst );
-    int i, j, x, y;
-
-    for (i = 0; i < num; i++, rc++)
-    {
-        DWORD *src_ptr = get_pixel_ptr_32( src, rc->left + offset->x, rc->top + offset->y );
-        BYTE *dst_ptr = get_pixel_ptr_1( dst, rc->left, rc->top );
-
-        for (y = rc->top; y < rc->bottom; y++, dst_ptr += dst->stride, src_ptr += src->stride / 4)
-        {
-            for (j = 0, x = (dst->rect.left + rc->left) & 7; j < rc->right - rc->left; j++, x++)
-            {
-                DWORD val = (dst_ptr[x / 8] & pixel_masks_1[x % 8]) ? 1 : 0;
-                RGBQUAD rgb = color_table[val];
-                val = blend_rgb( rgb.rgbRed, rgb.rgbGreen, rgb.rgbBlue, src_ptr[j], blend );
-                val = rgb_to_pixel_colortable(dst, val >> 16, val >> 8, val) ? 0xff : 0;
-                dst_ptr[x / 8] = (dst_ptr[x / 8] & ~pixel_masks_1[x % 8]) | (val & pixel_masks_1[x % 8]);
-            }
-        }
-    }
-}
-
-static void blend_rects_null(const dib_info *dst, int num, const RECT *rc,
-                             const dib_info *src, const POINT *offset, BLENDFUNCTION blend)
+static void blend_rect_null(const dib_info *dst, const RECT *rc,
+                            const dib_info *src, const POINT *origin, BLENDFUNCTION blend)
 {
 }
 
@@ -7430,615 +7367,13 @@ static void shrink_row_null(const dib_info *dst_dib, const POINT *dst_start,
     return;
 }
 
-static float clampf( float value, float min, float max )
-{
-    return max( min, min( value, max ) );
-}
-
-static int clamp( int value, int min, int max )
-{
-    return max( min, min( value, max ) );
-}
-
-static BYTE linear_interpolate( BYTE start, BYTE end, float delta )
-{
-    return start + (end - start) * delta + 0.5f;
-}
-
-static BYTE bilinear_interpolate( BYTE c00, BYTE c01, BYTE c10, BYTE c11, float dx, float dy )
-{
-    return linear_interpolate( linear_interpolate( c00, c01, dx ),
-                               linear_interpolate( c10, c11, dx ), dy );
-}
-
-static void calc_halftone_params( const struct bitblt_coords *dst, const struct bitblt_coords *src,
-                                  RECT *dst_rect, RECT *src_rect, int *src_start_x,
-                                  int *src_start_y, float *src_inc_x, float *src_inc_y )
-{
-    int src_width, src_height, dst_width, dst_height;
-    BOOL mirrored_x, mirrored_y;
-
-    get_bounding_rect( src_rect, src->x, src->y, src->width, src->height );
-    get_bounding_rect( dst_rect, dst->x, dst->y, dst->width, dst->height );
-    intersect_rect( src_rect, &src->visrect, src_rect );
-    intersect_rect( dst_rect, &dst->visrect, dst_rect );
-    offset_rect( dst_rect, -dst_rect->left, -dst_rect->top );
-
-    src_width = src_rect->right - src_rect->left;
-    src_height = src_rect->bottom - src_rect->top;
-    dst_width = dst_rect->right - dst_rect->left;
-    dst_height = dst_rect->bottom - dst_rect->top;
-
-    mirrored_x = (dst->width < 0) != (src->width < 0);
-    mirrored_y = (dst->height < 0) != (src->height < 0);
-    *src_start_x = mirrored_x ? src_rect->right - 1 : src_rect->left;
-    *src_start_y = mirrored_y ? src_rect->bottom - 1 : src_rect->top;
-    *src_inc_x = mirrored_x ? -(float)src_width / dst_width : (float)src_width / dst_width;
-    *src_inc_y = mirrored_y ? -(float)src_height / dst_height : (float)src_height / dst_height;
-}
-
-static void halftone_888( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                          const dib_info *src_dib, const struct bitblt_coords *src )
-{
-    int src_start_x, src_start_y, src_ptr_dy, dst_x, dst_y, x0, x1, y0, y1;
-    DWORD *dst_ptr, *src_ptr, *c00_ptr, *c01_ptr, *c10_ptr, *c11_ptr;
-    float src_inc_x, src_inc_y, float_x, float_y, dx, dy;
-    BYTE c00_r, c01_r, c10_r, c11_r;
-    BYTE c00_g, c01_g, c10_g, c11_g;
-    BYTE c00_b, c01_b, c10_b, c11_b;
-    RECT dst_rect, src_rect;
-    BYTE r, g, b;
-
-    calc_halftone_params( dst, src, &dst_rect, &src_rect, &src_start_x, &src_start_y, &src_inc_x,
-                          &src_inc_y );
-
-    float_y = src_start_y;
-    dst_ptr = get_pixel_ptr_32( dst_dib, dst_rect.left, dst_rect.top );
-    for (dst_y = 0; dst_y < dst_rect.bottom - dst_rect.top; ++dst_y)
-    {
-        float_y = clampf( float_y, src_rect.top, src_rect.bottom - 1 );
-        y0 = float_y;
-        y1 = clamp( y0 + 1, src_rect.top, src_rect.bottom - 1 );
-        dy = float_y - y0;
-
-        float_x = src_start_x;
-        src_ptr = get_pixel_ptr_32( src_dib, 0, y0 );
-        src_ptr_dy = (y1 - y0) * src_dib->stride / 4;
-        for (dst_x = 0; dst_x < dst_rect.right - dst_rect.left; ++dst_x)
-        {
-            float_x = clampf( float_x, src_rect.left, src_rect.right - 1 );
-            x0 = float_x;
-            x1 = clamp( x0 + 1, src_rect.left, src_rect.right - 1 );
-            dx = float_x - x0;
-
-            c00_ptr = src_ptr + x0;
-            c01_ptr = src_ptr + x1;
-            c10_ptr = c00_ptr + src_ptr_dy;
-            c11_ptr = c01_ptr + src_ptr_dy;
-            c00_r = (*c00_ptr >> 16) & 0xff;
-            c01_r = (*c01_ptr >> 16) & 0xff;
-            c10_r = (*c10_ptr >> 16) & 0xff;
-            c11_r = (*c11_ptr >> 16) & 0xff;
-            c00_g = (*c00_ptr >> 8) & 0xff;
-            c01_g = (*c01_ptr >> 8) & 0xff;
-            c10_g = (*c10_ptr >> 8) & 0xff;
-            c11_g = (*c11_ptr >> 8) & 0xff;
-            c00_b = *c00_ptr & 0xff;
-            c01_b = *c01_ptr & 0xff;
-            c10_b = *c10_ptr & 0xff;
-            c11_b = *c11_ptr & 0xff;
-            r = bilinear_interpolate( c00_r, c01_r, c10_r, c11_r, dx, dy );
-            g = bilinear_interpolate( c00_g, c01_g, c10_g, c11_g, dx, dy );
-            b = bilinear_interpolate( c00_b, c01_b, c10_b, c11_b, dx, dy );
-            dst_ptr[dst_x] = ((r << 16) & 0xff0000) | ((g << 8) & 0x00ff00) | (b & 0x0000ff);
-
-            float_x += src_inc_x;
-        }
-
-        dst_ptr += dst_dib->stride / 4;
-        float_y += src_inc_y;
-    }
-}
-
-static void halftone_32( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                         const dib_info *src_dib, const struct bitblt_coords *src )
-{
-    int src_start_x, src_start_y, src_ptr_dy, dst_x, dst_y, x0, x1, y0, y1;
-    DWORD *dst_ptr, *src_ptr, *c00_ptr, *c01_ptr, *c10_ptr, *c11_ptr;
-    float src_inc_x, src_inc_y, float_x, float_y, dx, dy;
-    BYTE c00_r, c01_r, c10_r, c11_r;
-    BYTE c00_g, c01_g, c10_g, c11_g;
-    BYTE c00_b, c01_b, c10_b, c11_b;
-    RECT dst_rect, src_rect;
-    BYTE r, g, b;
-
-    calc_halftone_params( dst, src, &dst_rect, &src_rect, &src_start_x, &src_start_y, &src_inc_x,
-                          &src_inc_y );
-
-    float_y = src_start_y;
-    dst_ptr = get_pixel_ptr_32( dst_dib, dst_rect.left, dst_rect.top );
-    for (dst_y = 0; dst_y < dst_rect.bottom - dst_rect.top; ++dst_y)
-    {
-        float_y = clampf( float_y, src_rect.top, src_rect.bottom - 1 );
-        y0 = float_y;
-        y1 = clamp( y0 + 1, src_rect.top, src_rect.bottom - 1 );
-        dy = float_y - y0;
-
-        float_x = src_start_x;
-        src_ptr = get_pixel_ptr_32( src_dib, 0, y0 );
-        src_ptr_dy = (y1 - y0) * src_dib->stride / 4;
-        for (dst_x = 0; dst_x < dst_rect.right - dst_rect.left; ++dst_x)
-        {
-            float_x = clampf( float_x, src_rect.left, src_rect.right - 1 );
-            x0 = float_x;
-            x1 = clamp( x0 + 1, src_rect.left, src_rect.right - 1 );
-            dx = float_x - x0;
-
-            c00_ptr = src_ptr + x0;
-            c01_ptr = src_ptr + x1;
-            c10_ptr = c00_ptr + src_ptr_dy;
-            c11_ptr = c01_ptr + src_ptr_dy;
-            c00_r = get_field( *c00_ptr, src_dib->red_shift, src_dib->red_len );
-            c01_r = get_field( *c01_ptr, src_dib->red_shift, src_dib->red_len );
-            c10_r = get_field( *c10_ptr, src_dib->red_shift, src_dib->red_len );
-            c11_r = get_field( *c11_ptr, src_dib->red_shift, src_dib->red_len );
-            c00_g = get_field( *c00_ptr, src_dib->green_shift, src_dib->green_len );
-            c01_g = get_field( *c01_ptr, src_dib->green_shift, src_dib->green_len );
-            c10_g = get_field( *c10_ptr, src_dib->green_shift, src_dib->green_len );
-            c11_g = get_field( *c11_ptr, src_dib->green_shift, src_dib->green_len );
-            c00_b = get_field( *c00_ptr, src_dib->blue_shift, src_dib->blue_len );
-            c01_b = get_field( *c01_ptr, src_dib->blue_shift, src_dib->blue_len );
-            c10_b = get_field( *c10_ptr, src_dib->blue_shift, src_dib->blue_len );
-            c11_b = get_field( *c11_ptr, src_dib->blue_shift, src_dib->blue_len );
-            r = bilinear_interpolate( c00_r, c01_r, c10_r, c11_r, dx, dy );
-            g = bilinear_interpolate( c00_g, c01_g, c10_g, c11_g, dx, dy );
-            b = bilinear_interpolate( c00_b, c01_b, c10_b, c11_b, dx, dy );
-            dst_ptr[dst_x] = rgb_to_pixel_masks( dst_dib, r, g, b );
-
-            float_x += src_inc_x;
-        }
-
-        dst_ptr += dst_dib->stride / 4;
-        float_y += src_inc_y;
-    }
-}
-
-static void halftone_24( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                         const dib_info *src_dib, const struct bitblt_coords *src )
-{
-    int src_start_x, src_start_y, src_ptr_dy, dst_x, dst_y, x0, x1, y0, y1;
-    BYTE *dst_ptr, *src_ptr, *c00_ptr, *c01_ptr, *c10_ptr, *c11_ptr;
-    float src_inc_x, src_inc_y, float_x, float_y, dx, dy;
-    BYTE c00_r, c01_r, c10_r, c11_r;
-    BYTE c00_g, c01_g, c10_g, c11_g;
-    BYTE c00_b, c01_b, c10_b, c11_b;
-    RECT dst_rect, src_rect;
-    BYTE r, g, b;
-
-    calc_halftone_params( dst, src, &dst_rect, &src_rect, &src_start_x, &src_start_y, &src_inc_x,
-                          &src_inc_y );
-
-    float_y = src_start_y;
-    dst_ptr = get_pixel_ptr_24( dst_dib, dst_rect.left, dst_rect.top );
-    for (dst_y = 0; dst_y < dst_rect.bottom - dst_rect.top; ++dst_y)
-    {
-        float_y = clampf( float_y, src_rect.top, src_rect.bottom - 1 );
-        y0 = float_y;
-        y1 = clamp( y0 + 1, src_rect.top, src_rect.bottom - 1 );
-        dy = float_y - y0;
-
-        float_x = src_start_x;
-        src_ptr = get_pixel_ptr_24( src_dib, 0, y0 );
-        src_ptr_dy = (y1 - y0) * src_dib->stride;
-        for (dst_x = 0; dst_x < dst_rect.right - dst_rect.left; ++dst_x)
-        {
-            float_x = clampf( float_x, src_rect.left, src_rect.right - 1 );
-            x0 = float_x;
-            x1 = clamp( x0 + 1, src_rect.left, src_rect.right - 1 );
-            dx = float_x - x0;
-
-            c00_ptr = src_ptr + x0 * 3;
-            c01_ptr = src_ptr + x1 * 3;
-            c10_ptr = c00_ptr + src_ptr_dy;
-            c11_ptr = c01_ptr + src_ptr_dy;
-            c00_b = c00_ptr[0];
-            c01_b = c01_ptr[0];
-            c10_b = c10_ptr[0];
-            c11_b = c11_ptr[0];
-            c00_g = c00_ptr[1];
-            c01_g = c01_ptr[1];
-            c10_g = c10_ptr[1];
-            c11_g = c11_ptr[1];
-            c00_r = c00_ptr[2];
-            c01_r = c01_ptr[2];
-            c10_r = c10_ptr[2];
-            c11_r = c11_ptr[2];
-            r = bilinear_interpolate( c00_r, c01_r, c10_r, c11_r, dx, dy );
-            g = bilinear_interpolate( c00_g, c01_g, c10_g, c11_g, dx, dy );
-            b = bilinear_interpolate( c00_b, c01_b, c10_b, c11_b, dx, dy );
-            dst_ptr[dst_x * 3] = b;
-            dst_ptr[dst_x * 3 + 1] = g;
-            dst_ptr[dst_x * 3 + 2] = r;
-
-            float_x += src_inc_x;
-        }
-
-        dst_ptr += dst_dib->stride;
-        float_y += src_inc_y;
-    }
-}
-
-static void halftone_555( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                          const dib_info *src_dib, const struct bitblt_coords *src )
-{
-    int src_start_x, src_start_y, src_ptr_dy, dst_x, dst_y, x0, x1, y0, y1;
-    WORD *dst_ptr, *src_ptr, *c00_ptr, *c01_ptr, *c10_ptr, *c11_ptr;
-    float src_inc_x, src_inc_y, float_x, float_y, dx, dy;
-    BYTE c00_r, c01_r, c10_r, c11_r;
-    BYTE c00_g, c01_g, c10_g, c11_g;
-    BYTE c00_b, c01_b, c10_b, c11_b;
-    RECT dst_rect, src_rect;
-    BYTE r, g, b;
-
-    calc_halftone_params( dst, src, &dst_rect, &src_rect, &src_start_x, &src_start_y, &src_inc_x,
-                          &src_inc_y );
-
-    float_y = src_start_y;
-    dst_ptr = get_pixel_ptr_16( dst_dib, dst_rect.left, dst_rect.top );
-    for (dst_y = 0; dst_y < dst_rect.bottom - dst_rect.top; ++dst_y)
-    {
-        float_y = clampf( float_y, src_rect.top, src_rect.bottom - 1 );
-        y0 = float_y;
-        y1 = clamp( y0 + 1, src_rect.top, src_rect.bottom - 1 );
-        dy = float_y - y0;
-
-        float_x = src_start_x;
-        src_ptr = get_pixel_ptr_16( src_dib, 0, y0 );
-        src_ptr_dy = (y1 - y0) * src_dib->stride / 2;
-        for (dst_x = 0; dst_x < dst_rect.right - dst_rect.left; ++dst_x)
-        {
-            float_x = clampf( float_x, src_rect.left, src_rect.right - 1 );
-            x0 = float_x;
-            x1 = clamp( x0 + 1, src_rect.left, src_rect.right - 1 );
-            dx = float_x - x0;
-
-            c00_ptr = src_ptr + x0;
-            c01_ptr = src_ptr + x1;
-            c10_ptr = c00_ptr + src_ptr_dy;
-            c11_ptr = c01_ptr + src_ptr_dy;
-            c00_r = ((*c00_ptr >> 7) & 0xf8) | ((*c00_ptr >> 12) & 0x07);
-            c01_r = ((*c01_ptr >> 7) & 0xf8) | ((*c01_ptr >> 12) & 0x07);
-            c10_r = ((*c10_ptr >> 7) & 0xf8) | ((*c10_ptr >> 12) & 0x07);
-            c11_r = ((*c11_ptr >> 7) & 0xf8) | ((*c11_ptr >> 12) & 0x07);
-            c00_g = ((*c00_ptr >> 2) & 0xf8) | ((*c00_ptr >>  7) & 0x07);
-            c01_g = ((*c01_ptr >> 2) & 0xf8) | ((*c01_ptr >>  7) & 0x07);
-            c10_g = ((*c10_ptr >> 2) & 0xf8) | ((*c10_ptr >>  7) & 0x07);
-            c11_g = ((*c11_ptr >> 2) & 0xf8) | ((*c11_ptr >>  7) & 0x07);
-            c00_b = ((*c00_ptr << 3) & 0xf8) | ((*c00_ptr >>  2) & 0x07);
-            c01_b = ((*c01_ptr << 3) & 0xf8) | ((*c01_ptr >>  2) & 0x07);
-            c10_b = ((*c10_ptr << 3) & 0xf8) | ((*c10_ptr >>  2) & 0x07);
-            c11_b = ((*c11_ptr << 3) & 0xf8) | ((*c11_ptr >>  2) & 0x07);
-            r = bilinear_interpolate( c00_r, c01_r, c10_r, c11_r, dx, dy );
-            g = bilinear_interpolate( c00_g, c01_g, c10_g, c11_g, dx, dy );
-            b = bilinear_interpolate( c00_b, c01_b, c10_b, c11_b, dx, dy );
-            dst_ptr[dst_x] = ((r << 7) & 0x7c00) | ((g << 2) & 0x03e0) | ((b >> 3) & 0x001f);
-
-            float_x += src_inc_x;
-        }
-
-        dst_ptr += dst_dib->stride / 2;
-        float_y += src_inc_y;
-    }
-}
-
-static void halftone_16( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                         const dib_info *src_dib, const struct bitblt_coords *src )
-{
-    int src_start_x, src_start_y, src_ptr_dy, dst_x, dst_y, x0, x1, y0, y1;
-    WORD *dst_ptr, *src_ptr, *c00_ptr, *c01_ptr, *c10_ptr, *c11_ptr;
-    float src_inc_x, src_inc_y, float_x, float_y, dx, dy;
-    BYTE c00_r, c01_r, c10_r, c11_r;
-    BYTE c00_g, c01_g, c10_g, c11_g;
-    BYTE c00_b, c01_b, c10_b, c11_b;
-    RECT dst_rect, src_rect;
-    BYTE r, g, b;
-
-    calc_halftone_params( dst, src, &dst_rect, &src_rect, &src_start_x, &src_start_y, &src_inc_x,
-                          &src_inc_y );
-
-    float_y = src_start_y;
-    dst_ptr = get_pixel_ptr_16( dst_dib, dst_rect.left, dst_rect.top );
-    for (dst_y = 0; dst_y < dst_rect.bottom - dst_rect.top; ++dst_y)
-    {
-        float_y = clampf( float_y, src_rect.top, src_rect.bottom - 1 );
-        y0 = float_y;
-        y1 = clamp( y0 + 1, src_rect.top, src_rect.bottom - 1 );
-        dy = float_y - y0;
-
-        float_x = src_start_x;
-        src_ptr = get_pixel_ptr_16( src_dib, 0, y0 );
-        src_ptr_dy = (y1 - y0) * src_dib->stride / 2;
-        for (dst_x = 0; dst_x < dst_rect.right - dst_rect.left; ++dst_x)
-        {
-            float_x = clampf( float_x, src_rect.left, src_rect.right - 1 );
-            x0 = float_x;
-            x1 = clamp( x0 + 1, src_rect.left, src_rect.right - 1 );
-            dx = float_x - x0;
-
-            c00_ptr = src_ptr + x0;
-            c01_ptr = src_ptr + x1;
-            c10_ptr = c00_ptr + src_ptr_dy;
-            c11_ptr = c01_ptr + src_ptr_dy;
-            c00_r = get_field( *c00_ptr, src_dib->red_shift, src_dib->red_len );
-            c01_r = get_field( *c01_ptr, src_dib->red_shift, src_dib->red_len );
-            c10_r = get_field( *c10_ptr, src_dib->red_shift, src_dib->red_len );
-            c11_r = get_field( *c11_ptr, src_dib->red_shift, src_dib->red_len );
-            c00_g = get_field( *c00_ptr, src_dib->green_shift, src_dib->green_len );
-            c01_g = get_field( *c01_ptr, src_dib->green_shift, src_dib->green_len );
-            c10_g = get_field( *c10_ptr, src_dib->green_shift, src_dib->green_len );
-            c11_g = get_field( *c11_ptr, src_dib->green_shift, src_dib->green_len );
-            c00_b = get_field( *c00_ptr, src_dib->blue_shift, src_dib->blue_len );
-            c01_b = get_field( *c01_ptr, src_dib->blue_shift, src_dib->blue_len );
-            c10_b = get_field( *c10_ptr, src_dib->blue_shift, src_dib->blue_len );
-            c11_b = get_field( *c11_ptr, src_dib->blue_shift, src_dib->blue_len );
-            r = bilinear_interpolate( c00_r, c01_r, c10_r, c11_r, dx, dy );
-            g = bilinear_interpolate( c00_g, c01_g, c10_g, c11_g, dx, dy );
-            b = bilinear_interpolate( c00_b, c01_b, c10_b, c11_b, dx, dy );
-            dst_ptr[dst_x] = rgb_to_pixel_masks( dst_dib, r, g, b );
-
-            float_x += src_inc_x;
-        }
-
-        dst_ptr += dst_dib->stride / 2;
-        float_y += src_inc_y;
-    }
-}
-
-static void halftone_8( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                        const dib_info *src_dib, const struct bitblt_coords *src )
-{
-    int src_start_x, src_start_y, src_ptr_dy, dst_x, dst_y, x0, x1, y0, y1;
-    BYTE *dst_ptr, *src_ptr, *c00_ptr, *c01_ptr, *c10_ptr, *c11_ptr;
-    RGBQUAD c00_rgb, c01_rgb, c10_rgb, c11_rgb, zero_rgb = {0};
-    float src_inc_x, src_inc_y, float_x, float_y, dx, dy;
-    const RGBQUAD *src_clr_table;
-    RECT dst_rect, src_rect;
-    BYTE r, g, b;
-
-    calc_halftone_params( dst, src, &dst_rect, &src_rect, &src_start_x, &src_start_y, &src_inc_x,
-                          &src_inc_y );
-
-    float_y = src_start_y;
-    src_clr_table = get_dib_color_table( src_dib );
-    dst_ptr = get_pixel_ptr_8( dst_dib, dst_rect.left, dst_rect.top );
-    for (dst_y = 0; dst_y < dst_rect.bottom - dst_rect.top; ++dst_y)
-    {
-        float_y = clampf( float_y, src_rect.top, src_rect.bottom - 1 );
-        y0 = float_y;
-        y1 = clamp( y0 + 1, src_rect.top, src_rect.bottom - 1 );
-        dy = float_y - y0;
-
-        float_x = src_start_x;
-        src_ptr = get_pixel_ptr_8( src_dib, 0, y0 );
-        src_ptr_dy = (y1 - y0) * src_dib->stride;
-        for (dst_x = 0; dst_x < dst_rect.right - dst_rect.left; ++dst_x)
-        {
-            float_x = clampf( float_x, src_rect.left, src_rect.right - 1 );
-            x0 = float_x;
-            x1 = clamp( x0 + 1, src_rect.left, src_rect.right - 1 );
-            dx = float_x - x0;
-
-            c00_ptr = src_ptr + x0;
-            c01_ptr = src_ptr + x1;
-            c10_ptr = c00_ptr + src_ptr_dy;
-            c11_ptr = c01_ptr + src_ptr_dy;
-            if (src_clr_table)
-            {
-                c00_rgb = *c00_ptr < src_dib->color_table_size ? src_clr_table[*c00_ptr] : zero_rgb;
-                c01_rgb = *c01_ptr < src_dib->color_table_size ? src_clr_table[*c01_ptr] : zero_rgb;
-                c10_rgb = *c10_ptr < src_dib->color_table_size ? src_clr_table[*c10_ptr] : zero_rgb;
-                c11_rgb = *c11_ptr < src_dib->color_table_size ? src_clr_table[*c11_ptr] : zero_rgb;
-                r = bilinear_interpolate( c00_rgb.rgbRed, c01_rgb.rgbRed, c10_rgb.rgbRed, c11_rgb.rgbRed, dx, dy );
-                g = bilinear_interpolate( c00_rgb.rgbGreen, c01_rgb.rgbGreen, c10_rgb.rgbGreen, c11_rgb.rgbGreen, dx, dy );
-                b = bilinear_interpolate( c00_rgb.rgbBlue, c01_rgb.rgbBlue, c10_rgb.rgbBlue, c11_rgb.rgbBlue, dx, dy );
-            }
-            else
-            {
-                r = 0;
-                g = 0;
-                b = 0;
-            }
-            dst_ptr[dst_x] = rgb_to_pixel_colortable( dst_dib, r, g, b );
-
-            float_x += src_inc_x;
-        }
-
-        dst_ptr += dst_dib->stride;
-        float_y += src_inc_y;
-    }
-}
-
-static void halftone_4( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                        const dib_info *src_dib, const struct bitblt_coords *src )
-{
-    BYTE *dst_col_ptr, *dst_ptr, *src_ptr, *c00_ptr, *c01_ptr, *c10_ptr, *c11_ptr;
-    int src_start_x, src_start_y, src_ptr_dy, dst_x, dst_y, x0, x1, y0, y1;
-    RGBQUAD c00_rgb, c01_rgb, c10_rgb, c11_rgb, zero_rgb = {0};
-    float src_inc_x, src_inc_y, float_x, float_y, dx, dy;
-    BYTE r, g, b, val, c00, c01, c10, c11;
-    const RGBQUAD *src_clr_table;
-    RECT dst_rect, src_rect;
-
-    calc_halftone_params( dst, src, &dst_rect, &src_rect, &src_start_x, &src_start_y, &src_inc_x,
-                          &src_inc_y );
-
-    float_y = src_start_y;
-    src_clr_table = get_dib_color_table( src_dib );
-    dst_col_ptr = (BYTE *)dst_dib->bits.ptr + (dst_dib->rect.top + dst_rect.top) * dst_dib->stride;
-    for (dst_y = 0; dst_y < dst_rect.bottom - dst_rect.top; ++dst_y)
-    {
-        float_y = clampf( float_y, src_rect.top, src_rect.bottom - 1 );
-        y0 = float_y;
-        y1 = clamp( y0 + 1, src_rect.top, src_rect.bottom - 1 );
-        dy = float_y - y0;
-
-        float_x = src_start_x;
-        src_ptr = (BYTE *)src_dib->bits.ptr + (src_dib->rect.top + y0) * src_dib->stride;
-        src_ptr_dy = (y1 - y0) * src_dib->stride;
-        for (dst_x = dst_rect.left; dst_x < dst_rect.right; ++dst_x)
-        {
-            float_x = clampf( float_x, src_rect.left, src_rect.right - 1 );
-            x0 = float_x;
-            x1 = clamp( x0 + 1, src_rect.left, src_rect.right - 1 );
-            dx = float_x - x0;
-
-            c00_ptr = src_ptr + (src_dib->rect.left + x0) / 2;
-            c01_ptr = src_ptr + (src_dib->rect.left + x1) / 2;
-            c10_ptr = c00_ptr + src_ptr_dy;
-            c11_ptr = c01_ptr + src_ptr_dy;
-            if ((src_dib->rect.left + x0) & 1)
-            {
-                c00 = *c00_ptr & 0x0f;
-                c10 = *c10_ptr & 0x0f;
-            }
-            else
-            {
-                c00 = (*c00_ptr >> 4) & 0x0f;
-                c10 = (*c10_ptr >> 4) & 0x0f;
-            }
-            if ((src_dib->rect.left + x1) & 1)
-            {
-                c01 = *c01_ptr & 0x0f;
-                c11 = *c11_ptr & 0x0f;
-            }
-            else
-            {
-                c01 = (*c01_ptr >> 4) & 0x0f;
-                c11 = (*c11_ptr >> 4) & 0x0f;
-            }
-
-            if (src_clr_table)
-            {
-                c00_rgb = c00 < src_dib->color_table_size ? src_clr_table[c00] : zero_rgb;
-                c01_rgb = c01 < src_dib->color_table_size ? src_clr_table[c01] : zero_rgb;
-                c10_rgb = c10 < src_dib->color_table_size ? src_clr_table[c10] : zero_rgb;
-                c11_rgb = c11 < src_dib->color_table_size ? src_clr_table[c11] : zero_rgb;
-                r = bilinear_interpolate( c00_rgb.rgbRed, c01_rgb.rgbRed, c10_rgb.rgbRed, c11_rgb.rgbRed, dx, dy );
-                g = bilinear_interpolate( c00_rgb.rgbGreen, c01_rgb.rgbGreen, c10_rgb.rgbGreen, c11_rgb.rgbGreen, dx, dy );
-                b = bilinear_interpolate( c00_rgb.rgbBlue, c01_rgb.rgbBlue, c10_rgb.rgbBlue, c11_rgb.rgbBlue, dx, dy );
-            }
-            else
-            {
-                r = 0;
-                g = 0;
-                b = 0;
-            }
-
-            dst_ptr = dst_col_ptr + (dst_dib->rect.left + dst_x) / 2;
-            val = rgb_to_pixel_colortable( dst_dib, r, g, b );
-            if ((dst_x + dst_dib->rect.left) & 1)
-                *dst_ptr = (val & 0x0f) | (*dst_ptr & 0xf0);
-            else
-                *dst_ptr = (val << 4) & 0xf0;
-
-            float_x += src_inc_x;
-        }
-
-        dst_col_ptr += dst_dib->stride;
-        float_y += src_inc_y;
-    }
-}
-
-static void halftone_1( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                        const dib_info *src_dib, const struct bitblt_coords *src )
-{
-    int src_start_x, src_start_y, src_ptr_dy, dst_x, dst_y, x0, x1, y0, y1, bit_pos;
-    BYTE *dst_col_ptr, *dst_ptr, *src_ptr, *c00_ptr, *c01_ptr, *c10_ptr, *c11_ptr;
-    RGBQUAD c00_rgb, c01_rgb, c10_rgb, c11_rgb, zero_rgb = {0};
-    float src_inc_x, src_inc_y, float_x, float_y, dx, dy;
-    BYTE r, g, b, val, c00, c01, c10, c11;
-    const RGBQUAD *src_clr_table;
-    RECT dst_rect, src_rect;
-    RGBQUAD bg_entry;
-    DWORD bg_pixel;
-
-    calc_halftone_params( dst, src, &dst_rect, &src_rect, &src_start_x, &src_start_y, &src_inc_x,
-                          &src_inc_y );
-
-    float_y = src_start_y;
-    bg_entry = *get_dib_color_table( dst_dib );
-    src_clr_table = get_dib_color_table( src_dib );
-    dst_col_ptr = (BYTE *)dst_dib->bits.ptr + (dst_dib->rect.top + dst_rect.top) * dst_dib->stride;
-    for (dst_y = dst_rect.top; dst_y < dst_rect.bottom; ++dst_y)
-    {
-        float_y = clampf( float_y, src_rect.top, src_rect.bottom - 1 );
-        y0 = float_y;
-        y1 = clamp( y0 + 1, src_rect.top, src_rect.bottom - 1 );
-        dy = float_y - y0;
-
-        float_x = src_start_x;
-        src_ptr = (BYTE *)src_dib->bits.ptr + (src_dib->rect.top + y0) * src_dib->stride;
-        src_ptr_dy = (y1 - y0) * src_dib->stride;
-        for (dst_x = dst_rect.left; dst_x < dst_rect.right; ++dst_x)
-        {
-            float_x = clampf( float_x, src_rect.left, src_rect.right - 1 );
-            x0 = float_x;
-            x1 = clamp( x0 + 1, src_rect.left, src_rect.right - 1 );
-            dx = float_x - x0;
-
-            c00_ptr = src_ptr + (src_dib->rect.left + x0) / 8;
-            c01_ptr = src_ptr + (src_dib->rect.left + x1) / 8;
-            c10_ptr = c00_ptr + src_ptr_dy;
-            c11_ptr = c01_ptr + src_ptr_dy;
-            c00 = (*c00_ptr & pixel_masks_1[(src_dib->rect.left + x0) & 7]) ? 1 : 0;
-            c01 = (*c01_ptr & pixel_masks_1[(src_dib->rect.left + x1) & 7]) ? 1 : 0;
-            c10 = (*c10_ptr & pixel_masks_1[(src_dib->rect.left + x0) & 7]) ? 1 : 0;
-            c11 = (*c11_ptr & pixel_masks_1[(src_dib->rect.left + x1) & 7]) ? 1 : 0;
-
-            if (src_clr_table)
-            {
-                c00_rgb = c00 < src_dib->color_table_size ? src_clr_table[c00] : zero_rgb;
-                c01_rgb = c01 < src_dib->color_table_size ? src_clr_table[c01] : zero_rgb;
-                c10_rgb = c10 < src_dib->color_table_size ? src_clr_table[c10] : zero_rgb;
-                c11_rgb = c11 < src_dib->color_table_size ? src_clr_table[c11] : zero_rgb;
-                r = bilinear_interpolate( c00_rgb.rgbRed, c01_rgb.rgbRed, c10_rgb.rgbRed, c11_rgb.rgbRed, dx, dy );
-                g = bilinear_interpolate( c00_rgb.rgbGreen, c01_rgb.rgbGreen, c10_rgb.rgbGreen, c11_rgb.rgbGreen, dx, dy );
-                b = bilinear_interpolate( c00_rgb.rgbBlue, c01_rgb.rgbBlue, c10_rgb.rgbBlue, c11_rgb.rgbBlue, dx, dy );
-            }
-            else
-            {
-                r = 0;
-                g = 0;
-                b = 0;
-            }
-
-            dst_ptr = dst_col_ptr + (dst_dib->rect.left + dst_x) / 8;
-            bit_pos = (dst_x + dst_dib->rect.left) & 7;
-            bg_pixel = FILTER_DIBINDEX(bg_entry, RGB(bg_entry.rgbRed, bg_entry.rgbGreen, bg_entry.rgbBlue));
-            val = rgb_to_pixel_mono( dst_dib, FALSE, dst_x, dst_y, RGB(r, g, b), bg_pixel, r, g, b );
-            if (bit_pos == 0)
-                *dst_ptr = 0;
-            *dst_ptr = (*dst_ptr & ~pixel_masks_1[bit_pos]) | (val & pixel_masks_1[bit_pos]);
-
-            float_x += src_inc_x;
-        }
-
-        dst_col_ptr += dst_dib->stride;
-        float_y += src_inc_y;
-    }
-}
-
-static void halftone_null( const dib_info *dst_dib, const struct bitblt_coords *dst,
-                           const dib_info *src_dib, const struct bitblt_coords *src )
-{}
-
 const primitive_funcs funcs_8888 =
 {
     solid_rects_32,
     solid_line_32,
     pattern_rects_32,
     copy_rect_32,
-    blend_rects_8888,
+    blend_rect_8888,
     gradient_rect_8888,
     mask_rect_32,
     draw_glyph_8888,
@@ -8050,8 +7385,7 @@ const primitive_funcs funcs_8888 =
     create_rop_masks_32,
     create_dither_masks_null,
     stretch_row_32,
-    shrink_row_32,
-    halftone_888
+    shrink_row_32
 };
 
 const primitive_funcs funcs_32 =
@@ -8060,7 +7394,7 @@ const primitive_funcs funcs_32 =
     solid_line_32,
     pattern_rects_32,
     copy_rect_32,
-    blend_rects_32,
+    blend_rect_32,
     gradient_rect_32,
     mask_rect_32,
     draw_glyph_32,
@@ -8072,8 +7406,7 @@ const primitive_funcs funcs_32 =
     create_rop_masks_32,
     create_dither_masks_null,
     stretch_row_32,
-    shrink_row_32,
-    halftone_32
+    shrink_row_32
 };
 
 const primitive_funcs funcs_24 =
@@ -8082,7 +7415,7 @@ const primitive_funcs funcs_24 =
     solid_line_24,
     pattern_rects_24,
     copy_rect_24,
-    blend_rects_24,
+    blend_rect_24,
     gradient_rect_24,
     mask_rect_24,
     draw_glyph_24,
@@ -8094,8 +7427,7 @@ const primitive_funcs funcs_24 =
     create_rop_masks_24,
     create_dither_masks_null,
     stretch_row_24,
-    shrink_row_24,
-    halftone_24
+    shrink_row_24
 };
 
 const primitive_funcs funcs_555 =
@@ -8104,7 +7436,7 @@ const primitive_funcs funcs_555 =
     solid_line_16,
     pattern_rects_16,
     copy_rect_16,
-    blend_rects_555,
+    blend_rect_555,
     gradient_rect_555,
     mask_rect_16,
     draw_glyph_555,
@@ -8116,8 +7448,7 @@ const primitive_funcs funcs_555 =
     create_rop_masks_16,
     create_dither_masks_null,
     stretch_row_16,
-    shrink_row_16,
-    halftone_555
+    shrink_row_16
 };
 
 const primitive_funcs funcs_16 =
@@ -8126,7 +7457,7 @@ const primitive_funcs funcs_16 =
     solid_line_16,
     pattern_rects_16,
     copy_rect_16,
-    blend_rects_16,
+    blend_rect_16,
     gradient_rect_16,
     mask_rect_16,
     draw_glyph_16,
@@ -8138,8 +7469,7 @@ const primitive_funcs funcs_16 =
     create_rop_masks_16,
     create_dither_masks_null,
     stretch_row_16,
-    shrink_row_16,
-    halftone_16
+    shrink_row_16
 };
 
 const primitive_funcs funcs_8 =
@@ -8148,7 +7478,7 @@ const primitive_funcs funcs_8 =
     solid_line_8,
     pattern_rects_8,
     copy_rect_8,
-    blend_rects_8,
+    blend_rect_8,
     gradient_rect_8,
     mask_rect_8,
     draw_glyph_8,
@@ -8160,8 +7490,7 @@ const primitive_funcs funcs_8 =
     create_rop_masks_8,
     create_dither_masks_8,
     stretch_row_8,
-    shrink_row_8,
-    halftone_8
+    shrink_row_8
 };
 
 const primitive_funcs funcs_4 =
@@ -8170,7 +7499,7 @@ const primitive_funcs funcs_4 =
     solid_line_4,
     pattern_rects_4,
     copy_rect_4,
-    blend_rects_4,
+    blend_rect_4,
     gradient_rect_4,
     mask_rect_4,
     draw_glyph_4,
@@ -8182,8 +7511,7 @@ const primitive_funcs funcs_4 =
     create_rop_masks_4,
     create_dither_masks_4,
     stretch_row_4,
-    shrink_row_4,
-    halftone_4
+    shrink_row_4
 };
 
 const primitive_funcs funcs_1 =
@@ -8192,7 +7520,7 @@ const primitive_funcs funcs_1 =
     solid_line_1,
     pattern_rects_1,
     copy_rect_1,
-    blend_rects_1,
+    blend_rect_1,
     gradient_rect_1,
     mask_rect_null,
     draw_glyph_1,
@@ -8204,8 +7532,7 @@ const primitive_funcs funcs_1 =
     create_rop_masks_1,
     create_dither_masks_1,
     stretch_row_1,
-    shrink_row_1,
-    halftone_1
+    shrink_row_1
 };
 
 const primitive_funcs funcs_null =
@@ -8214,7 +7541,7 @@ const primitive_funcs funcs_null =
     solid_line_null,
     pattern_rects_null,
     copy_rect_null,
-    blend_rects_null,
+    blend_rect_null,
     gradient_rect_null,
     mask_rect_null,
     draw_glyph_null,
@@ -8226,6 +7553,5 @@ const primitive_funcs funcs_null =
     create_rop_masks_null,
     create_dither_masks_null,
     stretch_row_null,
-    shrink_row_null,
-    halftone_null
+    shrink_row_null
 };

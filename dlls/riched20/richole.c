@@ -136,6 +136,7 @@ static HRESULT get_typeinfo(enum tid_t tid, ITypeInfo **typeinfo)
 /* private IID used to get back IRichEditOleImpl pointer */
 DEFINE_GUID(IID_Igetrichole, 0xe3ce5c7a, 0x8247, 0x4622, 0x81, 0xad, 0x11, 0x81, 0x02, 0xaa, 0x01, 0x30);
 
+typedef struct ITextSelectionImpl ITextSelectionImpl;
 typedef struct IOleClientSiteImpl IOleClientSiteImpl;
 typedef struct ITextRangeImpl ITextRangeImpl;
 
@@ -205,9 +206,23 @@ enum range_update_op {
     RANGE_UPDATE_DELETE
 };
 
+typedef struct IRichEditOleImpl {
+    IUnknown IUnknown_inner;
+    IRichEditOle IRichEditOle_iface;
+    ITextDocument2Old ITextDocument2Old_iface;
+    IUnknown *outer_unk;
+    LONG ref;
+
+    ME_TextEditor *editor;
+    ITextSelectionImpl *txtSel;
+
+    struct list rangelist;
+    struct list clientsites;
+} IRichEditOleImpl;
+
 struct reole_child {
     struct list entry;
-    struct text_services *reole;
+    IRichEditOleImpl *reole;
 };
 
 struct ITextRangeImpl {
@@ -215,6 +230,13 @@ struct ITextRangeImpl {
     ITextRange ITextRange_iface;
     LONG ref;
     LONG start, end;
+};
+
+struct ITextSelectionImpl {
+    ITextSelection ITextSelection_iface;
+    LONG ref;
+
+    IRichEditOleImpl *reOle;
 };
 
 typedef struct ITextFontImpl {
@@ -241,14 +263,19 @@ struct IOleClientSiteImpl {
     LONG ref;
 };
 
-static inline struct text_services *impl_from_IRichEditOle( IRichEditOle *iface )
+static inline IRichEditOleImpl *impl_from_IRichEditOle(IRichEditOle *iface)
 {
-    return CONTAINING_RECORD( iface, struct text_services, IRichEditOle_iface );
+    return CONTAINING_RECORD(iface, IRichEditOleImpl, IRichEditOle_iface);
 }
 
-static inline struct text_services *impl_from_ITextDocument2Old( ITextDocument2Old *iface )
+static inline IRichEditOleImpl *impl_from_ITextDocument2Old(ITextDocument2Old *iface)
 {
-    return CONTAINING_RECORD( iface, struct text_services, ITextDocument2Old_iface );
+    return CONTAINING_RECORD(iface, IRichEditOleImpl, ITextDocument2Old_iface);
+}
+
+static inline IRichEditOleImpl *impl_from_IUnknown(IUnknown *iface)
+{
+    return CONTAINING_RECORD(iface, IRichEditOleImpl, IUnknown_inner);
 }
 
 static inline IOleClientSiteImpl *impl_from_IOleInPlaceSite(IOleInPlaceSite *iface)
@@ -261,9 +288,9 @@ static inline ITextRangeImpl *impl_from_ITextRange(ITextRange *iface)
     return CONTAINING_RECORD(iface, ITextRangeImpl, ITextRange_iface);
 }
 
-static inline struct text_selection *impl_from_ITextSelection(ITextSelection *iface)
+static inline ITextSelectionImpl *impl_from_ITextSelection(ITextSelection *iface)
 {
-    return CONTAINING_RECORD(iface, struct text_selection, ITextSelection_iface);
+    return CONTAINING_RECORD(iface, ITextSelectionImpl, ITextSelection_iface);
 }
 
 static inline ITextFontImpl *impl_from_ITextFont(ITextFont *iface)
@@ -278,7 +305,7 @@ static inline ITextParaImpl *impl_from_ITextPara(ITextPara *iface)
 
 static HRESULT create_textfont(ITextRange*, const ITextFontImpl*, ITextFont**);
 static HRESULT create_textpara(ITextRange*, ITextPara**);
-static struct text_selection *text_selection_create( struct text_services * );
+static ITextSelectionImpl *CreateTextSelection(IRichEditOleImpl*);
 
 static HRESULT textrange_get_storylength(ME_TextEditor *editor, LONG *length)
 {
@@ -289,11 +316,11 @@ static HRESULT textrange_get_storylength(ME_TextEditor *editor, LONG *length)
     return S_OK;
 }
 
-static void textranges_update_ranges(struct text_services *services, LONG start, LONG end, enum range_update_op op)
+static void textranges_update_ranges(IRichEditOleImpl *reole, LONG start, LONG end, enum range_update_op op)
 {
     ITextRangeImpl *range;
 
-    LIST_FOR_EACH_ENTRY(range, &services->rangelist, ITextRangeImpl, child.entry) {
+    LIST_FOR_EACH_ENTRY(range, &reole->rangelist, ITextRangeImpl, child.entry) {
         switch (op)
         {
         case RANGE_UPDATE_DELETE:
@@ -407,7 +434,7 @@ static inline FLOAT points_to_twips(FLOAT value)
     return value * 1440 / 72.0;
 }
 
-static HRESULT get_textfont_prop_for_pos(const struct text_services *services, int pos, enum textfont_prop_id propid,
+static HRESULT get_textfont_prop_for_pos(const IRichEditOleImpl *reole, int pos, enum textfont_prop_id propid,
     textfont_prop_val *value)
 {
     ME_Cursor from, to;
@@ -417,10 +444,10 @@ static HRESULT get_textfont_prop_for_pos(const struct text_services *services, i
     fmt.cbSize = sizeof(fmt);
     fmt.dwMask = textfont_prop_masks[propid][0];
 
-    cursor_from_char_ofs( services->editor, pos, &from );
+    cursor_from_char_ofs( reole->editor, pos, &from );
     to = from;
-    ME_MoveCursorChars( services->editor, &to, 1, FALSE );
-    ME_GetCharFormat( services->editor, &from, &to, &fmt );
+    ME_MoveCursorChars(reole->editor, &to, 1, FALSE);
+    ME_GetCharFormat(reole->editor, &from, &to, &fmt);
 
     switch (propid)
     {
@@ -481,11 +508,11 @@ static HRESULT get_textfont_prop_for_pos(const struct text_services *services, i
     return S_OK;
 }
 
-static inline const struct text_services *get_range_reole(ITextRange *range)
+static inline const IRichEditOleImpl *get_range_reole(ITextRange *range)
 {
-    struct text_services *services = NULL;
-    ITextRange_QueryInterface(range, &IID_Igetrichole, (void**)&services);
-    return services;
+    IRichEditOleImpl *reole = NULL;
+    ITextRange_QueryInterface(range, &IID_Igetrichole, (void**)&reole);
+    return reole;
 }
 
 static void textrange_set_font(ITextRange *range, ITextFont *font)
@@ -637,22 +664,22 @@ static void textrange_set_font(ITextRange *range, ITextFont *font)
 
     if (fmt.dwMask)
     {
-        const struct text_services *services = get_range_reole(range);
+        const IRichEditOleImpl *reole = get_range_reole(range);
         ME_Cursor from, to;
         LONG start, end;
 
         ITextRange_GetStart(range, &start);
         ITextRange_GetEnd(range, &end);
 
-        cursor_from_char_ofs( services->editor, start, &from );
-        cursor_from_char_ofs( services->editor, end, &to );
-        ME_SetCharFormat( services->editor, &from, &to, &fmt );
+        cursor_from_char_ofs( reole->editor, start, &from );
+        cursor_from_char_ofs( reole->editor, end, &to );
+        ME_SetCharFormat(reole->editor, &from, &to, &fmt);
     }
 }
 
 static HRESULT get_textfont_prop(const ITextFontImpl *font, enum textfont_prop_id propid, textfont_prop_val *value)
 {
-    const struct text_services *services;
+    const IRichEditOleImpl *reole;
     textfont_prop_val v;
     LONG start, end, i;
     HRESULT hr;
@@ -663,7 +690,7 @@ static HRESULT get_textfont_prop(const ITextFontImpl *font, enum textfont_prop_i
         return S_OK;
     }
 
-    if (!(services = get_range_reole(font->range)))
+    if (!(reole = get_range_reole(font->range)))
         return CO_E_RELEASED;
 
     init_textfont_prop_value(propid, value);
@@ -672,14 +699,14 @@ static HRESULT get_textfont_prop(const ITextFontImpl *font, enum textfont_prop_i
     ITextRange_GetEnd(font->range, &end);
 
     /* iterate trough a range to see if property value is consistent */
-    hr = get_textfont_prop_for_pos( services, start, propid, &v );
+    hr = get_textfont_prop_for_pos(reole, start, propid, &v);
     if (FAILED(hr))
         return hr;
 
     for (i = start + 1; i < end; i++) {
         textfont_prop_val cur;
 
-        hr = get_textfont_prop_for_pos( services, i, propid, &cur );
+        hr = get_textfont_prop_for_pos(reole, i, propid, &cur);
         if (FAILED(hr))
             return hr;
 
@@ -720,7 +747,7 @@ static HRESULT get_textfont_propl(const ITextFontImpl *font, enum textfont_prop_
 /* Value should already have a terminal value, for boolean properties it means tomToggle is not handled */
 static HRESULT set_textfont_prop(ITextFontImpl *font, enum textfont_prop_id propid, const textfont_prop_val *value)
 {
-    const struct text_services *services;
+    const IRichEditOleImpl *reole;
     ME_Cursor from, to;
     CHARFORMAT2W fmt;
     LONG start, end;
@@ -736,7 +763,7 @@ static HRESULT set_textfont_prop(ITextFontImpl *font, enum textfont_prop_id prop
         return S_OK;
     }
 
-    if (!(services = get_range_reole(font->range)))
+    if (!(reole = get_range_reole(font->range)))
         return CO_E_RELEASED;
 
     memset(&fmt, 0, sizeof(fmt));
@@ -802,9 +829,9 @@ static HRESULT set_textfont_prop(ITextFontImpl *font, enum textfont_prop_id prop
     ITextRange_GetStart(font->range, &start);
     ITextRange_GetEnd(font->range, &end);
 
-    cursor_from_char_ofs( services->editor, start, &from );
-    cursor_from_char_ofs( services->editor, end, &to );
-    ME_SetCharFormat( services->editor, &from, &to, &fmt );
+    cursor_from_char_ofs( reole->editor, start, &from );
+    cursor_from_char_ofs( reole->editor, end, &to );
+    ME_SetCharFormat(reole->editor, &from, &to, &fmt);
 
     return S_OK;
 }
@@ -853,16 +880,16 @@ static HRESULT set_textfont_propd(ITextFontImpl *font, enum textfont_prop_id pro
 
 static HRESULT textfont_getname_from_range(ITextRange *range, BSTR *ret)
 {
-    const struct text_services *services;
+    const IRichEditOleImpl *reole;
     textfont_prop_val v;
     HRESULT hr;
     LONG start;
 
-    if (!(services = get_range_reole( range )))
+    if (!(reole = get_range_reole(range)))
         return CO_E_RELEASED;
 
     ITextRange_GetStart(range, &start);
-    hr = get_textfont_prop_for_pos( services, start, FONT_NAME, &v );
+    hr = get_textfont_prop_for_pos(reole, start, FONT_NAME, &v);
     *ret = v.str;
     return hr;
 }
@@ -907,48 +934,118 @@ static HRESULT textrange_expand(ITextRange *range, LONG unit, LONG *delta)
     return S_OK;
 }
 
-static HRESULT WINAPI
-IRichEditOle_fnQueryInterface(IRichEditOle *iface, REFIID riid, LPVOID *ppvObj)
+static HRESULT WINAPI IRichEditOleImpl_inner_fnQueryInterface(IUnknown *iface, REFIID riid, LPVOID *ppvObj)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    return IUnknown_QueryInterface( services->outer_unk, riid, ppvObj );
+    IRichEditOleImpl *This = impl_from_IUnknown(iface);
+
+    TRACE("%p %s\n", This, debugstr_guid(riid));
+
+    *ppvObj = NULL;
+    if (IsEqualGUID(riid, &IID_IUnknown))
+        *ppvObj = &This->IUnknown_inner;
+    else if (IsEqualGUID(riid, &IID_IRichEditOle))
+        *ppvObj = &This->IRichEditOle_iface;
+    else if (IsEqualGUID(riid, &IID_ITextDocument) || IsEqualGUID(riid, &IID_ITextDocument2Old))
+        *ppvObj = &This->ITextDocument2Old_iface;
+    if (*ppvObj)
+    {
+        IUnknown_AddRef((IUnknown *)*ppvObj);
+        return S_OK;
+    }
+    FIXME("%p: unhandled interface %s\n", This, debugstr_guid(riid));
+ 
+    return E_NOINTERFACE;   
+}
+
+static ULONG WINAPI IRichEditOleImpl_inner_fnAddRef(IUnknown *iface)
+{
+    IRichEditOleImpl *This = impl_from_IUnknown(iface);
+    ULONG ref = InterlockedIncrement(&This->ref);
+
+    TRACE("%p ref = %u\n", This, ref);
+
+    return ref;
+}
+
+static ULONG WINAPI IRichEditOleImpl_inner_fnRelease(IUnknown *iface)
+{
+    IRichEditOleImpl *This = impl_from_IUnknown(iface);
+    ULONG ref = InterlockedDecrement(&This->ref);
+
+    TRACE ("%p ref=%u\n", This, ref);
+
+    if (!ref)
+    {
+        IOleClientSiteImpl *clientsite;
+        ITextRangeImpl *txtRge;
+
+        This->editor->reOle = NULL;
+        if (This->txtSel) {
+            This->txtSel->reOle = NULL;
+            ITextSelection_Release(&This->txtSel->ITextSelection_iface);
+        }
+
+        LIST_FOR_EACH_ENTRY(txtRge, &This->rangelist, ITextRangeImpl, child.entry)
+            txtRge->child.reole = NULL;
+
+        LIST_FOR_EACH_ENTRY(clientsite, &This->clientsites, IOleClientSiteImpl, child.entry)
+            clientsite->child.reole = NULL;
+
+        heap_free(This);
+    }
+    return ref;
+}
+
+static const IUnknownVtbl reo_unk_vtbl =
+{
+    IRichEditOleImpl_inner_fnQueryInterface,
+    IRichEditOleImpl_inner_fnAddRef,
+    IRichEditOleImpl_inner_fnRelease
+};
+
+static HRESULT WINAPI
+IRichEditOle_fnQueryInterface(IRichEditOle *me, REFIID riid, LPVOID *ppvObj)
+{
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    return IUnknown_QueryInterface(This->outer_unk, riid, ppvObj);
 }
 
 static ULONG WINAPI
-IRichEditOle_fnAddRef(IRichEditOle *iface)
+IRichEditOle_fnAddRef(IRichEditOle *me)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    return IUnknown_AddRef( services->outer_unk );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    return IUnknown_AddRef(This->outer_unk);
 }
 
 static ULONG WINAPI
-IRichEditOle_fnRelease(IRichEditOle *iface)
+IRichEditOle_fnRelease(IRichEditOle *me)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    return IUnknown_Release( services->outer_unk );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    return IUnknown_Release(This->outer_unk);
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnActivateAs(IRichEditOle *iface, REFCLSID rclsid, REFCLSID rclsidAs)
+IRichEditOle_fnActivateAs(IRichEditOle *me, REFCLSID rclsid, REFCLSID rclsidAs)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME( "stub %p\n", services );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnContextSensitiveHelp(IRichEditOle *iface, BOOL fEnterMode)
+IRichEditOle_fnContextSensitiveHelp(IRichEditOle *me, BOOL fEnterMode)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME( "stub %p\n", services );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnConvertObject( IRichEditOle *iface, LONG iob, REFCLSID class, LPCSTR user_type )
+IRichEditOle_fnConvertObject(IRichEditOle *me, LONG iob,
+               REFCLSID rclsidNew, LPCSTR lpstrUserTypeNew)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME( "stub %p\n", services );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
@@ -1098,19 +1195,20 @@ static ULONG STDMETHODCALLTYPE IOleInPlaceSite_fnRelease(IOleInPlaceSite *iface)
     return IOleClientSite_Release(&This->IOleClientSite_iface);
 }
 
-static HRESULT STDMETHODCALLTYPE IOleInPlaceSite_fnGetWindow( IOleInPlaceSite *iface, HWND *window )
+static HRESULT STDMETHODCALLTYPE IOleInPlaceSite_fnGetWindow(IOleInPlaceSite *iface, HWND *phwnd)
 {
     IOleClientSiteImpl *This = impl_from_IOleInPlaceSite(iface);
 
-    TRACE( "(%p)->(%p)\n", This, window );
+    TRACE("(%p)->(%p)\n", This, phwnd);
 
     if (!This->child.reole)
         return CO_E_RELEASED;
 
-    if (!window) return E_INVALIDARG;
+    if (!phwnd)
+        return E_INVALIDARG;
 
-    if (!This->child.reole->editor->have_texthost2) return E_NOTIMPL;
-    return ITextHost2_TxGetWindow( This->child.reole->editor->texthost, window );
+    *phwnd = This->child.reole->editor->hWnd;
+    return S_OK;
 }
 
 static HRESULT STDMETHODCALLTYPE IOleInPlaceSite_fnContextSensitiveHelp(IOleInPlaceSite *iface, BOOL fEnterMode)
@@ -1211,7 +1309,7 @@ static const IOleInPlaceSiteVtbl olestvt =
     IOleInPlaceSite_fnOnPosRectChange
 };
 
-static HRESULT CreateOleClientSite( struct text_services *services, IOleClientSite **ret )
+static HRESULT CreateOleClientSite(IRichEditOleImpl *reOle, IOleClientSite **ret)
 {
     IOleClientSiteImpl *clientSite = heap_alloc(sizeof *clientSite);
 
@@ -1221,67 +1319,67 @@ static HRESULT CreateOleClientSite( struct text_services *services, IOleClientSi
     clientSite->IOleClientSite_iface.lpVtbl = &ocst;
     clientSite->IOleInPlaceSite_iface.lpVtbl = &olestvt;
     clientSite->ref = 1;
-    clientSite->child.reole = services;
-    list_add_head( &services->clientsites, &clientSite->child.entry );
+    clientSite->child.reole = reOle;
+    list_add_head(&reOle->clientsites, &clientSite->child.entry);
 
     *ret = &clientSite->IOleClientSite_iface;
     return S_OK;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnGetClientSite( IRichEditOle *iface, IOleClientSite **clientsite )
+IRichEditOle_fnGetClientSite(IRichEditOle *me, IOleClientSite **clientsite)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
 
-    TRACE("(%p)->(%p)\n", services, clientsite);
+    TRACE("(%p)->(%p)\n", This, clientsite);
 
     if (!clientsite)
         return E_INVALIDARG;
 
-    return CreateOleClientSite( services, clientsite );
+    return CreateOleClientSite(This, clientsite);
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnGetClipboardData(IRichEditOle *iface, CHARRANGE *lpchrg,
+IRichEditOle_fnGetClipboardData(IRichEditOle *me, CHARRANGE *lpchrg,
                DWORD reco, LPDATAOBJECT *lplpdataobj)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
     ME_Cursor start;
     int nChars;
 
-    TRACE("(%p,%p,%d)\n", services, lpchrg, reco);
+    TRACE("(%p,%p,%d)\n",This, lpchrg, reco);
     if(!lplpdataobj)
         return E_INVALIDARG;
     if(!lpchrg)
     {
-        int nFrom, nTo, nStartCur = ME_GetSelectionOfs( services->editor, &nFrom, &nTo );
-        start = services->editor->pCursors[nStartCur];
+        int nFrom, nTo, nStartCur = ME_GetSelectionOfs(This->editor, &nFrom, &nTo);
+        start = This->editor->pCursors[nStartCur];
         nChars = nTo - nFrom;
     }
     else
     {
-        cursor_from_char_ofs( services->editor, lpchrg->cpMin, &start );
+        cursor_from_char_ofs( This->editor, lpchrg->cpMin, &start );
         nChars = lpchrg->cpMax - lpchrg->cpMin;
     }
-    return ME_GetDataObject( services->editor, &start, nChars, lplpdataobj );
+    return ME_GetDataObject(This->editor, &start, nChars, lplpdataobj);
 }
 
-static LONG WINAPI IRichEditOle_fnGetLinkCount(IRichEditOle *iface)
+static LONG WINAPI IRichEditOle_fnGetLinkCount(IRichEditOle *me)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnGetObject(IRichEditOle *iface, LONG iob,
+IRichEditOle_fnGetObject(IRichEditOle *me, LONG iob,
                REOBJECT *lpreobject, DWORD dwFlags)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
     struct re_object *reobj = NULL;
     LONG count = 0;
 
-    TRACE("(%p)->(%x, %p, %x)\n", services, iob, lpreobject, dwFlags);
+    TRACE("(%p)->(%x, %p, %x)\n", This, iob, lpreobject, dwFlags);
 
     if (!lpreobject || !lpreobject->cbStruct)
         return E_INVALIDARG;
@@ -1291,7 +1389,7 @@ IRichEditOle_fnGetObject(IRichEditOle *iface, LONG iob,
         ME_Cursor cursor;
 
         TRACE("character offset: %d\n", lpreobject->cp);
-        cursor_from_char_ofs( services->editor, lpreobject->cp, &cursor );
+        cursor_from_char_ofs( This->editor, lpreobject->cp, &cursor );
         if (!cursor.run->reobj)
             return E_INVALIDARG;
         else
@@ -1301,7 +1399,7 @@ IRichEditOle_fnGetObject(IRichEditOle *iface, LONG iob,
     {
         ME_Cursor *from, *to;
 
-        ME_GetSelection(services->editor, &from, &to);
+        ME_GetSelection(This->editor, &from, &to);
         if (!from->run->reobj)
             return E_INVALIDARG;
         else
@@ -1309,9 +1407,9 @@ IRichEditOle_fnGetObject(IRichEditOle *iface, LONG iob,
     }
     else
     {
-        if (iob < 0 || iob >= IRichEditOle_GetObjectCount( iface ))
+        if (iob < 0 || iob >= IRichEditOle_GetObjectCount(me))
             return E_INVALIDARG;
-        LIST_FOR_EACH_ENTRY(reobj, &services->editor->reobj_list, struct re_object, entry)
+        LIST_FOR_EACH_ENTRY(reobj, &This->editor->reobj_list, struct re_object, entry)
         {
             if (count == iob)
                 break;
@@ -1323,90 +1421,89 @@ IRichEditOle_fnGetObject(IRichEditOle *iface, LONG iob,
 }
 
 static LONG WINAPI
-IRichEditOle_fnGetObjectCount( IRichEditOle *iface )
+IRichEditOle_fnGetObjectCount(IRichEditOle *me)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    TRACE("(%p)\n", services);
-    return list_count( &services->editor->reobj_list );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    TRACE("(%p)\n",This);
+    return list_count(&This->editor->reobj_list);
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnHandsOffStorage(IRichEditOle *iface, LONG iob)
+IRichEditOle_fnHandsOffStorage(IRichEditOle *me, LONG iob)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnImportDataObject(IRichEditOle *iface, LPDATAOBJECT lpdataobj,
+IRichEditOle_fnImportDataObject(IRichEditOle *me, LPDATAOBJECT lpdataobj,
                CLIPFORMAT cf, HGLOBAL hMetaPict)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnInPlaceDeactivate(IRichEditOle *iface)
+IRichEditOle_fnInPlaceDeactivate(IRichEditOle *me)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnInsertObject(IRichEditOle *iface, REOBJECT *reo)
+IRichEditOle_fnInsertObject(IRichEditOle *me, REOBJECT *reo)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
 
-    TRACE("(%p,%p)\n", services, reo);
+    TRACE("(%p,%p)\n", This, reo);
 
     if (!reo)
         return E_INVALIDARG;
 
     if (reo->cbStruct < sizeof(*reo)) return STG_E_INVALIDPARAMETER;
 
-    editor_insert_oleobj(services->editor, reo);
-    ME_CommitUndo(services->editor);
-    ME_UpdateRepaint(services->editor, FALSE);
+    ME_InsertOLEFromCursor(This->editor, reo, 0);
+    ME_CommitUndo(This->editor);
+    ME_UpdateRepaint(This->editor, FALSE);
     return S_OK;
 }
 
-static HRESULT WINAPI IRichEditOle_fnSaveCompleted(IRichEditOle *iface, LONG iob,
+static HRESULT WINAPI IRichEditOle_fnSaveCompleted(IRichEditOle *me, LONG iob,
                LPSTORAGE lpstg)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnSetDvaspect(IRichEditOle *iface, LONG iob, DWORD dvaspect)
+IRichEditOle_fnSetDvaspect(IRichEditOle *me, LONG iob, DWORD dvaspect)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
-static HRESULT WINAPI IRichEditOle_fnSetHostNames(IRichEditOle *iface,
+static HRESULT WINAPI IRichEditOle_fnSetHostNames(IRichEditOle *me,
                LPCSTR lpstrContainerApp, LPCSTR lpstrContainerObj)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME("stub %p %s %s\n", services, lpstrContainerApp, lpstrContainerObj);
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p %s %s\n",This, lpstrContainerApp, lpstrContainerObj);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI
-IRichEditOle_fnSetLinkAvailable(IRichEditOle *iface, LONG iob, BOOL fAvailable)
+IRichEditOle_fnSetLinkAvailable(IRichEditOle *me, LONG iob, BOOL fAvailable)
 {
-    struct text_services *services = impl_from_IRichEditOle( iface );
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_IRichEditOle(me);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
-const IRichEditOleVtbl re_ole_vtbl =
-{
+static const IRichEditOleVtbl revt = {
     IRichEditOle_fnQueryInterface,
     IRichEditOle_fnAddRef,
     IRichEditOle_fnRelease,
@@ -1654,7 +1751,7 @@ static HRESULT WINAPI ITextRange_fnSetChar(ITextRange *me, LONG ch)
     return E_NOTIMPL;
 }
 
-static HRESULT CreateITextRange(struct text_services *services, LONG start, LONG end, ITextRange** ppRange);
+static HRESULT CreateITextRange(IRichEditOleImpl *reOle, LONG start, LONG end, ITextRange** ppRange);
 
 static HRESULT WINAPI ITextRange_fnGetDuplicate(ITextRange *me, ITextRange **ppRange)
 {
@@ -1711,7 +1808,7 @@ static HRESULT WINAPI ITextRange_fnGetStart(ITextRange *me, LONG *start)
     return S_OK;
 }
 
-static HRESULT textrange_setstart(const struct text_services *services, LONG value, LONG *start, LONG *end)
+static HRESULT textrange_setstart(const IRichEditOleImpl *reole, LONG value, LONG *start, LONG *end)
 {
     int len;
 
@@ -1726,7 +1823,7 @@ static HRESULT textrange_setstart(const struct text_services *services, LONG val
         return S_OK;
     }
 
-    len = ME_GetTextLength(services->editor);
+    len = ME_GetTextLength(reole->editor);
     *start = *end = value > len ? len : value;
     return S_OK;
 }
@@ -1759,7 +1856,7 @@ static HRESULT WINAPI ITextRange_fnGetEnd(ITextRange *me, LONG *end)
     return S_OK;
 }
 
-static HRESULT textrange_setend(const struct text_services *services, LONG value, LONG *start, LONG *end)
+static HRESULT textrange_setend(const IRichEditOleImpl *reole, LONG value, LONG *start, LONG *end)
 {
     int len;
 
@@ -1771,7 +1868,7 @@ static HRESULT textrange_setend(const struct text_services *services, LONG value
         return S_OK;
     }
 
-    len = ME_GetTextLength( services->editor );
+    len = ME_GetTextLength(reole->editor);
     *end = value > len ? len + 1 : value;
     return S_OK;
 }
@@ -2647,7 +2744,7 @@ static HRESULT WINAPI ITextRange_fnScrollIntoView(ITextRange *me, LONG value)
         FIXME("bStart value %d not handled\n", value);
         return E_NOTIMPL;
     }
-    scroll_abs( editor, x, y, TRUE );
+    ME_ScrollAbs(editor, x, y);
     return S_OK;
 }
 
@@ -4030,27 +4127,27 @@ static HRESULT create_textpara(ITextRange *range, ITextPara **ret)
 static HRESULT WINAPI ITextDocument2Old_fnQueryInterface(ITextDocument2Old* iface, REFIID riid,
                                                          void **ppvObject)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    return IUnknown_QueryInterface( services->outer_unk, riid, ppvObject );
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    return IRichEditOle_QueryInterface(&This->IRichEditOle_iface, riid, ppvObject);
 }
 
 static ULONG WINAPI ITextDocument2Old_fnAddRef(ITextDocument2Old *iface)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    return IUnknown_AddRef( services->outer_unk );
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    return IRichEditOle_AddRef(&This->IRichEditOle_iface);
 }
 
 static ULONG WINAPI ITextDocument2Old_fnRelease(ITextDocument2Old *iface)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    return IUnknown_Release( services->outer_unk );
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    return IRichEditOle_Release(&This->IRichEditOle_iface);
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetTypeInfoCount(ITextDocument2Old *iface,
                                                            UINT *pctinfo)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    TRACE("(%p)->(%p)\n", services, pctinfo);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    TRACE("(%p)->(%p)\n", This, pctinfo);
     *pctinfo = 1;
     return S_OK;
 }
@@ -4058,10 +4155,10 @@ static HRESULT WINAPI ITextDocument2Old_fnGetTypeInfoCount(ITextDocument2Old *if
 static HRESULT WINAPI ITextDocument2Old_fnGetTypeInfo(ITextDocument2Old *iface, UINT iTInfo, LCID lcid,
                                                       ITypeInfo **ppTInfo)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
     HRESULT hr;
 
-    TRACE("(%p)->(%u,%d,%p)\n", services, iTInfo, lcid, ppTInfo);
+    TRACE("(%p)->(%u,%d,%p)\n", This, iTInfo, lcid, ppTInfo);
 
     hr = get_typeinfo(ITextDocument_tid, ppTInfo);
     if (SUCCEEDED(hr))
@@ -4073,11 +4170,11 @@ static HRESULT WINAPI ITextDocument2Old_fnGetIDsOfNames(ITextDocument2Old *iface
                                                         LPOLESTR *rgszNames, UINT cNames,
                                                         LCID lcid, DISPID *rgDispId)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
     ITypeInfo *ti;
     HRESULT hr;
 
-    TRACE("(%p)->(%s, %p, %u, %d, %p)\n", services, debugstr_guid(riid),
+    TRACE("(%p)->(%s, %p, %u, %d, %p)\n", This, debugstr_guid(riid),
             rgszNames, cNames, lcid, rgDispId);
 
     hr = get_typeinfo(ITextDocument_tid, &ti);
@@ -4091,11 +4188,11 @@ static HRESULT WINAPI ITextDocument2Old_fnInvoke(ITextDocument2Old *iface, DISPI
                                                  DISPPARAMS *pDispParams, VARIANT *pVarResult,
                                                  EXCEPINFO *pExcepInfo, UINT *puArgErr)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
     ITypeInfo *ti;
     HRESULT hr;
 
-    TRACE("(%p)->(%d, %s, %d, %u, %p, %p, %p, %p)\n", services, dispIdMember,
+    TRACE("(%p)->(%d, %s, %d, %u, %p, %p, %p, %p)\n", This, dispIdMember,
             debugstr_guid(riid), lcid, wFlags, pDispParams, pVarResult,
             pExcepInfo, puArgErr);
 
@@ -4107,144 +4204,142 @@ static HRESULT WINAPI ITextDocument2Old_fnInvoke(ITextDocument2Old *iface, DISPI
 
 static HRESULT WINAPI ITextDocument2Old_fnGetName(ITextDocument2Old *iface, BSTR *pName)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetSelection(ITextDocument2Old *iface, ITextSelection **selection)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
     TRACE("(%p)->(%p)\n", iface, selection);
 
     if (!selection)
       return E_INVALIDARG;
 
-    if (!services->text_selection)
-    {
-        services->text_selection = text_selection_create( services );
-        if (!services->text_selection)
-        {
-            *selection = NULL;
-            return E_OUTOFMEMORY;
-        }
+    if (!This->txtSel) {
+      This->txtSel = CreateTextSelection(This);
+      if (!This->txtSel) {
+        *selection = NULL;
+        return E_OUTOFMEMORY;
+      }
     }
 
-    *selection = &services->text_selection->ITextSelection_iface;
+    *selection = &This->txtSel->ITextSelection_iface;
     ITextSelection_AddRef(*selection);
     return S_OK;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetStoryCount(ITextDocument2Old *iface, LONG *pCount)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetStoryRanges(ITextDocument2Old *iface,
                                                          ITextStoryRanges **ppStories)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetSaved(ITextDocument2Old *iface, LONG *pValue)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnSetSaved(ITextDocument2Old *iface, LONG Value)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetDefaultTabStop(ITextDocument2Old *iface, float *pValue)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnSetDefaultTabStop(ITextDocument2Old *iface, float Value)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnNew(ITextDocument2Old *iface)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnOpen(ITextDocument2Old *iface, VARIANT *pVar,
                                                LONG Flags, LONG CodePage)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnSave(ITextDocument2Old *iface, VARIANT *pVar,
                                                LONG Flags, LONG CodePage)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnFreeze(ITextDocument2Old *iface, LONG *pCount)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnUnfreeze(ITextDocument2Old *iface, LONG *pCount)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnBeginEditCollection(ITextDocument2Old *iface)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnEndEditCollection(ITextDocument2Old *iface)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnUndo(ITextDocument2Old *iface, LONG Count, LONG *prop)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnRedo(ITextDocument2Old *iface, LONG Count, LONG *prop)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
-static HRESULT CreateITextRange(struct text_services *services, LONG start, LONG end, ITextRange** ppRange)
+static HRESULT CreateITextRange(IRichEditOleImpl *reOle, LONG start, LONG end, ITextRange** ppRange)
 {
     ITextRangeImpl *txtRge = heap_alloc(sizeof(ITextRangeImpl));
 
@@ -4252,10 +4347,10 @@ static HRESULT CreateITextRange(struct text_services *services, LONG start, LONG
         return E_OUTOFMEMORY;
     txtRge->ITextRange_iface.lpVtbl = &trvt;
     txtRge->ref = 1;
-    txtRge->child.reole = services;
+    txtRge->child.reole = reOle;
     txtRge->start = start;
     txtRge->end = end;
-    list_add_head( &services->rangelist, &txtRge->child.entry );
+    list_add_head(&reOle->rangelist, &txtRge->child.entry);
     *ppRange = &txtRge->ITextRange_iface;
     return S_OK;
 }
@@ -4263,84 +4358,84 @@ static HRESULT CreateITextRange(struct text_services *services, LONG start, LONG
 static HRESULT WINAPI ITextDocument2Old_fnRange(ITextDocument2Old *iface, LONG cp1, LONG cp2,
                                                 ITextRange **ppRange)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    TRACE("%p %p %d %d\n", services, ppRange, cp1, cp2);
+    TRACE("%p %p %d %d\n", This, ppRange, cp1, cp2);
     if (!ppRange)
         return E_INVALIDARG;
 
-    cp2range(services->editor, &cp1, &cp2);
-    return CreateITextRange(services, cp1, cp2, ppRange);
+    cp2range(This->editor, &cp1, &cp2);
+    return CreateITextRange(This, cp1, cp2, ppRange);
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnRangeFromPoint(ITextDocument2Old *iface, LONG x, LONG y,
                                                          ITextRange **ppRange)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
-    FIXME("stub %p\n", services);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
+    FIXME("stub %p\n",This);
     return E_NOTIMPL;
 }
 
 /* ITextDocument2Old methods */
 static HRESULT WINAPI ITextDocument2Old_fnAttachMsgFilter(ITextDocument2Old *iface, IUnknown *filter)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%p): stub\n", services, filter);
+    FIXME("(%p)->(%p): stub\n", This, filter);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnSetEffectColor(ITextDocument2Old *iface, LONG index, COLORREF cr)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%d, 0x%x): stub\n", services, index, cr);
+    FIXME("(%p)->(%d, 0x%x): stub\n", This, index, cr);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetEffectColor(ITextDocument2Old *iface, LONG index, COLORREF *cr)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%d, %p): stub\n", services, index, cr);
+    FIXME("(%p)->(%d, %p): stub\n", This, index, cr);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetCaretType(ITextDocument2Old *iface, LONG *type)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%p): stub\n", services, type);
+    FIXME("(%p)->(%p): stub\n", This, type);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnSetCaretType(ITextDocument2Old *iface, LONG type)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%d): stub\n", services, type);
+    FIXME("(%p)->(%d): stub\n", This, type);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetImmContext(ITextDocument2Old *iface, LONG *context)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%p): stub\n", services, context);
+    FIXME("(%p)->(%p): stub\n", This, context);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnReleaseImmContext(ITextDocument2Old *iface, LONG context)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%d): stub\n", services, context);
+    FIXME("(%p)->(%d): stub\n", This, context);
 
     return E_NOTIMPL;
 }
@@ -4349,9 +4444,9 @@ static HRESULT WINAPI ITextDocument2Old_fnGetPreferredFont(ITextDocument2Old *if
                                                            LONG options, LONG current_charrep, LONG current_fontsize,
                                                            BSTR *bstr, LONG *pitch_family, LONG *new_fontsize)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%d, %d, %d, %d, %d, %p, %p, %p): stub\n", services, cp, charrep, options, current_charrep,
+    FIXME("(%p)->(%d, %d, %d, %d, %d, %p, %p, %p): stub\n", This, cp, charrep, options, current_charrep,
           current_fontsize, bstr, pitch_family, new_fontsize);
 
     return E_NOTIMPL;
@@ -4359,18 +4454,18 @@ static HRESULT WINAPI ITextDocument2Old_fnGetPreferredFont(ITextDocument2Old *if
 
 static HRESULT WINAPI ITextDocument2Old_fnGetNotificationMode(ITextDocument2Old *iface, LONG *mode)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%p): stub\n", services, mode);
+    FIXME("(%p)->(%p): stub\n", This, mode);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnSetNotificationMode(ITextDocument2Old *iface, LONG mode)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(0x%x): stub\n", services, mode);
+    FIXME("(%p)->(0x%x): stub\n", This, mode);
 
     return E_NOTIMPL;
 }
@@ -4378,96 +4473,95 @@ static HRESULT WINAPI ITextDocument2Old_fnSetNotificationMode(ITextDocument2Old 
 static HRESULT WINAPI ITextDocument2Old_fnGetClientRect(ITextDocument2Old *iface, LONG type, LONG *left, LONG *top,
                                                         LONG *right, LONG *bottom)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%d, %p, %p, %p, %p): stub\n", services, type, left, top, right, bottom);
+    FIXME("(%p)->(%d, %p, %p, %p, %p): stub\n", This, type, left, top, right, bottom);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetSelectionEx(ITextDocument2Old *iface, ITextSelection **selection)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%p): stub\n", services, selection);
+    FIXME("(%p)->(%p): stub\n", This, selection);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetWindow(ITextDocument2Old *iface, LONG *hwnd)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%p): stub\n", services, hwnd);
+    FIXME("(%p)->(%p): stub\n", This, hwnd);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnGetFEFlags(ITextDocument2Old *iface, LONG *flags)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%p): stub\n", services, flags);
+    FIXME("(%p)->(%p): stub\n", This, flags);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnUpdateWindow(ITextDocument2Old *iface)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p): stub\n", services);
+    FIXME("(%p): stub\n", This);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnCheckTextLimit(ITextDocument2Old *iface, LONG cch, LONG *exceed)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%d, %p): stub\n", services, cch, exceed);
+    FIXME("(%p)->(%d, %p): stub\n", This, cch, exceed);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnIMEInProgress(ITextDocument2Old *iface, LONG mode)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(0x%x): stub\n", services, mode);
+    FIXME("(%p)->(0x%x): stub\n", This, mode);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnSysBeep(ITextDocument2Old *iface)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p): stub\n", services);
+    FIXME("(%p): stub\n", This);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnUpdate(ITextDocument2Old *iface, LONG mode)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(0x%x): stub\n", services, mode);
+    FIXME("(%p)->(0x%x): stub\n", This, mode);
 
     return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ITextDocument2Old_fnNotify(ITextDocument2Old *iface, LONG notify)
 {
-    struct text_services *services = impl_from_ITextDocument2Old(iface);
+    IRichEditOleImpl *This = impl_from_ITextDocument2Old(iface);
 
-    FIXME("(%p)->(%d): stub\n", services, notify);
+    FIXME("(%p)->(%d): stub\n", This, notify);
 
     return E_NOTIMPL;
 }
 
-const ITextDocument2OldVtbl text_doc2old_vtbl =
-{
+static const ITextDocument2OldVtbl tdvt = {
     ITextDocument2Old_fnQueryInterface,
     ITextDocument2Old_fnAddRef,
     ITextDocument2Old_fnRelease,
@@ -4523,7 +4617,7 @@ static HRESULT WINAPI ITextSelection_fnQueryInterface(
     REFIID riid,
     void **ppvObj)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     *ppvObj = NULL;
     if (IsEqualGUID(riid, &IID_IUnknown)
@@ -4537,7 +4631,7 @@ static HRESULT WINAPI ITextSelection_fnQueryInterface(
     }
     else if (IsEqualGUID(riid, &IID_Igetrichole))
     {
-        *ppvObj = This->services;
+        *ppvObj = This->reOle;
         return S_OK;
     }
 
@@ -4546,13 +4640,13 @@ static HRESULT WINAPI ITextSelection_fnQueryInterface(
 
 static ULONG WINAPI ITextSelection_fnAddRef(ITextSelection *me)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     return InterlockedIncrement(&This->ref);
 }
 
 static ULONG WINAPI ITextSelection_fnRelease(ITextSelection *me)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ULONG ref = InterlockedDecrement(&This->ref);
     if (ref == 0)
         heap_free(This);
@@ -4561,7 +4655,7 @@ static ULONG WINAPI ITextSelection_fnRelease(ITextSelection *me)
 
 static HRESULT WINAPI ITextSelection_fnGetTypeInfoCount(ITextSelection *me, UINT *pctinfo)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     TRACE("(%p)->(%p)\n", This, pctinfo);
     *pctinfo = 1;
     return S_OK;
@@ -4570,7 +4664,7 @@ static HRESULT WINAPI ITextSelection_fnGetTypeInfoCount(ITextSelection *me, UINT
 static HRESULT WINAPI ITextSelection_fnGetTypeInfo(ITextSelection *me, UINT iTInfo, LCID lcid,
     ITypeInfo **ppTInfo)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     HRESULT hr;
 
     TRACE("(%p)->(%u,%d,%p)\n", This, iTInfo, lcid, ppTInfo);
@@ -4584,7 +4678,7 @@ static HRESULT WINAPI ITextSelection_fnGetTypeInfo(ITextSelection *me, UINT iTIn
 static HRESULT WINAPI ITextSelection_fnGetIDsOfNames(ITextSelection *me, REFIID riid,
     LPOLESTR *rgszNames, UINT cNames, LCID lcid, DISPID *rgDispId)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITypeInfo *ti;
     HRESULT hr;
 
@@ -4608,7 +4702,7 @@ static HRESULT WINAPI ITextSelection_fnInvoke(
     EXCEPINFO *pExcepInfo,
     UINT *puArgErr)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITypeInfo *ti;
     HRESULT hr;
 
@@ -4624,20 +4718,20 @@ static HRESULT WINAPI ITextSelection_fnInvoke(
 /*** ITextRange methods ***/
 static HRESULT WINAPI ITextSelection_fnGetText(ITextSelection *me, BSTR *pbstr)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ME_Cursor *start = NULL, *end = NULL;
     int nChars, endOfs;
     BOOL bEOP;
 
     TRACE("(%p)->(%p)\n", This, pbstr);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!pbstr)
         return E_INVALIDARG;
 
-    ME_GetSelection(This->services->editor, &start, &end);
+    ME_GetSelection(This->reOle->editor, &start, &end);
     endOfs = ME_GetCursorOfs(end);
     nChars = endOfs - ME_GetCursorOfs(start);
     if (!nChars)
@@ -4650,8 +4744,8 @@ static HRESULT WINAPI ITextSelection_fnGetText(ITextSelection *me, BSTR *pbstr)
     if (!*pbstr)
         return E_OUTOFMEMORY;
 
-    bEOP = (!para_next( para_next( end->para ) ) && endOfs > ME_GetTextLength(This->services->editor));
-    ME_GetTextW(This->services->editor, *pbstr, nChars, start, nChars, FALSE, bEOP);
+    bEOP = (!para_next( para_next( end->para ) ) && endOfs > ME_GetTextLength(This->reOle->editor));
+    ME_GetTextW(This->reOle->editor, *pbstr, nChars, start, nChars, FALSE, bEOP);
     TRACE("%s\n", wine_dbgstr_w(*pbstr));
 
     return S_OK;
@@ -4659,50 +4753,50 @@ static HRESULT WINAPI ITextSelection_fnGetText(ITextSelection *me, BSTR *pbstr)
 
 static HRESULT WINAPI ITextSelection_fnSetText(ITextSelection *me, BSTR str)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ME_TextEditor *editor;
     int len, to, from;
 
     TRACE("(%p)->(%s)\n", This, debugstr_w(str));
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
-    editor = This->services->editor;
+    editor = This->reOle->editor;
     len = lstrlenW(str);
     ME_GetSelectionOfs(editor, &from, &to);
     ME_ReplaceSel(editor, FALSE, str, len);
 
     if (len < to - from)
-        textranges_update_ranges(This->services, from, len, RANGE_UPDATE_DELETE);
+        textranges_update_ranges(This->reOle, from, len, RANGE_UPDATE_DELETE);
 
     return S_OK;
 }
 
 static HRESULT WINAPI ITextSelection_fnGetChar(ITextSelection *me, LONG *pch)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ME_Cursor *start = NULL, *end = NULL;
 
     TRACE("(%p)->(%p)\n", This, pch);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!pch)
         return E_INVALIDARG;
 
-    ME_GetSelection(This->services->editor, &start, &end);
-    return range_GetChar(This->services->editor, start, pch);
+    ME_GetSelection(This->reOle->editor, &start, &end);
+    return range_GetChar(This->reOle->editor, start, pch);
 }
 
 static HRESULT WINAPI ITextSelection_fnSetChar(ITextSelection *me, LONG ch)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%x): stub\n", This, ch);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -4710,12 +4804,12 @@ static HRESULT WINAPI ITextSelection_fnSetChar(ITextSelection *me, LONG ch)
 
 static HRESULT WINAPI ITextSelection_fnGetDuplicate(ITextSelection *me, ITextRange **range)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     LONG start, end;
 
     TRACE("(%p)->(%p)\n", This, range);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!range)
@@ -4723,16 +4817,16 @@ static HRESULT WINAPI ITextSelection_fnGetDuplicate(ITextSelection *me, ITextRan
 
     ITextSelection_GetStart(me, &start);
     ITextSelection_GetEnd(me, &end);
-    return CreateITextRange(This->services, start, end, range);
+    return CreateITextRange(This->reOle, start, end, range);
 }
 
 static HRESULT WINAPI ITextSelection_fnGetFormattedText(ITextSelection *me, ITextRange **range)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%p): stub\n", This, range);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -4740,11 +4834,11 @@ static HRESULT WINAPI ITextSelection_fnGetFormattedText(ITextSelection *me, ITex
 
 static HRESULT WINAPI ITextSelection_fnSetFormattedText(ITextSelection *me, ITextRange *range)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%p): stub\n", This, range);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     FIXME("not implemented\n");
@@ -4753,83 +4847,83 @@ static HRESULT WINAPI ITextSelection_fnSetFormattedText(ITextSelection *me, ITex
 
 static HRESULT WINAPI ITextSelection_fnGetStart(ITextSelection *me, LONG *pcpFirst)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     LONG lim;
 
     TRACE("(%p)->(%p)\n", This, pcpFirst);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!pcpFirst)
         return E_INVALIDARG;
-    ME_GetSelectionOfs(This->services->editor, pcpFirst, &lim);
+    ME_GetSelectionOfs(This->reOle->editor, pcpFirst, &lim);
     return S_OK;
 }
 
 static HRESULT WINAPI ITextSelection_fnSetStart(ITextSelection *me, LONG value)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     LONG start, end;
     HRESULT hr;
 
     TRACE("(%p)->(%d)\n", This, value);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
-    ME_GetSelectionOfs(This->services->editor, &start, &end);
-    hr = textrange_setstart(This->services, value, &start, &end);
+    ME_GetSelectionOfs(This->reOle->editor, &start, &end);
+    hr = textrange_setstart(This->reOle, value, &start, &end);
     if (hr == S_OK)
-        set_selection(This->services->editor, start, end);
+        set_selection(This->reOle->editor, start, end);
 
     return hr;
 }
 
 static HRESULT WINAPI ITextSelection_fnGetEnd(ITextSelection *me, LONG *pcpLim)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     LONG first;
 
     TRACE("(%p)->(%p)\n", This, pcpLim);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!pcpLim)
         return E_INVALIDARG;
-    ME_GetSelectionOfs(This->services->editor, &first, pcpLim);
+    ME_GetSelectionOfs(This->reOle->editor, &first, pcpLim);
     return S_OK;
 }
 
 static HRESULT WINAPI ITextSelection_fnSetEnd(ITextSelection *me, LONG value)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     LONG start, end;
     HRESULT hr;
 
     TRACE("(%p)->(%d)\n", This, value);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
-    ME_GetSelectionOfs(This->services->editor, &start, &end);
-    hr = textrange_setend(This->services, value, &start, &end);
+    ME_GetSelectionOfs(This->reOle->editor, &start, &end);
+    hr = textrange_setend(This->reOle, value, &start, &end);
     if (hr == S_OK)
-        set_selection(This->services->editor, start, end);
+        set_selection(This->reOle->editor, start, end);
 
     return hr;
 }
 
 static HRESULT WINAPI ITextSelection_fnGetFont(ITextSelection *me, ITextFont **font)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%p)\n", This, font);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!font)
@@ -4843,7 +4937,7 @@ static HRESULT WINAPI ITextSelection_fnGetFont(ITextSelection *me, ITextFont **f
 
 static HRESULT WINAPI ITextSelection_fnSetFont(ITextSelection *me, ITextFont *font)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
 
     TRACE("(%p)->(%p)\n", This, font);
@@ -4851,7 +4945,7 @@ static HRESULT WINAPI ITextSelection_fnSetFont(ITextSelection *me, ITextFont *fo
     if (!font)
         return E_INVALIDARG;
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
@@ -4862,13 +4956,13 @@ static HRESULT WINAPI ITextSelection_fnSetFont(ITextSelection *me, ITextFont *fo
 
 static HRESULT WINAPI ITextSelection_fnGetPara(ITextSelection *me, ITextPara **para)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%p)\n", This, para);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!para)
@@ -4882,11 +4976,11 @@ static HRESULT WINAPI ITextSelection_fnGetPara(ITextSelection *me, ITextPara **p
 
 static HRESULT WINAPI ITextSelection_fnSetPara(ITextSelection *me, ITextPara *para)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%p): stub\n", This, para);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     FIXME("not implemented\n");
@@ -4895,23 +4989,23 @@ static HRESULT WINAPI ITextSelection_fnSetPara(ITextSelection *me, ITextPara *pa
 
 static HRESULT WINAPI ITextSelection_fnGetStoryLength(ITextSelection *me, LONG *length)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     TRACE("(%p)->(%p)\n", This, length);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
-    return textrange_get_storylength(This->services->editor, length);
+    return textrange_get_storylength(This->reOle->editor, length);
 }
 
 static HRESULT WINAPI ITextSelection_fnGetStoryType(ITextSelection *me, LONG *value)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     TRACE("(%p)->(%p)\n", This, value);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!value)
@@ -4923,31 +5017,31 @@ static HRESULT WINAPI ITextSelection_fnGetStoryType(ITextSelection *me, LONG *va
 
 static HRESULT WINAPI ITextSelection_fnCollapse(ITextSelection *me, LONG bStart)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     LONG start, end;
     HRESULT hres;
 
     TRACE("(%p)->(%d)\n", This, bStart);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
-    ME_GetSelectionOfs(This->services->editor, &start, &end);
+    ME_GetSelectionOfs(This->reOle->editor, &start, &end);
     hres = range_Collapse(bStart, &start, &end);
     if (SUCCEEDED(hres))
-        set_selection(This->services->editor, start, end);
+        set_selection(This->reOle->editor, start, end);
     return hres;
 }
 
 static HRESULT WINAPI ITextSelection_fnExpand(ITextSelection *me, LONG unit, LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%d %p)\n", This, unit, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
@@ -4958,11 +5052,11 @@ static HRESULT WINAPI ITextSelection_fnExpand(ITextSelection *me, LONG unit, LON
 
 static HRESULT WINAPI ITextSelection_fnGetIndex(ITextSelection *me, LONG unit, LONG *index)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %p): stub\n", This, unit, index);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -4971,11 +5065,11 @@ static HRESULT WINAPI ITextSelection_fnGetIndex(ITextSelection *me, LONG unit, L
 static HRESULT WINAPI ITextSelection_fnSetIndex(ITextSelection *me, LONG unit, LONG index,
     LONG extend)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %d): stub\n", This, unit, index, extend);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -4983,11 +5077,11 @@ static HRESULT WINAPI ITextSelection_fnSetIndex(ITextSelection *me, LONG unit, L
 
 static HRESULT WINAPI ITextSelection_fnSetRange(ITextSelection *me, LONG anchor, LONG active)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d): stub\n", This, anchor, active);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -4995,7 +5089,7 @@ static HRESULT WINAPI ITextSelection_fnSetRange(ITextSelection *me, LONG anchor,
 
 static HRESULT WINAPI ITextSelection_fnInRange(ITextSelection *me, ITextRange *range, LONG *ret)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextSelection *selection = NULL;
     LONG start, end;
 
@@ -5004,7 +5098,7 @@ static HRESULT WINAPI ITextSelection_fnInRange(ITextSelection *me, ITextRange *r
     if (ret)
         *ret = tomFalse;
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!range)
@@ -5022,11 +5116,11 @@ static HRESULT WINAPI ITextSelection_fnInRange(ITextSelection *me, ITextRange *r
 
 static HRESULT WINAPI ITextSelection_fnInStory(ITextSelection *me, ITextRange *range, LONG *ret)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%p %p): stub\n", This, range, ret);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5034,7 +5128,7 @@ static HRESULT WINAPI ITextSelection_fnInStory(ITextSelection *me, ITextRange *r
 
 static HRESULT WINAPI ITextSelection_fnIsEqual(ITextSelection *me, ITextRange *range, LONG *ret)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextSelection *selection = NULL;
     LONG start, end;
 
@@ -5043,7 +5137,7 @@ static HRESULT WINAPI ITextSelection_fnIsEqual(ITextSelection *me, ITextRange *r
     if (ret)
         *ret = tomFalse;
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     if (!range)
@@ -5061,11 +5155,11 @@ static HRESULT WINAPI ITextSelection_fnIsEqual(ITextSelection *me, ITextRange *r
 
 static HRESULT WINAPI ITextSelection_fnSelect(ITextSelection *me)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     TRACE("(%p)\n", This);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     /* nothing to do */
@@ -5075,13 +5169,13 @@ static HRESULT WINAPI ITextSelection_fnSelect(ITextSelection *me)
 static HRESULT WINAPI ITextSelection_fnStartOf(ITextSelection *me, LONG unit, LONG extend,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%d %d %p)\n", This, unit, extend, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
@@ -5093,34 +5187,34 @@ static HRESULT WINAPI ITextSelection_fnStartOf(ITextSelection *me, LONG unit, LO
 static HRESULT WINAPI ITextSelection_fnEndOf(ITextSelection *me, LONG unit, LONG extend,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%d %d %p)\n", This, unit, extend, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
-    hr = textrange_endof(range, This->services->editor, unit, extend, delta);
+    hr = textrange_endof(range, This->reOle->editor, unit, extend, delta);
     ITextRange_Release(range);
     return hr;
 }
 
 static HRESULT WINAPI ITextSelection_fnMove(ITextSelection *me, LONG unit, LONG count, LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%d %d %p)\n", This, unit, count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
-    hr = textrange_movestart(range, This->services->editor, unit, count, delta);
+    hr = textrange_movestart(range, This->reOle->editor, unit, count, delta);
     ITextRange_Release(range);
     return hr;
 }
@@ -5128,17 +5222,17 @@ static HRESULT WINAPI ITextSelection_fnMove(ITextSelection *me, LONG unit, LONG 
 static HRESULT WINAPI ITextSelection_fnMoveStart(ITextSelection *me, LONG unit, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%d %d %p)\n", This, unit, count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
-    hr = textrange_movestart(range, This->services->editor, unit, count, delta);
+    hr = textrange_movestart(range, This->reOle->editor, unit, count, delta);
     ITextRange_Release(range);
     return hr;
 }
@@ -5146,17 +5240,17 @@ static HRESULT WINAPI ITextSelection_fnMoveStart(ITextSelection *me, LONG unit, 
 static HRESULT WINAPI ITextSelection_fnMoveEnd(ITextSelection *me, LONG unit, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%d %d %p)\n", This, unit, count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
-    hr = textrange_moveend(range, This->services->editor, unit, count, delta);
+    hr = textrange_moveend(range, This->reOle->editor, unit, count, delta);
     ITextRange_Release(range);
     return hr;
 }
@@ -5164,11 +5258,11 @@ static HRESULT WINAPI ITextSelection_fnMoveEnd(ITextSelection *me, LONG unit, LO
 static HRESULT WINAPI ITextSelection_fnMoveWhile(ITextSelection *me, VARIANT *charset, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %p): stub\n", This, debugstr_variant(charset), count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5177,11 +5271,11 @@ static HRESULT WINAPI ITextSelection_fnMoveWhile(ITextSelection *me, VARIANT *ch
 static HRESULT WINAPI ITextSelection_fnMoveStartWhile(ITextSelection *me, VARIANT *charset, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %p): stub\n", This, debugstr_variant(charset), count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5190,11 +5284,11 @@ static HRESULT WINAPI ITextSelection_fnMoveStartWhile(ITextSelection *me, VARIAN
 static HRESULT WINAPI ITextSelection_fnMoveEndWhile(ITextSelection *me, VARIANT *charset, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %p): stub\n", This, debugstr_variant(charset), count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5203,11 +5297,11 @@ static HRESULT WINAPI ITextSelection_fnMoveEndWhile(ITextSelection *me, VARIANT 
 static HRESULT WINAPI ITextSelection_fnMoveUntil(ITextSelection *me, VARIANT *charset, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %p): stub\n", This, debugstr_variant(charset), count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5216,11 +5310,11 @@ static HRESULT WINAPI ITextSelection_fnMoveUntil(ITextSelection *me, VARIANT *ch
 static HRESULT WINAPI ITextSelection_fnMoveStartUntil(ITextSelection *me, VARIANT *charset, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %p): stub\n", This, debugstr_variant(charset), count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5229,11 +5323,11 @@ static HRESULT WINAPI ITextSelection_fnMoveStartUntil(ITextSelection *me, VARIAN
 static HRESULT WINAPI ITextSelection_fnMoveEndUntil(ITextSelection *me, VARIANT *charset, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %p): stub\n", This, debugstr_variant(charset), count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5242,11 +5336,11 @@ static HRESULT WINAPI ITextSelection_fnMoveEndUntil(ITextSelection *me, VARIANT 
 static HRESULT WINAPI ITextSelection_fnFindText(ITextSelection *me, BSTR text, LONG count, LONG flags,
     LONG *length)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %x %p): stub\n", This, debugstr_w(text), count, flags, length);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     FIXME("not implemented\n");
@@ -5256,11 +5350,11 @@ static HRESULT WINAPI ITextSelection_fnFindText(ITextSelection *me, BSTR text, L
 static HRESULT WINAPI ITextSelection_fnFindTextStart(ITextSelection *me, BSTR text, LONG count,
     LONG flags, LONG *length)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %x %p): stub\n", This, debugstr_w(text), count, flags, length);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5269,11 +5363,11 @@ static HRESULT WINAPI ITextSelection_fnFindTextStart(ITextSelection *me, BSTR te
 static HRESULT WINAPI ITextSelection_fnFindTextEnd(ITextSelection *me, BSTR text, LONG count,
     LONG flags, LONG *length)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %d %x %p): stub\n", This, debugstr_w(text), count, flags, length);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5282,11 +5376,11 @@ static HRESULT WINAPI ITextSelection_fnFindTextEnd(ITextSelection *me, BSTR text
 static HRESULT WINAPI ITextSelection_fnDelete(ITextSelection *me, LONG unit, LONG count,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %p): stub\n", This, unit, count, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5294,45 +5388,45 @@ static HRESULT WINAPI ITextSelection_fnDelete(ITextSelection *me, LONG unit, LON
 
 static HRESULT WINAPI ITextSelection_fnCut(ITextSelection *me, VARIANT *v)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%p): stub\n", This, v);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
-    hr = textrange_copy_or_cut(range, This->services->editor, TRUE, v);
+    hr = textrange_copy_or_cut(range, This->reOle->editor, TRUE, v);
     ITextRange_Release(range);
     return hr;
 }
 
 static HRESULT WINAPI ITextSelection_fnCopy(ITextSelection *me, VARIANT *v)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
     ITextRange *range = NULL;
     HRESULT hr;
 
     TRACE("(%p)->(%p)\n", This, v);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     ITextSelection_QueryInterface(me, &IID_ITextRange, (void**)&range);
-    hr = textrange_copy_or_cut(range, This->services->editor, FALSE, v);
+    hr = textrange_copy_or_cut(range, This->reOle->editor, FALSE, v);
     ITextRange_Release(range);
     return hr;
 }
 
 static HRESULT WINAPI ITextSelection_fnPaste(ITextSelection *me, VARIANT *v, LONG format)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %x): stub\n", This, debugstr_variant(v), format);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5341,11 +5435,11 @@ static HRESULT WINAPI ITextSelection_fnPaste(ITextSelection *me, VARIANT *v, LON
 static HRESULT WINAPI ITextSelection_fnCanPaste(ITextSelection *me, VARIANT *v, LONG format,
     LONG *ret)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s %x %p): stub\n", This, debugstr_variant(v), format, ret);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5353,11 +5447,11 @@ static HRESULT WINAPI ITextSelection_fnCanPaste(ITextSelection *me, VARIANT *v, 
 
 static HRESULT WINAPI ITextSelection_fnCanEdit(ITextSelection *me, LONG *ret)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%p): stub\n", This, ret);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5365,11 +5459,11 @@ static HRESULT WINAPI ITextSelection_fnCanEdit(ITextSelection *me, LONG *ret)
 
 static HRESULT WINAPI ITextSelection_fnChangeCase(ITextSelection *me, LONG type)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d): stub\n", This, type);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5377,11 +5471,11 @@ static HRESULT WINAPI ITextSelection_fnChangeCase(ITextSelection *me, LONG type)
 
 static HRESULT WINAPI ITextSelection_fnGetPoint(ITextSelection *me, LONG type, LONG *cx, LONG *cy)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %p %p): stub\n", This, type, cx, cy);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5390,11 +5484,11 @@ static HRESULT WINAPI ITextSelection_fnGetPoint(ITextSelection *me, LONG type, L
 static HRESULT WINAPI ITextSelection_fnSetPoint(ITextSelection *me, LONG x, LONG y, LONG type,
     LONG extend)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %d %d): stub\n", This, x, y, type, extend);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5402,11 +5496,11 @@ static HRESULT WINAPI ITextSelection_fnSetPoint(ITextSelection *me, LONG x, LONG
 
 static HRESULT WINAPI ITextSelection_fnScrollIntoView(ITextSelection *me, LONG value)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d): stub\n", This, value);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5414,11 +5508,11 @@ static HRESULT WINAPI ITextSelection_fnScrollIntoView(ITextSelection *me, LONG v
 
 static HRESULT WINAPI ITextSelection_fnGetEmbeddedObject(ITextSelection *me, IUnknown **ppv)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%p): stub\n", This, ppv);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5427,11 +5521,11 @@ static HRESULT WINAPI ITextSelection_fnGetEmbeddedObject(ITextSelection *me, IUn
 /*** ITextSelection methods ***/
 static HRESULT WINAPI ITextSelection_fnGetFlags(ITextSelection *me, LONG *flags)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%p): stub\n", This, flags);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5439,11 +5533,11 @@ static HRESULT WINAPI ITextSelection_fnGetFlags(ITextSelection *me, LONG *flags)
 
 static HRESULT WINAPI ITextSelection_fnSetFlags(ITextSelection *me, LONG flags)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%x): stub\n", This, flags);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5451,11 +5545,11 @@ static HRESULT WINAPI ITextSelection_fnSetFlags(ITextSelection *me, LONG flags)
 
 static HRESULT WINAPI ITextSelection_fnGetType(ITextSelection *me, LONG *type)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%p): stub\n", This, type);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5464,11 +5558,11 @@ static HRESULT WINAPI ITextSelection_fnGetType(ITextSelection *me, LONG *type)
 static HRESULT WINAPI ITextSelection_fnMoveLeft(ITextSelection *me, LONG unit, LONG count,
     LONG extend, LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %d %p): stub\n", This, unit, count, extend, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5477,11 +5571,11 @@ static HRESULT WINAPI ITextSelection_fnMoveLeft(ITextSelection *me, LONG unit, L
 static HRESULT WINAPI ITextSelection_fnMoveRight(ITextSelection *me, LONG unit, LONG count,
     LONG extend, LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %d %p): stub\n", This, unit, count, extend, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5490,11 +5584,11 @@ static HRESULT WINAPI ITextSelection_fnMoveRight(ITextSelection *me, LONG unit, 
 static HRESULT WINAPI ITextSelection_fnMoveUp(ITextSelection *me, LONG unit, LONG count,
     LONG extend, LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %d %p): stub\n", This, unit, count, extend, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5503,11 +5597,11 @@ static HRESULT WINAPI ITextSelection_fnMoveUp(ITextSelection *me, LONG unit, LON
 static HRESULT WINAPI ITextSelection_fnMoveDown(ITextSelection *me, LONG unit, LONG count,
     LONG extend, LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %d %p): stub\n", This, unit, count, extend, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5516,11 +5610,11 @@ static HRESULT WINAPI ITextSelection_fnMoveDown(ITextSelection *me, LONG unit, L
 static HRESULT WINAPI ITextSelection_fnHomeKey(ITextSelection *me, LONG unit, LONG extend,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %p): stub\n", This, unit, extend, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5529,11 +5623,11 @@ static HRESULT WINAPI ITextSelection_fnHomeKey(ITextSelection *me, LONG unit, LO
 static HRESULT WINAPI ITextSelection_fnEndKey(ITextSelection *me, LONG unit, LONG extend,
     LONG *delta)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%d %d %p): stub\n", This, unit, extend, delta);
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5541,11 +5635,11 @@ static HRESULT WINAPI ITextSelection_fnEndKey(ITextSelection *me, LONG unit, LON
 
 static HRESULT WINAPI ITextSelection_fnTypeText(ITextSelection *me, BSTR text)
 {
-    struct text_selection *This = impl_from_ITextSelection(me);
+    ITextSelectionImpl *This = impl_from_ITextSelection(me);
 
     FIXME("(%p)->(%s): stub\n", This, debugstr_w(text));
 
-    if (!This->services)
+    if (!This->reOle)
         return CO_E_RELEASED;
 
     return E_NOTIMPL;
@@ -5622,16 +5716,44 @@ static const ITextSelectionVtbl tsvt = {
     ITextSelection_fnTypeText
 };
 
-static struct text_selection *text_selection_create(struct text_services *services)
+static ITextSelectionImpl *
+CreateTextSelection(IRichEditOleImpl *reOle)
 {
-    struct text_selection *txtSel = heap_alloc(sizeof *txtSel);
+    ITextSelectionImpl *txtSel = heap_alloc(sizeof *txtSel);
     if (!txtSel)
         return NULL;
 
     txtSel->ITextSelection_iface.lpVtbl = &tsvt;
     txtSel->ref = 1;
-    txtSel->services = services;
+    txtSel->reOle = reOle;
     return txtSel;
+}
+
+LRESULT CreateIRichEditOle(IUnknown *outer_unk, ME_TextEditor *editor, LPVOID *ppvObj)
+{
+    IRichEditOleImpl *reo;
+
+    reo = heap_alloc(sizeof(IRichEditOleImpl));
+    if (!reo)
+        return 0;
+
+    reo->IUnknown_inner.lpVtbl = &reo_unk_vtbl;
+    reo->IRichEditOle_iface.lpVtbl = &revt;
+    reo->ITextDocument2Old_iface.lpVtbl = &tdvt;
+    reo->ref = 1;
+    reo->editor = editor;
+    reo->txtSel = NULL;
+
+    TRACE("Created %p\n",reo);
+    list_init(&reo->rangelist);
+    list_init(&reo->clientsites);
+    if (outer_unk)
+        reo->outer_unk = outer_unk;
+    else
+        reo->outer_unk = &reo->IUnknown_inner;
+    *ppvObj = &reo->IUnknown_inner;
+
+    return 1;
 }
 
 static void convert_sizel(const ME_Context *c, const SIZEL* szl, SIZE* sz)
@@ -5848,22 +5970,4 @@ void ME_CopyReObject(REOBJECT *dst, const REOBJECT *src, DWORD flags)
         dst->polesite = src->polesite;
         IOleClientSite_AddRef(dst->polesite);
     }
-}
-
-void richole_release_children( struct text_services *services )
-{
-    ITextRangeImpl *range;
-    IOleClientSiteImpl *site;
-
-    if (services->text_selection)
-    {
-        services->text_selection->services = NULL;
-        ITextSelection_Release( &services->text_selection->ITextSelection_iface );
-    }
-
-    LIST_FOR_EACH_ENTRY( range, &services->rangelist, ITextRangeImpl, child.entry )
-        range->child.reole = NULL;
-
-    LIST_FOR_EACH_ENTRY( site, &services->clientsites, IOleClientSiteImpl, child.entry )
-        site->child.reole = NULL;
 }

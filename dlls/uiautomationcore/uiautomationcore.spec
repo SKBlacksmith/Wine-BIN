@@ -1,7 +1,7 @@
-@ stdcall -private DllCanUnloadNow()
+@ stub DllCanUnloadNow
 @ stub DllGetClassObject
-@ stdcall -private DllRegisterServer()
-@ stdcall -private DllUnregisterServer()
+@ stub DllRegisterServer
+@ stub DllUnregisterServer
 @ stub DockPattern_SetDockPosition
 @ stub ExpandCollapsePattern_Collapse
 @ stub ExpandCollapsePattern_Expand

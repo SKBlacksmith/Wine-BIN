@@ -4974,9 +4974,6 @@ static void test_WinHttpGetProxyForUrl(void)
         trace("Proxy.ProxyBypass=%s\n", wine_dbgstr_w(info.lpszProxyBypass));
         GlobalFree( info.lpszProxy );
         GlobalFree( info.lpszProxyBypass );
-
-        ret = WinHttpGetProxyForUrl( session, L"http:", &options, &info );
-        ok( !ret, "expected failure\n" );
     }
 
     options.dwFlags = WINHTTP_AUTOPROXY_CONFIG_URL;
@@ -4993,13 +4990,6 @@ static void test_WinHttpGetProxyForUrl(void)
         GlobalFree( info.lpszProxy );
         GlobalFree( info.lpszProxyBypass );
     }
-
-    options.dwFlags = WINHTTP_AUTOPROXY_AUTO_DETECT;
-    options.dwAutoDetectFlags = WINHTTP_AUTO_DETECT_TYPE_DHCP|WINHTTP_AUTO_DETECT_TYPE_DNS_A;
-
-    ret = WinHttpGetProxyForUrl( session, L"http:", &options, &info );
-    ok( !ret, "expected failure\n" );
-
     WinHttpCloseHandle( session );
 }
 

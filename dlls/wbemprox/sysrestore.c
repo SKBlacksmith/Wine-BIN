@@ -31,25 +31,25 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(wbemprox);
 
-HRESULT sysrestore_create( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT create_restore_point( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
 {
     FIXME("stub\n");
     return S_OK;
 }
 
-HRESULT sysrestore_disable( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT disable_restore( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
 {
     FIXME("stub\n");
     return S_OK;
 }
 
-HRESULT sysrestore_enable( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT enable_restore( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
 {
     VARIANT drive, retval;
     IWbemClassObject *sig, *out_params = NULL;
     HRESULT hr;
 
-    TRACE("%p, %p, %p, %p\n", obj, context, in, out);
+    TRACE("%p, %p\n", in, out);
 
     hr = IWbemClassObject_Get( in, L"Drive", 0, &drive, NULL, NULL );
     if (hr != S_OK) return hr;
@@ -93,13 +93,13 @@ HRESULT sysrestore_enable( IWbemClassObject *obj, IWbemContext *context, IWbemCl
     return hr;
 }
 
-HRESULT sysrestore_get_last_status( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT get_last_restore_status( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
 {
     FIXME("stub\n");
     return E_NOTIMPL;
 }
 
-HRESULT sysrestore_restore( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT restore( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
 {
     FIXME("stub\n");
     return S_OK;

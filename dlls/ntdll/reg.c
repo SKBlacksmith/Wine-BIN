@@ -460,9 +460,20 @@ static NTSTATUS RTL_GetKeyHandle(ULONG RelativeTo, PCWSTR Path, PHANDLE handle)
     return status;
 }
 
-/******************************************************************************
- *              RtlQueryRegistryValues  (NTDLL.@)
- *              RtlQueryRegistryValuesEx  (NTDLL.@)
+/*************************************************************************
+ * RtlQueryRegistryValues   [NTDLL.@]
+ *
+ * Query multiple registry values with a single call.
+ *
+ * PARAMS
+ *  RelativeTo  [I] Registry path that Path refers to
+ *  Path        [I] Path to key
+ *  QueryTable  [I] Table of key values to query
+ *  Context     [I] Parameter to pass to the application defined QueryRoutine function
+ *  Environment [I] Optional parameter to use when performing expansion
+ *
+ * RETURNS
+ *  STATUS_SUCCESS or an appropriate NTSTATUS error code.
  */
 NTSTATUS WINAPI RtlQueryRegistryValues(IN ULONG RelativeTo, IN PCWSTR Path,
                                        IN PRTL_QUERY_REGISTRY_TABLE QueryTable, IN PVOID Context,

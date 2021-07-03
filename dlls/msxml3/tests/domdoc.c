@@ -46,8 +46,6 @@
 #include "wine/heap.h"
 #include "wine/test.h"
 
-#define XML_E_UNEXPECTED_ATTRIBUTE 0xC00CE56C
-
 /* undef the #define in msxml2 so that we can access all versions */
 #undef CLSID_DOMDocument
 
@@ -2205,8 +2203,6 @@ static void test_domnode( void )
 
     if (element)
     {
-        IXMLDOMNamedNodeMap *attributes;
-
         owner = NULL;
         r = IXMLDOMElement_get_ownerDocument( element, &owner );
         ok( r == S_OK, "get_ownerDocument return code\n");
@@ -2285,29 +2281,6 @@ static void test_domnode( void )
         ok( map != NULL, "should be attributes\n");
 
         EXPECT_CHILDREN(element);
-
-        r = IXMLDOMElement_get_childNodes( element, &list );
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        r = IXMLDOMNodeList_nextNode( list, &node ); /* <bs> */
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        IXMLDOMNode_Release( node );
-        r = IXMLDOMNodeList_nextNode( list, &node ); /* <pr> */
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        IXMLDOMNode_Release( node );
-        r = IXMLDOMNodeList_nextNode( list, &node ); /* <empty> */
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        r = IXMLDOMNode_get_attributes( node, &attributes );
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        next = (IXMLDOMNode*)0xdeadbeef;
-        r = IXMLDOMNamedNodeMap_nextNode( attributes, &next );
-        ok( r == S_FALSE, "Expected S_FALSE, ret %08x\n", r );
-        ok( next == NULL, "Expected NULL, ret %p\n", next );
-        IXMLDOMNamedNodeMap_Release( attributes );
-        IXMLDOMNode_Release( node );
-        node = NULL;
-        next = NULL;
-        IXMLDOMNodeList_Release( list );
-        list = NULL;
     }
     else
         ok( FALSE, "no element\n");
@@ -8549,31 +8522,12 @@ static void test_events(void)
 
 static void test_createProcessingInstruction(void)
 {
-    static const WCHAR xml1[] = L"<?xml version=\"1.0\"?>\r\n<test/>\r\n";
-    static const char xml2[] = "<?xml version=\"1.0\" encoding=\"windows-1252\"?>\r\n<test/>\r\n";
-    static const char xml2_wine[] = "<?xml version=\"1.0\" encoding=\"windows-1252\"?>\n<test/>\n";
-    static const char xml3[] = "<?xml version=\"1.0\" standalone=\"yes\"?>\r\n<test/>\r\n";
-    static const char xml3_wine[] = "<?xml version=\"1.0\" standalone=\"yes\"?>\n<test/>\n";
     IXMLDOMProcessingInstruction *pi;
     IXMLDOMDocument *doc;
-    IXMLDOMNode *node, *item;
-    IXMLDOMNamedNodeMap *node_map;
-    IXMLDOMElement *element;
     WCHAR buff[10];
-    BSTR xml, bstr;
-    VARIANT var;
     HRESULT hr;
-    IStream *stream;
-    LARGE_INTEGER off;
-    VARIANT_BOOL b;
-    HGLOBAL global;
-    char *p;
 
     doc = create_document(&IID_IXMLDOMDocument);
-
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=\"windows-1252\" dummy=\"value\""), &pi);
-todo_wine
-    ok(hr == XML_E_UNEXPECTED_ATTRIBUTE, "got 0x%08x\n", hr);
 
     /* test for BSTR handling, pass broken BSTR */
     memcpy(&buff[2], L"test", 5 * sizeof(WCHAR));
@@ -8583,115 +8537,6 @@ todo_wine
     ok(hr == S_OK, "got 0x%08x\n", hr);
 
     IXMLDOMProcessingInstruction_Release(pi);
-    IXMLDOMDocument_Release(doc);
-
-    doc = create_document(&IID_IXMLDOMDocument);
-
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=\"windows-1252\""), &pi);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    hr = IXMLDOMProcessingInstruction_QueryInterface(pi, &IID_IXMLDOMNode, (void **)&node);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_appendChild(doc, node, NULL);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = IXMLDOMNode_get_attributes(node, &node_map);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    item = (void *)0xdeadbeef;
-    hr = IXMLDOMNamedNodeMap_getNamedItem(node_map, _bstr_("xml"), &item);
-    ok(hr == S_FALSE, "got 0x%08x\n", hr);
-    ok(!item, "got %p\n", item);
-
-    item = NULL;
-    hr = IXMLDOMNamedNodeMap_getNamedItem(node_map, _bstr_("encoding"), &item);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(item != NULL, "got NULL\n");
-
-    hr = IXMLDOMNode_get_nodeName(item, &bstr);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(!lstrcmpW(bstr, L"encoding"), "got %s\n", wine_dbgstr_w(bstr));
-    SysFreeString(bstr);
-
-    VariantInit(&var);
-    hr = IXMLDOMNode_get_nodeValue(item, &var);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(V_VT(&var) == VT_BSTR, "got %u\n", V_VT(&var));
-    ok(!lstrcmpW(V_BSTR(&var), L"windows-1252"), "got %s\n", wine_dbgstr_w(V_BSTR(&var)));
-    VariantClear(&var);
-
-    IXMLDOMNamedNodeMap_Release(node_map);
-    IXMLDOMNode_Release(node);
-    IXMLDOMProcessingInstruction_Release(pi);
-
-    hr = IXMLDOMDocument_createElement(doc, _bstr_("test"), &element);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_appendChild(doc, (IXMLDOMNode *)element, NULL);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    IXMLDOMElement_Release(element);
-
-    hr = IXMLDOMDocument_get_xml(doc, &xml);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-todo_wine
-    ok(!wcscmp(xml, xml1), "got %s\n", wine_dbgstr_w(xml));
-    SysFreeString(xml);
-
-    hr = CreateStreamOnHGlobal(NULL, TRUE, &stream);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    V_VT(&var) = VT_UNKNOWN;
-    V_UNKNOWN(&var) = (IUnknown*)stream;
-    hr = IXMLDOMDocument_save(doc, var);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = GetHGlobalFromStream(stream, &global);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    p = GlobalLock(global);
-    ok(!memcmp(p, xml2, sizeof(xml2) - 1) || !memcmp(p, xml2_wine, sizeof(xml2_wine) - 1), "got %s\n", wine_dbgstr_a(p));
-    GlobalUnlock(global);
-
-    /* Verify the result after load+save */
-    off.QuadPart = 0;
-    hr = IStream_Seek(stream, off, STREAM_SEEK_SET, NULL);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = IXMLDOMDocument_load(doc, var, &b);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(b == VARIANT_TRUE, "got %d\n", b);
-
-    off.QuadPart = 0;
-    hr = IStream_Seek(stream, off, STREAM_SEEK_SET, NULL);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = IXMLDOMDocument_save(doc, var);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = GetHGlobalFromStream(stream, &global);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    p = GlobalLock(global);
-    ok(!memcmp(p, xml2, sizeof(xml2) - 1) || !memcmp(p, xml2_wine, sizeof(xml2_wine) - 1), "got %s\n", wine_dbgstr_a(p));
-    GlobalUnlock(global);
-
-    IStream_Release(stream);
-
-    hr = IXMLDOMDocument_loadXML(doc, _bstr_("<?xml version=\"1.0\" standalone=\"yes\"?>\r\n<test/>\r\n"), &b);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(b == VARIANT_TRUE, "got %d\n", b);
-
-    hr = CreateStreamOnHGlobal(NULL, TRUE, &stream);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    V_VT(&var) = VT_UNKNOWN;
-    V_UNKNOWN(&var) = (IUnknown*)stream;
-    hr = IXMLDOMDocument_save(doc, var);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = GetHGlobalFromStream(stream, &global);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    p = GlobalLock(global);
-    ok(!memcmp(p, xml3, sizeof(xml3) - 1) || !memcmp(p, xml3_wine, sizeof(xml3_wine) - 1), "got %s\n", wine_dbgstr_a(p));
-    GlobalUnlock(global);
-
-    IStream_Release(stream);
     IXMLDOMDocument_Release(doc);
 }
 
@@ -9260,13 +9105,6 @@ static void test_insertBefore(void)
     doc = create_document(&IID_IXMLDOMDocument);
     doc3 = create_document(&IID_IXMLDOMDocument);
 
-    /* NULL to document */
-    V_VT(&v) = VT_NULL;
-    node = (void*)0xdeadbeef;
-    hr = IXMLDOMDocument_insertBefore(doc, NULL, v, &node);
-    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
-    ok(node == (void*)0xdeadbeef, "got %p\n", node);
-
     /* document to document */
     V_VT(&v) = VT_NULL;
     node = (void*)0xdeadbeef;
@@ -9435,13 +9273,6 @@ static void test_insertBefore(void)
     EXPECT_NO_CHILDREN(elem3);
 
     todo_wine EXPECT_REF(elem2, 2);
-
-    /* NULL to element */
-    V_VT(&v) = VT_NULL;
-    node = (void*)0xdeadbeef;
-    hr = IXMLDOMElement_insertBefore(elem1, NULL, v, &node);
-    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
-    ok(node == (void*)0xdeadbeef, "got %p\n", node);
 
     /* document to element */
     V_VT(&v) = VT_DISPATCH;
@@ -13644,7 +13475,6 @@ START_TEST(domdoc)
         return;
     }
 
-    test_createProcessingInstruction();
     test_load_with_site();
     test_domdoc();
     test_persiststream();
@@ -13686,6 +13516,7 @@ START_TEST(domdoc)
     test_default_properties();
     test_selectSingleNode();
     test_events();
+    test_createProcessingInstruction();
     test_put_nodeTypedValue();
     test_get_xml();
     test_insertBefore();

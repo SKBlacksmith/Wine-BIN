@@ -1954,7 +1954,6 @@ static void test_MoveFileA(void)
     char tempdir[MAX_PATH];
     char source[MAX_PATH], dest[MAX_PATH];
     static const char prefix[] = "pfx";
-    WIN32_FIND_DATAA find_data;
     HANDLE hfile;
     HANDLE hmapfile;
     DWORD ret;
@@ -2024,71 +2023,8 @@ static void test_MoveFileA(void)
     ok(ret, "MoveFileA: failed, error %d\n", GetLastError());
 
     lstrcatA(tempdir, "Remove Me");
-
-    /* test renaming a file "Remove Me" to itself but in lowercase "me" */
-    lstrcpyA(source, tempdir);
-    tempdir[lstrlenA(tempdir) - 2] = 'm';
-
-    hfile = CreateFileA(source, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, 0, 0);
-    ok(hfile != INVALID_HANDLE_VALUE, "failed to create %s\n", source);
-    CloseHandle(hfile);
-
-    ret = MoveFileA(source, tempdir);
-    ok(ret, "MoveFileA: failed, error %d\n", GetLastError());
-
-    hfile = FindFirstFileA(tempdir, &find_data);
-    ok(hfile != INVALID_HANDLE_VALUE, "FindFirstFileA: failed, error %d\n", GetLastError());
-    if (hfile != INVALID_HANDLE_VALUE)
-    {
-        todo_wine ok(!lstrcmpA(strrchr(tempdir, '\\') + 1, find_data.cFileName),
-           "MoveFile failed to change casing on same file: got %s\n", find_data.cFileName);
-    }
-    CloseHandle(hfile);
-
-    /* test renaming another file "Remove Be" to "Remove Me", which replaces the existing "Remove me" */
-    tempdir[lstrlenA(tempdir) - 2] = 'B';
-
-    hfile = CreateFileA(tempdir, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, 0, 0);
-    ok(hfile != INVALID_HANDLE_VALUE, "failed to create %s\n", tempdir);
-    CloseHandle(hfile);
-
-    ret = MoveFileA(tempdir, source);
-    ok(!ret, "MoveFileA: expected failure\n");
-    ok(GetLastError() == ERROR_ALREADY_EXISTS, "MoveFileA: expected ERROR_ALREADY_EXISTS, got %d\n", GetLastError());
-    ret = MoveFileExA(tempdir, source, MOVEFILE_REPLACE_EXISTING);
-    ok(ret, "MoveFileExA: failed, error %d\n", GetLastError());
-
-    tempdir[lstrlenA(tempdir) - 2] = 'm';
-
-    hfile = FindFirstFileA(tempdir, &find_data);
-    ok(hfile != INVALID_HANDLE_VALUE, "FindFirstFileA: failed, error %d\n", GetLastError());
-    if (hfile != INVALID_HANDLE_VALUE)
-    {
-        ok(!lstrcmpA(strrchr(source, '\\') + 1, find_data.cFileName),
-           "MoveFile failed to change casing on existing target file: got %s\n", find_data.cFileName);
-    }
-    CloseHandle(hfile);
-
-    ret = DeleteFileA(tempdir);
-    ok(ret, "DeleteFileA: error %d\n", GetLastError());
-
-    /* now test a directory from "Remove me" to uppercase "Me" */
     ret = CreateDirectoryA(tempdir, NULL);
     ok(ret == TRUE, "CreateDirectoryA failed\n");
-
-    lstrcpyA(source, tempdir);
-    tempdir[lstrlenA(tempdir) - 2] = 'M';
-    ret = MoveFileA(source, tempdir);
-    ok(ret, "MoveFileA: failed, error %d\n", GetLastError());
-
-    hfile = FindFirstFileA(tempdir, &find_data);
-    ok(hfile != INVALID_HANDLE_VALUE, "FindFirstFileA: failed, error %d\n", GetLastError());
-    if (hfile != INVALID_HANDLE_VALUE)
-    {
-        todo_wine ok(!lstrcmpA(strrchr(tempdir, '\\') + 1, find_data.cFileName),
-           "MoveFile failed to change casing on same directory: got %s\n", find_data.cFileName);
-    }
-    CloseHandle(hfile);
 
     lstrcpyA(source, dest);
     lstrcpyA(dest, tempdir);
@@ -5348,104 +5284,28 @@ todo_wine
     CloseHandle(file);
 }
 
-static void test_SetFileRenameInfo(void)
-{
-    WCHAR tempFileFrom[MAX_PATH], tempFileTo1[MAX_PATH], tempFileTo2[MAX_PATH];
-    WCHAR tempPath[MAX_PATH];
-    FILE_RENAME_INFORMATION *fri;
-    HANDLE file;
-    DWORD size;
-    BOOL ret;
-
-    if (!pSetFileInformationByHandle)
-    {
-        win_skip("SetFileInformationByHandle is not supported\n");
-        return;
-    }
-
-    ret = GetTempPathW(MAX_PATH, tempPath);
-    ok(ret, "GetTempPathW failed, got error %u.\n", GetLastError());
-
-    ret = GetTempFileNameW(tempPath, L"abc", 0, tempFileFrom);
-    ok(ret, "GetTempFileNameW failed, got error %u.\n", GetLastError());
-
-    ret = GetTempFileNameW(tempPath, L"abc", 0, tempFileTo1);
-    ok(ret, "GetTempFileNameW failed, got error %u.\n", GetLastError());
-
-    ret = GetTempFileNameW(tempPath, L"abc", 1, tempFileTo2);
-    ok(ret, "GetTempFileNameW failed, got error %u.\n", GetLastError());
-
-    file = CreateFileW(tempFileFrom, GENERIC_READ | GENERIC_WRITE | DELETE, 0, 0, OPEN_EXISTING, 0, 0);
-    ok(file != INVALID_HANDLE_VALUE, "failed to create temp file, error %u.\n", GetLastError());
-
-    size = sizeof(FILE_RENAME_INFORMATION) + MAX_PATH;
-    fri = HeapAlloc(GetProcessHeap(), 0, size);
-
-    fri->ReplaceIfExists = FALSE;
-    fri->RootDirectory = NULL;
-    fri->FileNameLength = wcslen(tempFileTo1) * sizeof(WCHAR);
-    memcpy(fri->FileName, tempFileTo1, fri->FileNameLength + sizeof(WCHAR));
-    ret = pSetFileInformationByHandle(file, FileRenameInfo, fri, size);
-    ok(!ret && GetLastError() == ERROR_ALREADY_EXISTS, "FileRenameInfo unexpected result %d\n", GetLastError());
-
-    fri->ReplaceIfExists = TRUE;
-    ret = pSetFileInformationByHandle(file, FileRenameInfo, fri, size);
-    ok(ret, "FileRenameInfo failed, error %d\n", GetLastError());
-
-    fri->ReplaceIfExists = FALSE;
-    fri->FileNameLength = wcslen(tempFileTo2) * sizeof(WCHAR);
-    memcpy(fri->FileName, tempFileTo2, fri->FileNameLength + sizeof(WCHAR));
-    ret = pSetFileInformationByHandle(file, FileRenameInfo, fri, size);
-    ok(ret, "FileRenameInfo failed, error %d\n", GetLastError());
-    CloseHandle(file);
-
-    file = CreateFileW(tempFileTo2, GENERIC_READ | GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
-    ok(file != INVALID_HANDLE_VALUE, "file not renamed, error %d\n", GetLastError());
-
-    fri->FileNameLength = wcslen(tempFileTo1) * sizeof(WCHAR);
-    memcpy(fri->FileName, tempFileTo1, fri->FileNameLength + sizeof(WCHAR));
-    ret = pSetFileInformationByHandle(file, FileRenameInfo, fri, size);
-todo_wine
-    ok(!ret && GetLastError() == ERROR_ACCESS_DENIED, "FileRenameInfo unexpected result %d\n", GetLastError());
-    CloseHandle(file);
-
-    HeapFree(GetProcessHeap(), 0, fri);
-    DeleteFileW(tempFileFrom);
-    DeleteFileW(tempFileTo1);
-    DeleteFileW(tempFileTo2);
-}
-
 static void test_GetFileAttributesExW(void)
 {
-    static const struct
-    {
-        const WCHAR *path;
-        DWORD expected_error;
-    }
-    tests[] =
-    {
-        {L"\\\\?\\", ERROR_INVALID_NAME},
-        {L"\\??\\", ERROR_INVALID_NAME},
-        {L"\\DosDevices\\", ERROR_FILE_NOT_FOUND},
-        {L"\\\\?\\C:\\windows\\system32\\..\\system32\\kernel32.dll", ERROR_INVALID_NAME},
-    };
+    static const WCHAR path1[] = {'\\','\\','?','\\',0};
+    static const WCHAR path2[] = {'\\','?','?','\\',0};
+    static const WCHAR path3[] = {'\\','D','o','s','D','e','v','i','c','e','s','\\',0};
     WIN32_FILE_ATTRIBUTE_DATA info;
-    DWORD error, test_idx;
     BOOL ret;
 
-    for (test_idx = 0; test_idx < ARRAY_SIZE(tests); ++test_idx)
-    {
-        winetest_push_context("Test %u", test_idx);
+    SetLastError(0xdeadbeef);
+    ret = GetFileAttributesExW(path1, GetFileExInfoStandard, &info);
+    ok(!ret, "GetFileAttributesExW succeeded\n");
+    ok(GetLastError() == ERROR_INVALID_NAME, "Expected error ERROR_INVALID_NAME, got %u\n", GetLastError());
 
-        SetLastError(0xdeadbeef);
-        ret = GetFileAttributesExW(tests[test_idx].path, GetFileExInfoStandard, &info);
-        error = GetLastError();
-        ok(!ret, "GetFileAttributesExW succeeded\n");
-        ok(error == tests[test_idx].expected_error, "Expected error %u, got %u\n",
-           tests[test_idx].expected_error, error);
+    SetLastError(0xdeadbeef);
+    ret = GetFileAttributesExW(path2, GetFileExInfoStandard, &info);
+    ok(!ret, "GetFileAttributesExW succeeded\n");
+    ok(GetLastError() == ERROR_INVALID_NAME, "Expected error ERROR_INVALID_NAME, got %u\n", GetLastError());
 
-        winetest_pop_context();
-    }
+    SetLastError(0xdeadbeef);
+    ret = GetFileAttributesExW(path3, GetFileExInfoStandard, &info);
+    ok(!ret, "GetFileAttributesExW succeeded\n");
+    ok(GetLastError() == ERROR_FILE_NOT_FOUND, "Expected error ERROR_FILE_NOT_FOUND, got %u\n", GetLastError());
 }
 
 static void test_post_completion(void)
@@ -5800,11 +5660,6 @@ static void test_hard_link(void)
     ok(GetLastError() == ERROR_ALREADY_EXISTS, "got error %u\n", GetLastError());
 
     SetLastError(0xdeadbeef);
-    ret = CreateHardLinkA( "WineTest_File1", "winetest_file1", NULL );
-    ok(!ret, "expected failure\n");
-    ok(GetLastError() == ERROR_ALREADY_EXISTS, "got error %u\n", GetLastError());
-
-    SetLastError(0xdeadbeef);
     ret = CreateHardLinkA( "winetest_file3", "winetest_dir1", NULL );
     ok(!ret, "expected failure\n");
     ok(GetLastError() == ERROR_ACCESS_DENIED, "got error %u\n", GetLastError());
@@ -5924,191 +5779,6 @@ static void test_move_file(void)
     SetCurrentDirectoryA( cwd );
 }
 
-static void test_eof(void)
-{
-    char temp_path[MAX_PATH], filename[MAX_PATH], buffer[20];
-    LARGE_INTEGER file_size;
-    HANDLE file, mapping;
-    unsigned int i;
-    void *view;
-    DWORD size;
-    BOOL ret;
-
-    static const struct
-    {
-        DWORD protection;
-        DWORD view_access;
-    }
-    map_tests[] =
-    {
-        {PAGE_READONLY, FILE_MAP_READ},
-        {PAGE_READWRITE, FILE_MAP_WRITE},
-    };
-
-    GetTempPathA(sizeof(temp_path), temp_path);
-    GetTempFileNameA(temp_path, "eof", 0, filename);
-
-    file = CreateFileA(filename, GENERIC_READ | GENERIC_WRITE | DELETE, 0, NULL, CREATE_ALWAYS, 0, 0);
-    ok(file != INVALID_HANDLE_VALUE, "failed to create file, error %u\n", GetLastError());
-
-    ret = GetFileSizeEx(file, &file_size);
-    ok(ret, "failed to get size, error %u\n", GetLastError());
-    ok(!file_size.QuadPart, "got size %I64d\n", file_size.QuadPart);
-
-    SetFilePointer(file, 2, NULL, SEEK_SET);
-
-    ret = GetFileSizeEx(file, &file_size);
-    ok(ret, "failed to get size, error %u\n", GetLastError());
-    ok(!file_size.QuadPart, "got size %I64d\n", file_size.QuadPart);
-
-    ret = ReadFile(file, buffer, sizeof(buffer), &size, NULL);
-    ok(ret, "failed to read, error %u\n", GetLastError());
-    ok(!size, "got size %u\n", size);
-
-    ret = SetEndOfFile(file);
-    ok(ret, "failed to set EOF, error %u\n", GetLastError());
-
-    ret = GetFileSizeEx(file, &file_size);
-    ok(ret, "failed to get size, error %u\n", GetLastError());
-    ok(file_size.QuadPart == 2, "got size %I64d\n", file_size.QuadPart);
-
-    ret = WriteFile(file, "data", 4, &size, NULL);
-    ok(ret, "failed to write, error %u\n", GetLastError());
-    ok(size == 4, "got size %u\n", size);
-
-    ret = GetFileSizeEx(file, &file_size);
-    ok(ret, "failed to get size, error %u\n", GetLastError());
-    ok(file_size.QuadPart == 6, "got size %I64d\n", file_size.QuadPart);
-
-    SetFilePointer(file, 4, NULL, SEEK_SET);
-    ret = SetEndOfFile(file);
-    ok(ret, "failed to set EOF, error %u\n", GetLastError());
-
-    ret = GetFileSizeEx(file, &file_size);
-    ok(ret, "failed to get size, error %u\n", GetLastError());
-    ok(file_size.QuadPart == 4, "got size %I64d\n", file_size.QuadPart);
-
-    SetFilePointer(file, 0, NULL, SEEK_SET);
-    ret = ReadFile(file, buffer, sizeof(buffer), &size, NULL);
-    ok(ret, "failed to read, error %u\n", GetLastError());
-    ok(size == 4, "got size %u\n", size);
-    ok(!memcmp(buffer, "\0\0da", 4), "wrong data\n");
-
-    SetFilePointer(file, 6, NULL, SEEK_SET);
-    ret = SetEndOfFile(file);
-    ok(ret, "failed to set EOF, error %u\n", GetLastError());
-
-    ret = GetFileSizeEx(file, &file_size);
-    ok(ret, "failed to get size, error %u\n", GetLastError());
-    ok(file_size.QuadPart == 6, "got size %I64d\n", file_size.QuadPart);
-
-    SetFilePointer(file, 0, NULL, SEEK_SET);
-    ret = ReadFile(file, buffer, sizeof(buffer), &size, NULL);
-    ok(ret, "failed to read, error %u\n", GetLastError());
-    ok(size == 6, "got size %u\n", size);
-    ok(!memcmp(buffer, "\0\0da\0\0", 6), "wrong data\n");
-
-    ret = SetEndOfFile(file);
-    ok(ret, "failed to set EOF, error %u\n", GetLastError());
-
-    SetFilePointer(file, 2, NULL, SEEK_SET);
-    ret = WriteFile(file, "data", 4, &size, NULL);
-    ok(ret, "failed to write, error %u\n", GetLastError());
-    ok(size == 4, "got size %u\n", size);
-
-    ret = GetFileSizeEx(file, &file_size);
-    ok(ret, "failed to get size, error %u\n", GetLastError());
-    ok(file_size.QuadPart == 6, "got size %I64d\n", file_size.QuadPart);
-
-    SetFilePointer(file, 0, NULL, SEEK_SET);
-    ret = ReadFile(file, buffer, sizeof(buffer), &size, NULL);
-    ok(ret, "failed to read, error %u\n", GetLastError());
-    ok(size == 6, "got size %u\n", size);
-    ok(!memcmp(buffer, "\0\0data", 6), "wrong data\n");
-
-    for (i = 0; i < ARRAY_SIZE(map_tests); ++i)
-    {
-        mapping = CreateFileMappingA(file, NULL, map_tests[i].protection, 0, 4, NULL);
-        ok(!!mapping, "failed to create mapping, error %u\n", GetLastError());
-
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 6, "got size %I64d\n", file_size.QuadPart);
-
-        SetFilePointer(file, 6, NULL, SEEK_SET);
-        ret = SetEndOfFile(file);
-        ok(ret, "failed to set EOF, error %u\n", GetLastError());
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 6, "got size %I64d\n", file_size.QuadPart);
-
-        SetFilePointer(file, 8, NULL, SEEK_SET);
-        ret = SetEndOfFile(file);
-        ok(ret, "failed to set EOF, error %u\n", GetLastError());
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 8, "got size %I64d\n", file_size.QuadPart);
-
-        SetLastError(0xdeadbeef);
-        SetFilePointer(file, 6, NULL, SEEK_SET);
-        ret = SetEndOfFile(file);
-        ok(!ret, "expected failure\n");
-        ok(GetLastError() == ERROR_USER_MAPPED_FILE, "got error %u\n", GetLastError());
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 8, "got size %I64d\n", file_size.QuadPart);
-
-        SetFilePointer(file, 8192, NULL, SEEK_SET);
-        ret = SetEndOfFile(file);
-        ok(ret, "failed to set EOF, error %u\n", GetLastError());
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 8192, "got size %I64d\n", file_size.QuadPart);
-
-        SetFilePointer(file, 8191, NULL, SEEK_SET);
-        ret = SetEndOfFile(file);
-        ok(!ret, "expected failure\n");
-        ok(GetLastError() == ERROR_USER_MAPPED_FILE, "got error %u\n", GetLastError());
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 8192, "got size %I64d\n", file_size.QuadPart);
-
-        view = MapViewOfFile(mapping, map_tests[i].view_access, 0, 0, 4);
-        ok(!!view, "failed to map view, error %u\n", GetLastError());
-
-        CloseHandle(mapping);
-
-        SetFilePointer(file, 16384, NULL, SEEK_SET);
-        ret = SetEndOfFile(file);
-        ok(ret, "failed to set EOF, error %u\n", GetLastError());
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 16384, "got size %I64d\n", file_size.QuadPart);
-
-        SetFilePointer(file, 16383, NULL, SEEK_SET);
-        ret = SetEndOfFile(file);
-        ok(!ret, "expected failure\n");
-        ok(GetLastError() == ERROR_USER_MAPPED_FILE, "got error %u\n", GetLastError());
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 16384, "got size %I64d\n", file_size.QuadPart);
-
-        ret = UnmapViewOfFile(view);
-        ok(ret, "failed to unmap view, error %u\n", GetLastError());
-
-        SetFilePointer(file, 6, NULL, SEEK_SET);
-        ret = SetEndOfFile(file);
-        ok(ret, "failed to set EOF, error %u\n", GetLastError());
-        ret = GetFileSizeEx(file, &file_size);
-        ok(ret, "failed to get size, error %u\n", GetLastError());
-        ok(file_size.QuadPart == 6, "got size %I64d\n", file_size.QuadPart);
-    }
-
-    CloseHandle(file);
-    ret = DeleteFileA(filename);
-    ok(ret, "failed to delete %s, error %u\n", debugstr_a(filename), GetLastError());
-}
-
 START_TEST(file)
 {
     char temp_path[MAX_PATH];
@@ -6176,7 +5846,6 @@ START_TEST(file)
     test_GetFinalPathNameByHandleA();
     test_GetFinalPathNameByHandleW();
     test_SetFileInformationByHandle();
-    test_SetFileRenameInfo();
     test_GetFileAttributesExW();
     test_post_completion();
     test_overlapped_read();
@@ -6186,5 +5855,4 @@ START_TEST(file)
     test_ReOpenFile();
     test_hard_link();
     test_move_file();
-    test_eof();
 }

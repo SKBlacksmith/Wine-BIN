@@ -29,6 +29,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dsdmo);
 
+static HINSTANCE dsdmo_instance;
+
 struct effect
 {
     IMediaObject IMediaObject_iface;
@@ -797,6 +799,21 @@ static HRESULT waves_reverb_create(IUnknown *outer, IUnknown **out)
     return S_OK;
 }
 
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
+{
+    switch(reason)
+    {
+    case DLL_WINE_PREATTACH:
+        return FALSE;  /* prefer native version */
+    case DLL_PROCESS_ATTACH:
+        dsdmo_instance = instance;
+        DisableThreadLibraryCalls(dsdmo_instance);
+        break;
+    }
+
+    return TRUE;
+}
+
 struct class_factory
 {
     IClassFactory IClassFactory_iface;
@@ -897,4 +914,21 @@ HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **out)
 
     FIXME("%s not available, returning CLASS_E_CLASSNOTAVAILABLE.\n", debugstr_guid(clsid));
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
+}
+
+HRESULT WINAPI DllRegisterServer(void)
+{
+    TRACE("()\n");
+    return __wine_register_resources(dsdmo_instance);
+}
+
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    TRACE("()\n");
+    return __wine_unregister_resources(dsdmo_instance);
 }

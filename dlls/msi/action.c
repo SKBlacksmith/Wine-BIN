@@ -4042,7 +4042,7 @@ static UINT msi_publish_product_properties(MSIPACKAGE *package, HKEY hkey)
     msi_reg_set_val_dword(hkey, L"Assignment", 0);
     msi_reg_set_val_dword(hkey, L"AdvertiseFlags", 0x184);
     msi_reg_set_val_dword(hkey, INSTALLPROPERTY_INSTANCETYPEW, 0);
-    msi_reg_set_val_multi_str(hkey, L"Clients", L":\0");
+    msi_reg_set_val_str(hkey, L"Clients", L":");
 
     if (!(guids = msi_get_package_code(package->db))) return ERROR_OUTOFMEMORY;
     if ((ptr = wcschr(guids, ';'))) *ptr = 0;
@@ -6790,34 +6790,25 @@ static UINT ITERATE_WriteEnvironmentString( MSIRECORD *rec, LPVOID param )
     if (res != ERROR_SUCCESS || !value)
        goto done;
 
-    if (value)
+    if (value && !deformat_string(package, value, &deformatted))
     {
-        DWORD len = deformat_string( package, value, &deformatted );
-        if (!deformatted)
-        {
-            res = ERROR_OUTOFMEMORY;
-            goto done;
-        }
+        res = ERROR_OUTOFMEMORY;
+        goto done;
+    }
 
-        if (len)
+    if ((value = deformatted))
+    {
+        if (flags & ENV_MOD_PREFIX)
         {
-            value = deformatted;
-            if (flags & ENV_MOD_PREFIX)
-            {
-                p = wcsrchr( value, ';' );
-                len_value = p - value;
-            }
-            else if (flags & ENV_MOD_APPEND)
-            {
-                value = wcschr( value, ';' ) + 1;
-                len_value = lstrlenW( value );
-            }
-            else len_value = lstrlenW( value );
+            p = wcsrchr( value, ';' );
+            len_value = p - value;
         }
-        else
+        else if (flags & ENV_MOD_APPEND)
         {
-            value = NULL;
+            value = wcschr( value, ';' ) + 1;
+            len_value = lstrlenW( value );
         }
+        else len_value = lstrlenW( value );
     }
 
     res = open_env_key( flags, &env );
@@ -7006,34 +6997,22 @@ static UINT ITERATE_RemoveEnvironmentString( MSIRECORD *rec, LPVOID param )
         return ERROR_SUCCESS;
     }
 
-    if (value)
-    {
-        DWORD len = deformat_string( package, value, &deformatted );
-        if (!deformatted)
-        {
-            res = ERROR_OUTOFMEMORY;
-            goto done;
-        }
+    if (value && !deformat_string( package, value, &deformatted ))
+        return ERROR_OUTOFMEMORY;
 
-        if (len)
+    if ((value = deformatted))
+    {
+        if (flags & ENV_MOD_PREFIX)
         {
-            value = deformatted;
-            if (flags & ENV_MOD_PREFIX)
-            {
-                p = wcsrchr( value, ';' );
-                len_value = p - value;
-            }
-            else if (flags & ENV_MOD_APPEND)
-            {
-                value = wcschr( value, ';' ) + 1;
-                len_value = lstrlenW( value );
-            }
-            else len_value = lstrlenW( value );
+            p = wcschr( value, ';' );
+            len_value = p - value;
         }
-        else
+        else if (flags & ENV_MOD_APPEND)
         {
-            value = NULL;
+            value = wcschr( value, ';' ) + 1;
+            len_value = lstrlenW( value );
         }
+        else len_value = lstrlenW( value );
     }
 
     r = open_env_key( flags, &env );

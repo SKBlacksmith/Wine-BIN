@@ -108,10 +108,14 @@ static const USER_DRIVER *load_driver(void)
         GET_USER_FUNC(ActivateKeyboardLayout);
         GET_USER_FUNC(Beep);
         GET_USER_FUNC(GetKeyNameText);
+        GET_USER_FUNC(GetKeyboardLayout);
         GET_USER_FUNC(GetKeyboardLayoutList);
+        GET_USER_FUNC(GetKeyboardLayoutName);
+        GET_USER_FUNC(LoadKeyboardLayout);
         GET_USER_FUNC(MapVirtualKeyEx);
         GET_USER_FUNC(RegisterHotKey);
         GET_USER_FUNC(ToUnicodeEx);
+        GET_USER_FUNC(UnloadKeyboardLayout);
         GET_USER_FUNC(UnregisterHotKey);
         GET_USER_FUNC(VkKeyScanEx);
         GET_USER_FUNC(DestroyCursorIcon);
@@ -183,9 +187,9 @@ void USER_unload_driver(void)
  * These are fallbacks for entry points that are not implemented in the real driver.
  */
 
-static BOOL CDECL nulldrv_ActivateKeyboardLayout( HKL layout, UINT flags )
+static HKL CDECL nulldrv_ActivateKeyboardLayout( HKL layout, UINT flags )
 {
-    return TRUE;
+    return 0;
 }
 
 static void CDECL nulldrv_Beep(void)
@@ -194,17 +198,84 @@ static void CDECL nulldrv_Beep(void)
 
 static UINT CDECL nulldrv_GetKeyboardLayoutList( INT size, HKL *layouts )
 {
-    return ~0; /* use default implementation */
+    HKEY hKeyKeyboard;
+    DWORD rc;
+    INT count = 0;
+    ULONG_PTR baselayout;
+    LANGID langid;
+
+    baselayout = GetUserDefaultLCID();
+    langid = PRIMARYLANGID(LANGIDFROMLCID(baselayout));
+    if (langid == LANG_CHINESE || langid == LANG_JAPANESE || langid == LANG_KOREAN)
+        baselayout = MAKELONG( baselayout, 0xe001 ); /* IME */
+    else
+        baselayout |= baselayout << 16;
+
+    /* Enumerate the Registry */
+    rc = RegOpenKeyW(HKEY_LOCAL_MACHINE,L"System\\CurrentControlSet\\Control\\Keyboard Layouts",&hKeyKeyboard);
+    if (rc == ERROR_SUCCESS)
+    {
+        do {
+            WCHAR szKeyName[9];
+            HKL layout;
+            rc = RegEnumKeyW(hKeyKeyboard, count, szKeyName, 9);
+            if (rc == ERROR_SUCCESS)
+            {
+                layout = (HKL)(ULONG_PTR)wcstoul(szKeyName,NULL,16);
+                if (baselayout != 0 && layout == (HKL)baselayout)
+                    baselayout = 0; /* found in the registry do not add again */
+                if (size && layouts)
+                {
+                    if (count >= size ) break;
+                    layouts[count] = layout;
+                }
+                count ++;
+            }
+        } while (rc == ERROR_SUCCESS);
+        RegCloseKey(hKeyKeyboard);
+    }
+
+    /* make sure our base layout is on the list */
+    if (baselayout != 0)
+    {
+        if (size && layouts)
+        {
+            if (count < size)
+            {
+                layouts[count] = (HKL)baselayout;
+                count++;
+            }
+        }
+        else
+            count++;
+    }
+
+    return count;
 }
 
 static INT CDECL nulldrv_GetKeyNameText( LONG lparam, LPWSTR buffer, INT size )
 {
-    return -1; /* use default implementation */
+    return 0;
+}
+
+static HKL CDECL nulldrv_GetKeyboardLayout( DWORD thread_id )
+{
+    return 0;
+}
+
+static BOOL CDECL nulldrv_GetKeyboardLayoutName( LPWSTR name )
+{
+    return FALSE;
+}
+
+static HKL CDECL nulldrv_LoadKeyboardLayout( LPCWSTR name, UINT flags )
+{
+    return 0;
 }
 
 static UINT CDECL nulldrv_MapVirtualKeyEx( UINT code, UINT type, HKL layout )
 {
-    return -1; /* use default implementation */
+    return 0;
 }
 
 static BOOL CDECL nulldrv_RegisterHotKey( HWND hwnd, UINT modifiers, UINT vk )
@@ -215,7 +286,12 @@ static BOOL CDECL nulldrv_RegisterHotKey( HWND hwnd, UINT modifiers, UINT vk )
 static INT CDECL nulldrv_ToUnicodeEx( UINT virt, UINT scan, const BYTE *state, LPWSTR str,
                                       int size, UINT flags, HKL layout )
 {
-    return -2; /* use default implementation */
+    return 0;
+}
+
+static BOOL CDECL nulldrv_UnloadKeyboardLayout( HKL layout )
+{
+    return 0;
 }
 
 static void CDECL nulldrv_UnregisterHotKey( HWND hwnd, UINT modifiers, UINT vk )
@@ -224,7 +300,14 @@ static void CDECL nulldrv_UnregisterHotKey( HWND hwnd, UINT modifiers, UINT vk )
 
 static SHORT CDECL nulldrv_VkKeyScanEx( WCHAR ch, HKL layout )
 {
-    return -256; /* use default implementation */
+    static const short ctrl_vks[] = {
+        0x332, 0x241, 0x242, 0x003, 0x244, 0x245, 0x246, 0x247,
+        0x008, 0x009, 0x20d, 0x24b, 0x24c, 0x00d, 0x24e, 0x24f,
+        0x250, 0x251, 0x252, 0x253, 0x254, 0x255, 0x256, 0x257,
+        0x258, 0x259, 0x25a, 0x01b, 0x2dc, 0x2dd, 0x336, 0x3bd
+    };
+
+    return ch < ARRAY_SIZE(ctrl_vks) ? ctrl_vks[ch] : -1;
 }
 
 static void CDECL nulldrv_DestroyCursorIcon( HCURSOR cursor )
@@ -237,17 +320,17 @@ static void CDECL nulldrv_SetCursor( HCURSOR cursor )
 
 static BOOL CDECL nulldrv_GetCursorPos( LPPOINT pt )
 {
-    return TRUE;
+    return FALSE;
 }
 
 static BOOL CDECL nulldrv_SetCursorPos( INT x, INT y )
 {
-    return TRUE;
+    return FALSE;
 }
 
 static BOOL CDECL nulldrv_ClipCursor( LPCRECT clip )
 {
-    return TRUE;
+    return FALSE;
 }
 
 static void CDECL nulldrv_UpdateClipboard(void)
@@ -305,7 +388,6 @@ static void CDECL nulldrv_GetDC( HDC hdc, HWND hwnd, HWND top_win, const RECT *w
 static DWORD CDECL nulldrv_MsgWaitForMultipleObjectsEx( DWORD count, const HANDLE *handles, DWORD timeout,
                                                         DWORD mask, DWORD flags )
 {
-    if (!count && !timeout) return WAIT_TIMEOUT;
     return WaitForMultipleObjectsEx( count, handles, flags & MWMO_WAITALL,
                                      timeout, flags & MWMO_ALERTABLE );
 }
@@ -357,7 +439,7 @@ static void CDECL nulldrv_SetWindowText( HWND hwnd, LPCWSTR text )
 
 static UINT CDECL nulldrv_ShowWindow( HWND hwnd, INT cmd, RECT *rect, UINT swp )
 {
-    return ~0; /* use default implementation */
+    return swp;
 }
 
 static LRESULT CDECL nulldrv_SysCommand( HWND hwnd, WPARAM wparam, LPARAM lparam )
@@ -376,11 +458,10 @@ static LRESULT CDECL nulldrv_WindowMessage( HWND hwnd, UINT msg, WPARAM wparam, 
     return 0;
 }
 
-static BOOL CDECL nulldrv_WindowPosChanging( HWND hwnd, HWND insert_after, UINT swp_flags,
+static void CDECL nulldrv_WindowPosChanging( HWND hwnd, HWND insert_after, UINT swp_flags,
                                              const RECT *window_rect, const RECT *client_rect,
                                              RECT *visible_rect, struct window_surface **surface )
 {
-    return FALSE;
 }
 
 static void CDECL nulldrv_WindowPosChanged( HWND hwnd, HWND insert_after, UINT swp_flags,
@@ -405,10 +486,14 @@ static USER_DRIVER null_driver =
     nulldrv_ActivateKeyboardLayout,
     nulldrv_Beep,
     nulldrv_GetKeyNameText,
+    nulldrv_GetKeyboardLayout,
     nulldrv_GetKeyboardLayoutList,
+    nulldrv_GetKeyboardLayoutName,
+    nulldrv_LoadKeyboardLayout,
     nulldrv_MapVirtualKeyEx,
     nulldrv_RegisterHotKey,
     nulldrv_ToUnicodeEx,
+    nulldrv_UnloadKeyboardLayout,
     nulldrv_UnregisterHotKey,
     nulldrv_VkKeyScanEx,
     /* cursor/icon functions */
@@ -461,7 +546,7 @@ static USER_DRIVER null_driver =
  * Each entry point simply loads the real driver and chains to it.
  */
 
-static BOOL CDECL loaderdrv_ActivateKeyboardLayout( HKL layout, UINT flags )
+static HKL CDECL loaderdrv_ActivateKeyboardLayout( HKL layout, UINT flags )
 {
     return load_driver()->pActivateKeyboardLayout( layout, flags );
 }
@@ -476,9 +561,24 @@ static INT CDECL loaderdrv_GetKeyNameText( LONG lparam, LPWSTR buffer, INT size 
     return load_driver()->pGetKeyNameText( lparam, buffer, size );
 }
 
+static HKL CDECL loaderdrv_GetKeyboardLayout( DWORD thread_id )
+{
+    return load_driver()->pGetKeyboardLayout( thread_id );
+}
+
 static UINT CDECL loaderdrv_GetKeyboardLayoutList( INT size, HKL *layouts )
 {
     return load_driver()->pGetKeyboardLayoutList( size, layouts );
+}
+
+static BOOL CDECL loaderdrv_GetKeyboardLayoutName( LPWSTR name )
+{
+    return load_driver()->pGetKeyboardLayoutName( name );
+}
+
+static HKL CDECL loaderdrv_LoadKeyboardLayout( LPCWSTR name, UINT flags )
+{
+    return load_driver()->pLoadKeyboardLayout( name, flags );
 }
 
 static UINT CDECL loaderdrv_MapVirtualKeyEx( UINT code, UINT type, HKL layout )
@@ -495,6 +595,11 @@ static INT CDECL loaderdrv_ToUnicodeEx( UINT virt, UINT scan, const BYTE *state,
                                   int size, UINT flags, HKL layout )
 {
     return load_driver()->pToUnicodeEx( virt, scan, state, str, size, flags, layout );
+}
+
+static BOOL CDECL loaderdrv_UnloadKeyboardLayout( HKL layout )
+{
+    return load_driver()->pUnloadKeyboardLayout( layout );
 }
 
 static void CDECL loaderdrv_UnregisterHotKey( HWND hwnd, UINT modifiers, UINT vk )
@@ -596,10 +701,14 @@ static USER_DRIVER lazy_load_driver =
     loaderdrv_ActivateKeyboardLayout,
     loaderdrv_Beep,
     loaderdrv_GetKeyNameText,
+    loaderdrv_GetKeyboardLayout,
     loaderdrv_GetKeyboardLayoutList,
+    loaderdrv_GetKeyboardLayoutName,
+    loaderdrv_LoadKeyboardLayout,
     loaderdrv_MapVirtualKeyEx,
     loaderdrv_RegisterHotKey,
     loaderdrv_ToUnicodeEx,
+    loaderdrv_UnloadKeyboardLayout,
     loaderdrv_UnregisterHotKey,
     loaderdrv_VkKeyScanEx,
     /* cursor/icon functions */

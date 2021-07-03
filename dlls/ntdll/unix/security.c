@@ -418,13 +418,10 @@ NTSTATUS WINAPI NtQueryInformationToken( HANDLE token, TOKEN_INFORMATION_CLASS c
         break;
 
     case TokenSessionId:
-        SERVER_START_REQ( get_token_info )
         {
-            req->handle = wine_server_obj_handle( token );
-            status = wine_server_call( req );
-            if (!status) *(DWORD *)info = reply->session_id;
+            *(DWORD *)info = 0;
+            FIXME("QueryInformationToken( ..., TokenSessionId, ...) semi-stub\n");
         }
-        SERVER_END_REQ;
         break;
 
     case TokenVirtualizationEnabled:

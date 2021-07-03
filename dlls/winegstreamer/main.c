@@ -27,6 +27,7 @@
 #include "initguid.h"
 #include "gst_guids.h"
 
+static HINSTANCE winegstreamer_instance;
 LONG object_locks;
 
 WINE_DEFAULT_DEBUG_CHANNEL(gstreamer);
@@ -37,6 +38,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
 {
     if (reason == DLL_PROCESS_ATTACH)
     {
+        winegstreamer_instance = instance;
         DisableThreadLibraryCalls(instance);
         __wine_init_unix_lib(instance, reason, NULL, &unix_funcs);
     }
@@ -169,9 +171,9 @@ static BOOL CALLBACK init_gstreamer_proc(INIT_ONCE *once, void *param, void **ct
     /* Unloading glib is a bad idea.. it installs atexit handlers,
      * so never unload the dll after loading */
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-            (LPCWSTR)init_gstreamer_proc, &handle);
+            (LPCWSTR)winegstreamer_instance, &handle);
     if (!handle)
-        ERR("Failed to pin module.\n");
+        ERR("Failed to pin module %p.\n", winegstreamer_instance);
 
     return TRUE;
 }
@@ -319,7 +321,12 @@ HRESULT WINAPI DllRegisterServer(void)
 
     TRACE(".\n");
 
-    if (FAILED(hr = __wine_register_resources()))
+    init_gstreamer();
+
+    if (FAILED(hr = mfplat_DllRegisterServer()))
+        return hr;
+
+    if (FAILED(hr = __wine_register_resources(winegstreamer_instance)))
         return hr;
 
     if (FAILED(hr = CoCreateInstance(&CLSID_FilterMapper2, NULL, CLSCTX_INPROC_SERVER,
@@ -345,7 +352,7 @@ HRESULT WINAPI DllUnregisterServer(void)
 
     TRACE(".\n");
 
-    if (FAILED(hr = __wine_unregister_resources()))
+    if (FAILED(hr = __wine_unregister_resources(winegstreamer_instance)))
         return hr;
 
     if (FAILED(hr = CoCreateInstance(&CLSID_FilterMapper2, NULL, CLSCTX_INPROC_SERVER,

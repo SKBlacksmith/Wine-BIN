@@ -515,7 +515,7 @@ void skip_dword_unknown(const char **ptr, unsigned int count)
     FIXME("Skipping %u unknown DWORDs:\n", count);
     for (i = 0; i < count; ++i)
     {
-        d = read_dword(ptr);
+        read_dword(ptr, &d);
         FIXME("\t0x%08x\n", d);
     }
 }
@@ -587,7 +587,7 @@ HRESULT dxbc_parse(const char *data, SIZE_T data_size, struct dxbc *dxbc)
         return E_FAIL;
     }
 
-    tag = read_dword(&ptr);
+    read_dword(&ptr, &tag);
     TRACE("tag: %s.\n", debugstr_an((const char *)&tag, 4));
 
     if (tag != TAG_DXBC)
@@ -601,7 +601,7 @@ HRESULT dxbc_parse(const char *data, SIZE_T data_size, struct dxbc *dxbc)
 
     skip_dword_unknown(&ptr, 1);
 
-    total_size = read_dword(&ptr);
+    read_dword(&ptr, &total_size);
     TRACE("total size: %#x\n", total_size);
 
     if (data_size != total_size)
@@ -610,7 +610,7 @@ HRESULT dxbc_parse(const char *data, SIZE_T data_size, struct dxbc *dxbc)
         return D3DERR_INVALIDCALL;
     }
 
-    chunk_count = read_dword(&ptr);
+    read_dword(&ptr, &chunk_count);
     TRACE("chunk count: %#x\n", chunk_count);
 
     hr = dxbc_init(dxbc, chunk_count);
@@ -626,13 +626,13 @@ HRESULT dxbc_parse(const char *data, SIZE_T data_size, struct dxbc *dxbc)
         const char *chunk_ptr;
         DWORD chunk_offset;
 
-        chunk_offset = read_dword(&ptr);
+        read_dword(&ptr, &chunk_offset);
         TRACE("chunk %u at offset %#x\n", i, chunk_offset);
 
         chunk_ptr = data + chunk_offset;
 
-        chunk_tag = read_dword(&chunk_ptr);
-        chunk_size = read_dword(&chunk_ptr);
+        read_dword(&chunk_ptr, &chunk_tag);
+        read_dword(&chunk_ptr, &chunk_size);
 
         hr = dxbc_add_section(dxbc, chunk_tag, chunk_ptr, chunk_size);
         if (FAILED(hr))

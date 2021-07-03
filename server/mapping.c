@@ -195,7 +195,7 @@ static const struct object_ops mapping_ops =
     default_unlink_name,         /* unlink_name */
     no_open_file,                /* open_file */
     no_kernel_obj_list,          /* get_kernel_obj_list */
-    no_close_handle,             /* close_handle */
+    fd_close_handle,             /* close_handle */
     mapping_destroy              /* destroy */
 };
 
@@ -247,7 +247,7 @@ static void shared_map_destroy( struct object *obj )
 }
 
 /* extend a file beyond the current end of file */
-int grow_file( int unix_fd, file_pos_t new_size )
+static int grow_file( int unix_fd, file_pos_t new_size )
 {
     static const char zero;
     off_t size = new_size;
@@ -355,23 +355,10 @@ struct memory_view *get_exe_view( struct process *process )
     return LIST_ENTRY( list_head( &process->views ), struct memory_view, entry );
 }
 
-static void set_process_machine( struct process *process, struct memory_view *view )
-{
-    unsigned short machine = view->image.machine;
-
-    if (machine == IMAGE_FILE_MACHINE_I386 && (view->image.image_flags & IMAGE_FLAGS_ComPlusNativeReady))
-    {
-        if (is_machine_supported( IMAGE_FILE_MACHINE_AMD64 )) machine = IMAGE_FILE_MACHINE_AMD64;
-        else if (is_machine_supported( IMAGE_FILE_MACHINE_ARM64 )) machine = IMAGE_FILE_MACHINE_ARM64;
-    }
-    process->machine = machine;
-}
-
 /* add a view to the process list */
 static void add_process_view( struct thread *thread, struct memory_view *view )
 {
     struct process *process = thread->process;
-    struct unicode_str name;
 
     if (view->flags & SEC_IMAGE)
     {
@@ -380,13 +367,7 @@ static void add_process_view( struct thread *thread, struct memory_view *view )
         else if (!(view->image.image_charact & IMAGE_FILE_DLL))
         {
             /* main exe */
-            set_process_machine( process, view );
             list_add_head( &process->views, &view->entry );
-
-            free( process->image );
-            process->image = NULL;
-            if (get_view_nt_name( view, &name ) && (process->image = memdup( name.str, name.len )))
-                process->imagelen = name.len;
             return;
         }
     }
@@ -663,7 +644,7 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
     off_t pos;
     int size, opt_size;
     size_t mz_size, clr_va, clr_size;
-    unsigned int i;
+    unsigned int i, cpu_mask = get_supported_cpu_mask();
 
     /* load the headers */
 
@@ -692,9 +673,25 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
     switch (nt.opt.hdr32.Magic)
     {
     case IMAGE_NT_OPTIONAL_HDR32_MAGIC:
-        if (!is_machine_32bit( nt.FileHeader.Machine )) return STATUS_INVALID_IMAGE_FORMAT;
-        if (!is_machine_supported( nt.FileHeader.Machine )) return STATUS_INVALID_IMAGE_FORMAT;
-
+        switch (nt.FileHeader.Machine)
+        {
+        case IMAGE_FILE_MACHINE_I386:
+            mapping->image.cpu = CPU_x86;
+            if (cpu_mask & (CPU_FLAG(CPU_x86) | CPU_FLAG(CPU_x86_64))) break;
+            return STATUS_INVALID_IMAGE_FORMAT;
+        case IMAGE_FILE_MACHINE_ARM:
+        case IMAGE_FILE_MACHINE_THUMB:
+        case IMAGE_FILE_MACHINE_ARMNT:
+            mapping->image.cpu = CPU_ARM;
+            if (cpu_mask & (CPU_FLAG(CPU_ARM) | CPU_FLAG(CPU_ARM64))) break;
+            return STATUS_INVALID_IMAGE_FORMAT;
+        case IMAGE_FILE_MACHINE_POWERPC:
+            mapping->image.cpu = CPU_POWERPC;
+            if (cpu_mask & CPU_FLAG(CPU_POWERPC)) break;
+            return STATUS_INVALID_IMAGE_FORMAT;
+        default:
+            return STATUS_INVALID_IMAGE_FORMAT;
+        }
         clr_va = nt.opt.hdr32.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].VirtualAddress;
         clr_size = nt.opt.hdr32.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].Size;
 
@@ -723,10 +720,20 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
         break;
 
     case IMAGE_NT_OPTIONAL_HDR64_MAGIC:
-        if (!is_machine_64bit( native_machine )) return STATUS_INVALID_IMAGE_WIN_64;
-        if (!is_machine_64bit( nt.FileHeader.Machine )) return STATUS_INVALID_IMAGE_FORMAT;
-        if (!is_machine_supported( nt.FileHeader.Machine )) return STATUS_INVALID_IMAGE_FORMAT;
-
+        if (!(cpu_mask & CPU_64BIT_MASK)) return STATUS_INVALID_IMAGE_WIN_64;
+        switch (nt.FileHeader.Machine)
+        {
+        case IMAGE_FILE_MACHINE_AMD64:
+            mapping->image.cpu = CPU_x86_64;
+            if (cpu_mask & (CPU_FLAG(CPU_x86) | CPU_FLAG(CPU_x86_64))) break;
+            return STATUS_INVALID_IMAGE_FORMAT;
+        case IMAGE_FILE_MACHINE_ARM64:
+            mapping->image.cpu = CPU_ARM64;
+            if (cpu_mask & (CPU_FLAG(CPU_ARM) | CPU_FLAG(CPU_ARM64))) break;
+            return STATUS_INVALID_IMAGE_FORMAT;
+        default:
+            return STATUS_INVALID_IMAGE_FORMAT;
+        }
         clr_va = nt.opt.hdr64.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].VirtualAddress;
         clr_size = nt.opt.hdr64.DataDirectory[IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR].Size;
 
@@ -765,6 +772,7 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
     mapping->image.zerobits      = 0; /* FIXME */
     mapping->image.file_size     = file_size;
     mapping->image.loader_flags  = clr_va && clr_size;
+    mapping->image.__pad         = 0;
     if (mz_size == sizeof(mz) && !memcmp( mz.buffer, builtin_signature, sizeof(builtin_signature) ))
         mapping->image.image_flags |= IMAGE_FLAGS_WineBuiltin;
     else if (mz_size == sizeof(mz) && !memcmp( mz.buffer, fakedll_signature, sizeof(fakedll_signature) ))
@@ -791,7 +799,11 @@ static unsigned int get_image_params( struct mapping *mapping, file_pos_t file_s
         if (nt.opt.hdr32.Magic == IMAGE_NT_OPTIONAL_HDR32_MAGIC)
         {
             if (!(clr.Flags & COMIMAGE_FLAGS_32BITREQUIRED))
+            {
                 mapping->image.image_flags |= IMAGE_FLAGS_ComPlusNativeReady;
+                if (cpu_mask & CPU_FLAG(CPU_x86_64)) mapping->image.cpu = CPU_x86_64;
+                else if (cpu_mask & CPU_FLAG(CPU_ARM64)) mapping->image.cpu = CPU_ARM64;
+            }
             if (clr.Flags & COMIMAGE_FLAGS_32BITPREFERRED)
                 mapping->image.image_flags |= IMAGE_FLAGS_ComPlusPrefer32bit;
         }
@@ -1140,21 +1152,7 @@ DECL_HANDLER(get_mapping_info)
     reply->flags   = mapping->flags;
 
     if (mapping->flags & SEC_IMAGE)
-    {
-        struct unicode_str name = { NULL, 0 };
-        data_size_t size;
-        void *data;
-
-        if (mapping->fd) get_nt_name( mapping->fd, &name );
-        size = min( sizeof(pe_image_info_t) + name.len, get_reply_max_size() );
-        if ((data = set_reply_data_size( size )))
-        {
-            memcpy( data, &mapping->image, min( sizeof(pe_image_info_t), size ));
-            if (size > sizeof(pe_image_info_t))
-                memcpy( (pe_image_info_t *)data + 1, name.str, size - sizeof(pe_image_info_t) );
-        }
-        reply->total = sizeof(pe_image_info_t) + name.len;
-    }
+        set_reply_data( &mapping->image, min( sizeof(mapping->image), get_reply_max_size() ));
 
     if (!(req->access & (SECTION_MAP_READ | SECTION_MAP_WRITE)))  /* query only */
     {
@@ -1277,7 +1275,9 @@ DECL_HANDLER(is_same_mapping)
     struct memory_view *view2 = find_mapped_view( current->process, req->base2 );
 
     if (!view1 || !view2) return;
-    if (!view1->fd || !view2->fd || !(view1->flags & SEC_IMAGE) || !is_same_file_fd( view1->fd, view2->fd ))
+    if (!view1->fd || !view2->fd ||
+        !(view1->flags & SEC_IMAGE) || !(view2->flags & SEC_IMAGE) ||
+        !is_same_file_fd( view1->fd, view2->fd ))
         set_error( STATUS_NOT_SAME_DEVICE );
 }
 

@@ -1729,8 +1729,7 @@ HRESULT HTMLTxtRange_Create(HTMLDocumentNode *doc, nsIDOMRange *nsrange, IHTMLTx
     if(!ret)
         return E_OUTOFMEMORY;
 
-    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLTxtRange_iface, &HTMLTxtRange_dispex,
-                                 dispex_compat_mode(&doc->node.event_target.dispex));
+    init_dispex(&ret->dispex, (IUnknown*)&ret->IHTMLTxtRange_iface, &HTMLTxtRange_dispex);
 
     ret->IHTMLTxtRange_iface.lpVtbl = &HTMLTxtRangeVtbl;
     ret->IOleCommandTarget_iface.lpVtbl = &OleCommandTargetVtbl;
@@ -2066,7 +2065,7 @@ static dispex_static_data_t HTMLDOMRange_dispex = {
     HTMLDOMRange_iface_tids
 };
 
-HRESULT create_dom_range(nsIDOMRange *nsrange, compat_mode_t compat_mode, IHTMLDOMRange **p)
+HRESULT HTMLDOMRange_Create(nsIDOMRange *nsrange, IHTMLDOMRange **p)
 {
     HTMLDOMRange *ret;
 
@@ -2074,7 +2073,7 @@ HRESULT create_dom_range(nsIDOMRange *nsrange, compat_mode_t compat_mode, IHTMLD
     if(!ret)
         return E_OUTOFMEMORY;
 
-    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLDOMRange_iface, &HTMLDOMRange_dispex, compat_mode);
+    init_dispex(&ret->dispex, (IUnknown*)&ret->IHTMLDOMRange_iface, &HTMLDOMRange_dispex);
 
     ret->IHTMLDOMRange_iface.lpVtbl = &HTMLDOMRangeVtbl;
     ret->ref = 1;

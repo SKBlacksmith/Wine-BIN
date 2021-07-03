@@ -176,7 +176,7 @@ Bogues :
         que le problème n'est pas déjà connu, ou corrigé.
 
 IRC :   L'aide en ligne est disponible via le canal #WineHQ sur
-        irc.libera.chat.
+        irc.freenode.net.
 
 Git :   L'arbre de développement actuel de Wine est disponible via Git.
         Voyez https://www.winehq.org/git pour plus d'informations.

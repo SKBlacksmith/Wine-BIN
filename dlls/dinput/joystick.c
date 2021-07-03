@@ -31,26 +31,10 @@
 #include "joystick_private.h"
 #include "wine/debug.h"
 #include "winreg.h"
+#include "setupapi.h"
+#include "ddk/hidsdi.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dinput);
-
-#define VID_MICROSOFT 0x045e
-
-static const WORD PID_XBOX_CONTROLLERS[] =  {
-    0x0202, /* Xbox Controller */
-    0x0285, /* Xbox Controller S */
-    0x0289, /* Xbox Controller S */
-    0x028e, /* Xbox360 Controller */
-    0x028f, /* Xbox360 Wireless Controller */
-    0x02d1, /* Xbox One Controller */
-    0x02dd, /* Xbox One Controller (Covert Forces/Firmware 2015) */
-    0x02e0, /* Xbox One X Controller */
-    0x02e3, /* Xbox One Elite Controller */
-    0x02e6, /* Wireless XBox Controller Dongle */
-    0x02ea, /* Xbox One S Controller */
-    0x02fd, /* Xbox One S Controller (Firmware 2017) */
-    0x0719, /* Xbox 360 Wireless Adapter */
-};
 
 /* Windows uses this GUID for guidProduct on non-keyboard/mouse devices.
  * Data1 contains the device VID (low word) and PID (high word).
@@ -60,9 +44,21 @@ const GUID DInput_PIDVID_Product_GUID = { /* device_pidvid-0000-0000-0000-504944
     0x00000000, 0x0000, 0x0000, {0x00, 0x00, 0x50, 0x49, 0x44, 0x56, 0x49, 0x44}
 };
 
+static inline JoystickGenericImpl *impl_from_IDirectInputDevice8A(IDirectInputDevice8A *iface)
+{
+    return CONTAINING_RECORD(CONTAINING_RECORD(iface, IDirectInputDeviceImpl, IDirectInputDevice8A_iface), JoystickGenericImpl, base);
+}
 static inline JoystickGenericImpl *impl_from_IDirectInputDevice8W(IDirectInputDevice8W *iface)
 {
     return CONTAINING_RECORD(CONTAINING_RECORD(iface, IDirectInputDeviceImpl, IDirectInputDevice8W_iface), JoystickGenericImpl, base);
+}
+static inline IDirectInputDevice8A *IDirectInputDevice8A_from_impl(JoystickGenericImpl *This)
+{
+    return &This->base.IDirectInputDevice8A_iface;
+}
+static inline IDirectInputDevice8W *IDirectInputDevice8W_from_impl(JoystickGenericImpl *This)
+{
+    return &This->base.IDirectInputDevice8W_iface;
 }
 
 DWORD typeFromGUID(REFGUID guid)
@@ -311,15 +307,58 @@ BOOL device_disabled_registry(const char* name)
 
 BOOL is_xinput_device(const DIDEVCAPS *devcaps, WORD vid, WORD pid)
 {
-    int i;
+    HDEVINFO device_info_set;
+    GUID hid_guid;
+    SP_DEVICE_INTERFACE_DATA interface_data;
+    SP_DEVICE_INTERFACE_DETAIL_DATA_W *data;
+    DWORD idx;
+    BOOL ret = FALSE;
+    char pathA[MAX_PATH];
 
-    if (vid == VID_MICROSOFT)
+    HidD_GetHidGuid(&hid_guid);
+    hid_guid.Data4[7]++; /* HACK: look up the xinput-specific devices */
+
+    device_info_set = SetupDiGetClassDevsW(&hid_guid, NULL, NULL, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT);
+
+    data = HeapAlloc(GetProcessHeap(), 0 , sizeof(*data) + MAX_PATH * sizeof(WCHAR));
+    data->cbSize = sizeof(*data);
+
+    ZeroMemory(&interface_data, sizeof(interface_data));
+    interface_data.cbSize = sizeof(interface_data);
+
+    idx = 0;
+    while (!ret && SetupDiEnumDeviceInterfaces(device_info_set, NULL, &hid_guid, idx++,
+           &interface_data))
     {
-        for (i = 0; i < ARRAY_SIZE(PID_XBOX_CONTROLLERS); i++)
-            if (pid == PID_XBOX_CONTROLLERS[i]) return TRUE;
+        const char *vid_s, *pid_s;
+        DWORD di_vid = 0, di_pid = 0;
+        static const WCHAR ig[] = {'I','G','_',0};
+
+        if (!SetupDiGetDeviceInterfaceDetailW(device_info_set,
+                &interface_data, data, sizeof(*data) + MAX_PATH * sizeof(WCHAR), NULL, NULL))
+            continue;
+
+        if (!strstrW(data->DevicePath, ig))
+            continue;
+
+        WideCharToMultiByte(CP_ACP, 0, data->DevicePath, -1,
+                pathA, sizeof(pathA), NULL, NULL);
+
+        vid_s = strstr(pathA, "VID_");
+        if (vid_s)
+            sscanf(vid_s, "VID_%4X", &di_vid);
+
+        pid_s = strstr(pathA, "PID_");
+        if (pid_s)
+            sscanf(pid_s, "PID_%4X", &di_pid);
+
+        ret = vid == di_vid && pid == di_pid;
     }
 
-    return (devcaps->dwAxes == 6 && devcaps->dwButtons >= 14);
+    HeapFree(GetProcessHeap(), 0, data);
+    SetupDiDestroyDeviceInfoList(device_info_set);
+
+    return ret;
 }
 
 /******************************************************************************
@@ -363,15 +402,15 @@ HRESULT WINAPI JoystickWGenericImpl_SetProperty(LPDIRECTINPUTDEVICE8W iface, REF
                     remap_props.lMin = pr->lMin;
                     remap_props.lMax = pr->lMax;
 
-                    switch (This->base.data_format.wine_df->rgodf[i].dwOfs) {
-                    case DIJOFS_X        : This->js.lX  = joystick_map_axis(&remap_props, This->js.lX); break;
-                    case DIJOFS_Y        : This->js.lY  = joystick_map_axis(&remap_props, This->js.lY); break;
-                    case DIJOFS_Z        : This->js.lZ  = joystick_map_axis(&remap_props, This->js.lZ); break;
-                    case DIJOFS_RX       : This->js.lRx = joystick_map_axis(&remap_props, This->js.lRx); break;
-                    case DIJOFS_RY       : This->js.lRy = joystick_map_axis(&remap_props, This->js.lRy); break;
-                    case DIJOFS_RZ       : This->js.lRz = joystick_map_axis(&remap_props, This->js.lRz); break;
-                    case DIJOFS_SLIDER(0): This->js.rglSlider[0] = joystick_map_axis(&remap_props, This->js.rglSlider[0]); break;
-                    case DIJOFS_SLIDER(1): This->js.rglSlider[1] = joystick_map_axis(&remap_props, This->js.rglSlider[1]); break;
+                    switch (DIDFT_GETINSTANCE(This->base.data_format.wine_df->rgodf[i].dwType)) {
+                    case 0: This->js.lX  = joystick_map_axis(&remap_props, This->js.lX); break;
+                    case 1: This->js.lY  = joystick_map_axis(&remap_props, This->js.lY); break;
+                    case 2: This->js.lZ  = joystick_map_axis(&remap_props, This->js.lZ); break;
+                    case 3: This->js.lRx = joystick_map_axis(&remap_props, This->js.lRx); break;
+                    case 4: This->js.lRy = joystick_map_axis(&remap_props, This->js.lRy); break;
+                    case 5: This->js.lRz = joystick_map_axis(&remap_props, This->js.lRz); break;
+                    case 6: This->js.rglSlider[0] = joystick_map_axis(&remap_props, This->js.rglSlider[0]); break;
+                    case 7: This->js.rglSlider[1] = joystick_map_axis(&remap_props, This->js.rglSlider[1]); break;
 	            default: break;
                     }
 
@@ -393,15 +432,15 @@ HRESULT WINAPI JoystickWGenericImpl_SetProperty(LPDIRECTINPUTDEVICE8W iface, REF
                     remap_props.lMin = pr->lMin;
                     remap_props.lMax = pr->lMax;
 
-                    switch (This->base.data_format.wine_df->rgodf[obj].dwOfs) {
-                    case DIJOFS_X        : This->js.lX  = joystick_map_axis(&remap_props, This->js.lX); break;
-                    case DIJOFS_Y        : This->js.lY  = joystick_map_axis(&remap_props, This->js.lY); break;
-                    case DIJOFS_Z        : This->js.lZ  = joystick_map_axis(&remap_props, This->js.lZ); break;
-                    case DIJOFS_RX       : This->js.lRx = joystick_map_axis(&remap_props, This->js.lRx); break;
-                    case DIJOFS_RY       : This->js.lRy = joystick_map_axis(&remap_props, This->js.lRy); break;
-                    case DIJOFS_RZ       : This->js.lRz = joystick_map_axis(&remap_props, This->js.lRz); break;
-                    case DIJOFS_SLIDER(0): This->js.rglSlider[0] = joystick_map_axis(&remap_props, This->js.rglSlider[0]); break;
-                    case DIJOFS_SLIDER(1): This->js.rglSlider[1] = joystick_map_axis(&remap_props, This->js.rglSlider[1]); break;
+                    switch (DIDFT_GETINSTANCE(This->base.data_format.wine_df->rgodf[obj].dwType)) {
+                    case 0: This->js.lX  = joystick_map_axis(&remap_props, This->js.lX); break;
+                    case 1: This->js.lY  = joystick_map_axis(&remap_props, This->js.lY); break;
+                    case 2: This->js.lZ  = joystick_map_axis(&remap_props, This->js.lZ); break;
+                    case 3: This->js.lRx = joystick_map_axis(&remap_props, This->js.lRx); break;
+                    case 4: This->js.lRy = joystick_map_axis(&remap_props, This->js.lRy); break;
+                    case 5: This->js.lRz = joystick_map_axis(&remap_props, This->js.lRz); break;
+                    case 6: This->js.rglSlider[0] = joystick_map_axis(&remap_props, This->js.rglSlider[0]); break;
+                    case 7: This->js.rglSlider[1] = joystick_map_axis(&remap_props, This->js.rglSlider[1]); break;
 		    default: break;
                     }
 
@@ -457,6 +496,12 @@ HRESULT WINAPI JoystickWGenericImpl_SetProperty(LPDIRECTINPUTDEVICE8W iface, REF
     }
 
     return DI_OK;
+}
+
+HRESULT WINAPI JoystickAGenericImpl_SetProperty(LPDIRECTINPUTDEVICE8A iface, REFGUID rguid, LPCDIPROPHEADER ph)
+{
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    return JoystickWGenericImpl_SetProperty(IDirectInputDevice8W_from_impl(This), rguid, ph);
 }
 
 #define DEBUG_TYPE(x) case (x): str = #x; break
@@ -534,16 +579,11 @@ HRESULT WINAPI JoystickWGenericImpl_GetCapabilities(LPDIRECTINPUTDEVICE8W iface,
     return DI_OK;
 }
 
-
-ULONG WINAPI JoystickWGenericImpl_Release(LPDIRECTINPUTDEVICE8W iface)
+HRESULT WINAPI JoystickAGenericImpl_GetCapabilities(LPDIRECTINPUTDEVICE8A iface, LPDIDEVCAPS lpDIDevCaps)
 {
-    JoystickGenericImpl *This = impl_from_IDirectInputDevice8W(iface);
-    void *axis_map = This->axis_map;
-    ULONG res = IDirectInputDevice2WImpl_Release(iface);
-    if (!res) HeapFree(GetProcessHeap(), 0, axis_map);
-    return res;
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    return JoystickWGenericImpl_GetCapabilities(IDirectInputDevice8W_from_impl(This), lpDIDevCaps);
 }
-
 
 /******************************************************************************
   *     GetObjectInfo : get object info
@@ -568,6 +608,27 @@ HRESULT WINAPI JoystickWGenericImpl_GetObjectInfo(LPDIRECTINPUTDEVICE8W iface,
         sprintfW(pdidoi->tszName, buttonW, DIDFT_GETINSTANCE(pdidoi->dwType));
 
     _dump_OBJECTINSTANCEW(pdidoi);
+    return res;
+}
+
+HRESULT WINAPI JoystickAGenericImpl_GetObjectInfo(LPDIRECTINPUTDEVICE8A iface,
+        LPDIDEVICEOBJECTINSTANCEA pdidoi, DWORD dwObj, DWORD dwHow)
+{
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    HRESULT res;
+    DIDEVICEOBJECTINSTANCEW didoiW;
+    DWORD dwSize = pdidoi->dwSize;
+
+    didoiW.dwSize = sizeof(didoiW);
+    res = JoystickWGenericImpl_GetObjectInfo(IDirectInputDevice8W_from_impl(This), &didoiW, dwObj, dwHow);
+    if (res != DI_OK) return res;
+
+    memset(pdidoi, 0, pdidoi->dwSize);
+    memcpy(pdidoi, &didoiW, FIELD_OFFSET(DIDEVICEOBJECTINSTANCEW, tszName));
+    pdidoi->dwSize = dwSize;
+    WideCharToMultiByte(CP_ACP, 0, didoiW.tszName, -1, pdidoi->tszName,
+                        sizeof(pdidoi->tszName), NULL, NULL);
+
     return res;
 }
 
@@ -644,6 +705,60 @@ HRESULT WINAPI JoystickWGenericImpl_GetProperty(LPDIRECTINPUTDEVICE8W iface, REF
     return DI_OK;
 }
 
+HRESULT WINAPI JoystickAGenericImpl_GetProperty(LPDIRECTINPUTDEVICE8A iface, REFGUID rguid, LPDIPROPHEADER pdiph)
+{
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    return JoystickWGenericImpl_GetProperty(IDirectInputDevice8W_from_impl(This), rguid, pdiph);
+}
+
+/******************************************************************************
+  *     GetDeviceInfo : get information about a device's identity
+  */
+HRESULT WINAPI JoystickAGenericImpl_GetDeviceInfo(
+    LPDIRECTINPUTDEVICE8A iface,
+    LPDIDEVICEINSTANCEA pdidi)
+{
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    DIPROPDWORD pd;
+    DWORD index = 0;
+
+    TRACE("(%p,%p)\n", This, pdidi);
+
+    if (pdidi == NULL) {
+        WARN("invalid pointer\n");
+        return E_POINTER;
+    }
+
+    if ((pdidi->dwSize != sizeof(DIDEVICEINSTANCE_DX3A)) &&
+        (pdidi->dwSize != sizeof(DIDEVICEINSTANCEA))) {
+        WARN("invalid parameter: pdidi->dwSize = %d\n", pdidi->dwSize);
+        return DIERR_INVALIDPARAM;
+    }
+
+    /* Try to get joystick index */
+    pd.diph.dwSize = sizeof(pd);
+    pd.diph.dwHeaderSize = sizeof(pd.diph);
+    pd.diph.dwObj = 0;
+    pd.diph.dwHow = DIPH_DEVICE;
+    if (SUCCEEDED(IDirectInputDevice2_GetProperty(iface, DIPROP_JOYSTICKID, &pd.diph)))
+        index = pd.dwData;
+
+    /* Return joystick */
+    pdidi->guidInstance = This->base.guid;
+    pdidi->guidProduct = This->guidProduct;
+    /* we only support traditional joysticks for now */
+    pdidi->dwDevType = This->devcaps.dwDevType;
+    snprintf(pdidi->tszInstanceName, MAX_PATH, "Joystick %d", index);
+    lstrcpynA(pdidi->tszProductName, This->name, MAX_PATH);
+    if (pdidi->dwSize > sizeof(DIDEVICEINSTANCE_DX3A)) {
+        pdidi->guidFFDriver = GUID_NULL;
+        pdidi->wUsagePage = 0;
+        pdidi->wUsage = 0;
+    }
+
+    return DI_OK;
+}
+
 /******************************************************************************
   *     GetDeviceInfo : get information about a device's identity
   */
@@ -700,8 +815,13 @@ HRESULT WINAPI JoystickWGenericImpl_Poll(LPDIRECTINPUTDEVICE8W iface)
         return DIERR_NOTACQUIRED;
     }
 
-    This->joy_polldev( iface );
-    return DI_OK;
+    return This->joy_polldev(IDirectInputDevice8A_from_impl(This));
+}
+
+HRESULT WINAPI JoystickAGenericImpl_Poll(LPDIRECTINPUTDEVICE8A iface)
+{
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    return JoystickWGenericImpl_Poll(IDirectInputDevice8W_from_impl(This));
 }
 
 /******************************************************************************
@@ -710,6 +830,7 @@ HRESULT WINAPI JoystickWGenericImpl_Poll(LPDIRECTINPUTDEVICE8W iface)
   */
 HRESULT WINAPI JoystickWGenericImpl_GetDeviceState(LPDIRECTINPUTDEVICE8W iface, DWORD len, LPVOID ptr)
 {
+    HRESULT hr;
     JoystickGenericImpl *This = impl_from_IDirectInputDevice8W(iface);
 
     TRACE("(%p,0x%08x,%p)\n", This, len, ptr);
@@ -720,13 +841,22 @@ HRESULT WINAPI JoystickWGenericImpl_GetDeviceState(LPDIRECTINPUTDEVICE8W iface, 
     }
 
     /* update joystick state */
-    This->joy_polldev( iface );
+    hr = This->joy_polldev(IDirectInputDevice8A_from_impl(This));
+    if (SUCCEEDED(hr))
+    {
+        /* convert and copy data to user supplied buffer */
+        fill_DataFormat(ptr, len, &This->js, &This->base.data_format);
+    }
 
-    /* convert and copy data to user supplied buffer */
-    fill_DataFormat(ptr, len, &This->js, &This->base.data_format);
-
-    return DI_OK;
+    return hr;
 }
+
+HRESULT WINAPI JoystickAGenericImpl_GetDeviceState(LPDIRECTINPUTDEVICE8A iface, DWORD len, LPVOID ptr)
+{
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    return JoystickWGenericImpl_GetDeviceState(IDirectInputDevice8W_from_impl(This), len, ptr);
+}
+
 
 HRESULT WINAPI JoystickWGenericImpl_BuildActionMap(LPDIRECTINPUTDEVICE8W iface,
                                                    LPDIACTIONFORMATW lpdiaf,
@@ -780,6 +910,36 @@ HRESULT WINAPI JoystickWGenericImpl_BuildActionMap(LPDIRECTINPUTDEVICE8W iface,
     return IDirectInputDevice8WImpl_BuildActionMap(iface, lpdiaf, lpszUserName, dwFlags);
 }
 
+HRESULT WINAPI JoystickAGenericImpl_BuildActionMap(LPDIRECTINPUTDEVICE8A iface,
+                                                   LPDIACTIONFORMATA lpdiaf,
+                                                   LPCSTR lpszUserName,
+                                                   DWORD dwFlags)
+{
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    DIACTIONFORMATW diafW;
+    HRESULT hr;
+    WCHAR *lpszUserNameW = NULL;
+    int username_size;
+
+    diafW.rgoAction = HeapAlloc(GetProcessHeap(), 0, sizeof(DIACTIONW)*lpdiaf->dwNumActions);
+    _copy_diactionformatAtoW(&diafW, lpdiaf);
+
+    if (lpszUserName != NULL)
+    {
+        username_size = MultiByteToWideChar(CP_ACP, 0, lpszUserName, -1, NULL, 0);
+        lpszUserNameW = HeapAlloc(GetProcessHeap(), 0, sizeof(WCHAR)*username_size);
+        MultiByteToWideChar(CP_ACP, 0, lpszUserName, -1, lpszUserNameW, username_size);
+    }
+
+    hr = JoystickWGenericImpl_BuildActionMap(&This->base.IDirectInputDevice8W_iface, &diafW, lpszUserNameW, dwFlags);
+
+    _copy_diactionformatWtoA(lpdiaf, &diafW);
+    HeapFree(GetProcessHeap(), 0, diafW.rgoAction);
+    HeapFree(GetProcessHeap(), 0, lpszUserNameW);
+
+    return hr;
+}
+
 HRESULT WINAPI JoystickWGenericImpl_SetActionMap(LPDIRECTINPUTDEVICE8W iface,
                                                  LPDIACTIONFORMATW lpdiaf,
                                                  LPCWSTR lpszUserName,
@@ -790,6 +950,35 @@ HRESULT WINAPI JoystickWGenericImpl_SetActionMap(LPDIRECTINPUTDEVICE8W iface,
     FIXME("(%p)->(%p,%s,%08x): semi-stub !\n", This, lpdiaf, debugstr_w(lpszUserName), dwFlags);
 
     return _set_action_map(iface, lpdiaf, lpszUserName, dwFlags, This->base.data_format.wine_df);
+}
+
+HRESULT WINAPI JoystickAGenericImpl_SetActionMap(LPDIRECTINPUTDEVICE8A iface,
+                                                 LPDIACTIONFORMATA lpdiaf,
+                                                 LPCSTR lpszUserName,
+                                                 DWORD dwFlags)
+{
+    JoystickGenericImpl *This = impl_from_IDirectInputDevice8A(iface);
+    DIACTIONFORMATW diafW;
+    HRESULT hr;
+    WCHAR *lpszUserNameW = NULL;
+    int username_size;
+
+    diafW.rgoAction = HeapAlloc(GetProcessHeap(), 0, sizeof(DIACTIONW)*lpdiaf->dwNumActions);
+    _copy_diactionformatAtoW(&diafW, lpdiaf);
+
+    if (lpszUserName != NULL)
+    {
+        username_size = MultiByteToWideChar(CP_ACP, 0, lpszUserName, -1, NULL, 0);
+        lpszUserNameW = HeapAlloc(GetProcessHeap(), 0, sizeof(WCHAR)*username_size);
+        MultiByteToWideChar(CP_ACP, 0, lpszUserName, -1, lpszUserNameW, username_size);
+    }
+
+    hr = JoystickWGenericImpl_SetActionMap(&This->base.IDirectInputDevice8W_iface, &diafW, lpszUserNameW, dwFlags);
+
+    HeapFree(GetProcessHeap(), 0, diafW.rgoAction);
+    HeapFree(GetProcessHeap(), 0, lpszUserNameW);
+
+    return hr;
 }
 
 /*

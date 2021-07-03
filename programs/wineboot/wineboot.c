@@ -286,7 +286,7 @@ static void create_user_shared_data(void)
     data->NtBuildNumber               = version.dwBuildNumber;
     data->NtProductType               = version.wProductType;
     data->ProductTypeIsValid          = TRUE;
-    data->NativeProcessorArchitecture = sci.ProcessorArchitecture;
+    data->NativeProcessorArchitecture = sci.Architecture;
     data->NtMajorVersion              = version.dwMajorVersion;
     data->NtMinorVersion              = version.dwMinorVersion;
     data->SuiteMask                   = version.wSuiteMask;
@@ -295,41 +295,41 @@ static void create_user_shared_data(void)
     wcscpy( data->NtSystemRoot, L"C:\\windows" );
 
     features = data->ProcessorFeatures;
-    switch (sci.ProcessorArchitecture)
+    switch (sci.Architecture)
     {
     case PROCESSOR_ARCHITECTURE_INTEL:
     case PROCESSOR_ARCHITECTURE_AMD64:
-        features[PF_COMPARE_EXCHANGE_DOUBLE]              = !!(sci.ProcessorFeatureBits & CPU_FEATURE_CX8);
-        features[PF_MMX_INSTRUCTIONS_AVAILABLE]           = !!(sci.ProcessorFeatureBits & CPU_FEATURE_MMX);
-        features[PF_XMMI_INSTRUCTIONS_AVAILABLE]          = !!(sci.ProcessorFeatureBits & CPU_FEATURE_SSE);
-        features[PF_3DNOW_INSTRUCTIONS_AVAILABLE]         = !!(sci.ProcessorFeatureBits & CPU_FEATURE_3DNOW);
-        features[PF_RDTSC_INSTRUCTION_AVAILABLE]          = !!(sci.ProcessorFeatureBits & CPU_FEATURE_TSC);
-        features[PF_PAE_ENABLED]                          = !!(sci.ProcessorFeatureBits & CPU_FEATURE_PAE);
-        features[PF_XMMI64_INSTRUCTIONS_AVAILABLE]        = !!(sci.ProcessorFeatureBits & CPU_FEATURE_SSE2);
-        features[PF_SSE3_INSTRUCTIONS_AVAILABLE]          = !!(sci.ProcessorFeatureBits & CPU_FEATURE_SSE3);
-        features[PF_SSSE3_INSTRUCTIONS_AVAILABLE]         = !!(sci.ProcessorFeatureBits & CPU_FEATURE_SSSE3);
-        features[PF_XSAVE_ENABLED]                        = !!(sci.ProcessorFeatureBits & CPU_FEATURE_XSAVE);
-        features[PF_COMPARE_EXCHANGE128]                  = !!(sci.ProcessorFeatureBits & CPU_FEATURE_CX128);
-        features[PF_SSE_DAZ_MODE_AVAILABLE]               = !!(sci.ProcessorFeatureBits & CPU_FEATURE_DAZ);
-        features[PF_NX_ENABLED]                           = !!(sci.ProcessorFeatureBits & CPU_FEATURE_NX);
-        features[PF_SECOND_LEVEL_ADDRESS_TRANSLATION]     = !!(sci.ProcessorFeatureBits & CPU_FEATURE_2NDLEV);
-        features[PF_VIRT_FIRMWARE_ENABLED]                = !!(sci.ProcessorFeatureBits & CPU_FEATURE_VIRT);
-        features[PF_RDWRFSGSBASE_AVAILABLE]               = !!(sci.ProcessorFeatureBits & CPU_FEATURE_RDFS);
+        features[PF_COMPARE_EXCHANGE_DOUBLE]              = !!(sci.FeatureSet & CPU_FEATURE_CX8);
+        features[PF_MMX_INSTRUCTIONS_AVAILABLE]           = !!(sci.FeatureSet & CPU_FEATURE_MMX);
+        features[PF_XMMI_INSTRUCTIONS_AVAILABLE]          = !!(sci.FeatureSet & CPU_FEATURE_SSE);
+        features[PF_3DNOW_INSTRUCTIONS_AVAILABLE]         = !!(sci.FeatureSet & CPU_FEATURE_3DNOW);
+        features[PF_RDTSC_INSTRUCTION_AVAILABLE]          = !!(sci.FeatureSet & CPU_FEATURE_TSC);
+        features[PF_PAE_ENABLED]                          = !!(sci.FeatureSet & CPU_FEATURE_PAE);
+        features[PF_XMMI64_INSTRUCTIONS_AVAILABLE]        = !!(sci.FeatureSet & CPU_FEATURE_SSE2);
+        features[PF_SSE3_INSTRUCTIONS_AVAILABLE]          = !!(sci.FeatureSet & CPU_FEATURE_SSE3);
+        features[PF_SSSE3_INSTRUCTIONS_AVAILABLE]         = !!(sci.FeatureSet & CPU_FEATURE_SSSE3);
+        features[PF_XSAVE_ENABLED]                        = !!(sci.FeatureSet & CPU_FEATURE_XSAVE);
+        features[PF_COMPARE_EXCHANGE128]                  = !!(sci.FeatureSet & CPU_FEATURE_CX128);
+        features[PF_SSE_DAZ_MODE_AVAILABLE]               = !!(sci.FeatureSet & CPU_FEATURE_DAZ);
+        features[PF_NX_ENABLED]                           = !!(sci.FeatureSet & CPU_FEATURE_NX);
+        features[PF_SECOND_LEVEL_ADDRESS_TRANSLATION]     = !!(sci.FeatureSet & CPU_FEATURE_2NDLEV);
+        features[PF_VIRT_FIRMWARE_ENABLED]                = !!(sci.FeatureSet & CPU_FEATURE_VIRT);
+        features[PF_RDWRFSGSBASE_AVAILABLE]               = !!(sci.FeatureSet & CPU_FEATURE_RDFS);
         features[PF_FASTFAIL_AVAILABLE]                   = TRUE;
-        features[PF_SSE4_1_INSTRUCTIONS_AVAILABLE]        = !!(sci.ProcessorFeatureBits & CPU_FEATURE_SSE41);
-        features[PF_SSE4_2_INSTRUCTIONS_AVAILABLE]        = !!(sci.ProcessorFeatureBits & CPU_FEATURE_SSE42);
-        features[PF_AVX_INSTRUCTIONS_AVAILABLE]           = !!(sci.ProcessorFeatureBits & CPU_FEATURE_AVX);
-        features[PF_AVX2_INSTRUCTIONS_AVAILABLE]          = !!(sci.ProcessorFeatureBits & CPU_FEATURE_AVX2);
+        features[PF_SSE4_1_INSTRUCTIONS_AVAILABLE]        = !!(sci.FeatureSet & CPU_FEATURE_SSE41);
+        features[PF_SSE4_2_INSTRUCTIONS_AVAILABLE]        = !!(sci.FeatureSet & CPU_FEATURE_SSE42);
+        features[PF_AVX_INSTRUCTIONS_AVAILABLE]           = !!(sci.FeatureSet & CPU_FEATURE_AVX);
+        features[PF_AVX2_INSTRUCTIONS_AVAILABLE]          = !!(sci.FeatureSet & CPU_FEATURE_AVX2);
         break;
     case PROCESSOR_ARCHITECTURE_ARM:
-        features[PF_ARM_VFP_32_REGISTERS_AVAILABLE]       = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_VFP_32);
-        features[PF_ARM_NEON_INSTRUCTIONS_AVAILABLE]      = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_NEON);
-        features[PF_ARM_V8_INSTRUCTIONS_AVAILABLE]        = (sci.ProcessorLevel >= 8);
+        features[PF_ARM_VFP_32_REGISTERS_AVAILABLE]       = !!(sci.FeatureSet & CPU_FEATURE_ARM_VFP_32);
+        features[PF_ARM_NEON_INSTRUCTIONS_AVAILABLE]      = !!(sci.FeatureSet & CPU_FEATURE_ARM_NEON);
+        features[PF_ARM_V8_INSTRUCTIONS_AVAILABLE]        = (sci.Level >= 8);
         break;
     case PROCESSOR_ARCHITECTURE_ARM64:
         features[PF_ARM_V8_INSTRUCTIONS_AVAILABLE]        = TRUE;
-        features[PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE]  = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V8_CRC32);
-        features[PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE] = !!(sci.ProcessorFeatureBits & CPU_FEATURE_ARM_V8_CRYPTO);
+        features[PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE]  = !!(sci.FeatureSet & CPU_FEATURE_ARM_V8_CRC32);
+        features[PF_ARM_V8_CRYPTO_INSTRUCTIONS_AVAILABLE] = !!(sci.FeatureSet & CPU_FEATURE_ARM_V8_CRYPTO);
         break;
     }
     data->ActiveProcessorCount = NtCurrentTeb()->Peb->NumberOfProcessors;
@@ -666,12 +666,12 @@ static void create_hardware_registry_keys(void)
     if (NtPowerInformation( ProcessorInformation, NULL, 0, power_info, sizeof_power_info ))
         memset( power_info, 0, sizeof_power_info );
 
-    switch (sci.ProcessorArchitecture)
+    switch (sci.Architecture)
     {
     case PROCESSOR_ARCHITECTURE_ARM:
     case PROCESSOR_ARCHITECTURE_ARM64:
         swprintf( id, ARRAY_SIZE(id), L"ARM Family %u Model %u Revision %u",
-                  sci.ProcessorLevel, HIBYTE(sci.ProcessorRevision), LOBYTE(sci.ProcessorRevision) );
+                  sci.Level, HIBYTE(sci.Revision), LOBYTE(sci.Revision) );
         break;
 
     case PROCESSOR_ARCHITECTURE_AMD64:
@@ -691,7 +691,7 @@ static void create_hardware_registry_keys(void)
         return;
     }
 
-    switch (sci.ProcessorArchitecture)
+    switch (sci.Architecture)
     {
     case PROCESSOR_ARCHITECTURE_ARM:
     case PROCESSOR_ARCHITECTURE_ARM64:
@@ -705,8 +705,8 @@ static void create_hardware_registry_keys(void)
         break;
     }
 
-    if (sci.ProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM ||
-        sci.ProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64 ||
+    if (sci.Architecture == PROCESSOR_ARCHITECTURE_ARM ||
+        sci.Architecture == PROCESSOR_ARCHITECTURE_ARM64 ||
         RegCreateKeyExW( system_key, L"FloatingPointProcessor", 0, NULL, REG_OPTION_VOLATILE,
                          KEY_ALL_ACCESS, NULL, &fpu_key, NULL ))
         fpu_key = 0;
@@ -722,7 +722,7 @@ static void create_hardware_registry_keys(void)
         if (!RegCreateKeyExW( cpu_key, numW, 0, NULL, REG_OPTION_VOLATILE,
                               KEY_ALL_ACCESS, NULL, &hkey, NULL ))
         {
-            RegSetValueExW( hkey, L"FeatureSet", 0, REG_DWORD, (BYTE *)&sci.ProcessorFeatureBits, sizeof(DWORD) );
+            RegSetValueExW( hkey, L"FeatureSet", 0, REG_DWORD, (BYTE *)&sci.FeatureSet, sizeof(DWORD) );
             set_reg_value( hkey, L"Identifier", id );
             /* TODO: report ARM properly */
             set_reg_value( hkey, L"ProcessorNameString", namestr );
@@ -730,8 +730,8 @@ static void create_hardware_registry_keys(void)
             RegSetValueExW( hkey, L"~MHz", 0, REG_DWORD, (BYTE *)&power_info[i].MaxMhz, sizeof(DWORD) );
             RegCloseKey( hkey );
         }
-        if (sci.ProcessorArchitecture != PROCESSOR_ARCHITECTURE_ARM &&
-            sci.ProcessorArchitecture != PROCESSOR_ARCHITECTURE_ARM64 &&
+        if (sci.Architecture != PROCESSOR_ARCHITECTURE_ARM &&
+            sci.Architecture != PROCESSOR_ARCHITECTURE_ARM64 &&
             !RegCreateKeyExW( fpu_key, numW, 0, NULL, REG_OPTION_VOLATILE,
                               KEY_ALL_ACCESS, NULL, &hkey, NULL ))
         {
@@ -776,7 +776,7 @@ static void create_environment_registry_keys( void )
     swprintf( buffer, ARRAY_SIZE(buffer), L"%u", NtCurrentTeb()->Peb->NumberOfProcessors );
     set_reg_value( env_key, L"NUMBER_OF_PROCESSORS", buffer );
 
-    switch (sci.ProcessorArchitecture)
+    switch (sci.Architecture)
     {
     case PROCESSOR_ARCHITECTURE_AMD64:
         arch = L"AMD64";
@@ -790,12 +790,12 @@ static void create_environment_registry_keys( void )
     }
     set_reg_value( env_key, L"PROCESSOR_ARCHITECTURE", arch );
 
-    switch (sci.ProcessorArchitecture)
+    switch (sci.Architecture)
     {
     case PROCESSOR_ARCHITECTURE_ARM:
     case PROCESSOR_ARCHITECTURE_ARM64:
         swprintf( buffer, ARRAY_SIZE(buffer), L"ARM Family %u Model %u Revision %u",
-                  sci.ProcessorLevel, HIBYTE(sci.ProcessorRevision), LOBYTE(sci.ProcessorRevision) );
+                  sci.Level, HIBYTE(sci.Revision), LOBYTE(sci.Revision) );
         break;
 
     case PROCESSOR_ARCHITECTURE_AMD64:
@@ -808,10 +808,10 @@ static void create_environment_registry_keys( void )
     }
     set_reg_value( env_key, L"PROCESSOR_IDENTIFIER", buffer );
 
-    swprintf( buffer, ARRAY_SIZE(buffer), L"%u", sci.ProcessorLevel );
+    swprintf( buffer, ARRAY_SIZE(buffer), L"%u", sci.Level );
     set_reg_value( env_key, L"PROCESSOR_LEVEL", buffer );
 
-    swprintf( buffer, ARRAY_SIZE(buffer), L"%04x", sci.ProcessorRevision );
+    swprintf( buffer, ARRAY_SIZE(buffer), L"%04x", sci.Revision );
     set_reg_value( env_key, L"PROCESSOR_REVISION", buffer );
 
     RegCloseKey( env_key );
@@ -1319,6 +1319,7 @@ static INT_PTR CALLBACK wait_dlgproc( HWND hwnd, UINT msg, WPARAM wp, LPARAM lp 
     return 0;
 }
 
+/*
 static HWND show_wait_window(void)
 {
     HWND hwnd = CreateDialogParamW( GetModuleHandleW(0), MAKEINTRESOURCEW(IDD_WAITDLG), 0,
@@ -1326,8 +1327,9 @@ static HWND show_wait_window(void)
     ShowWindow( hwnd, SW_SHOWNORMAL );
     return hwnd;
 }
+*/
 
-static HANDLE start_rundll32( const WCHAR *inf_path, WORD machine )
+static HANDLE start_rundll32( const WCHAR *inf_path, BOOL wow64 )
 {
     WCHAR app[MAX_PATH + ARRAY_SIZE(L"\\rundll32.exe" )];
     STARTUPINFOW si;
@@ -1338,9 +1340,13 @@ static HANDLE start_rundll32( const WCHAR *inf_path, WORD machine )
     memset( &si, 0, sizeof(si) );
     si.cb = sizeof(si);
 
-    if (!GetSystemWow64Directory2W( app, MAX_PATH, machine )) return 0;
+    if (wow64)
+    {
+        if (!GetSystemWow64DirectoryW( app, MAX_PATH )) return 0;  /* not on 64-bit */
+    }
+    else GetSystemDirectoryW( app, MAX_PATH );
+
     lstrcatW( app, L"\\rundll32.exe" );
-    TRACE( "machine %x starting %s\n", machine, debugstr_w(app) );
 
     len = lstrlenW(app) + ARRAY_SIZE(L" setupapi,InstallHinfSection DefaultInstall 128 ") + lstrlenW(inf_path);
 
@@ -1348,7 +1354,7 @@ static HANDLE start_rundll32( const WCHAR *inf_path, WORD machine )
 
     lstrcpyW( buffer, app );
     lstrcatW( buffer, L" setupapi,InstallHinfSection" );
-    lstrcatW( buffer, machine != IMAGE_FILE_MACHINE_TARGET_HOST ? L" Wow64Install" : L" DefaultInstall" );
+    lstrcatW( buffer, wow64 ? L" Wow64Install" : L" DefaultInstall" );
     lstrcatW( buffer, L" 128 " );
     lstrcatW( buffer, inf_path );
 
@@ -1510,16 +1516,12 @@ static void update_wineprefix( BOOL force )
 
     if (update_timestamp( config_dir, st.st_mtime ) || force)
     {
-        ULONG machines[8];
-        HANDLE process = 0;
+        HANDLE process;
         DWORD count = 0;
 
-        if (NtQuerySystemInformationEx( SystemSupportedProcessorArchitectures, &process, sizeof(process),
-                                        machines, sizeof(machines), NULL )) machines[0] = 0;
-
-        if ((process = start_rundll32( inf_path, IMAGE_FILE_MACHINE_TARGET_HOST )))
+        if ((process = start_rundll32( inf_path, FALSE )))
         {
-            HWND hwnd = show_wait_window();
+/*            HWND hwnd = show_wait_window();*/
             for (;;)
             {
                 MSG msg;
@@ -1527,13 +1529,11 @@ static void update_wineprefix( BOOL force )
                 if (res == WAIT_OBJECT_0)
                 {
                     CloseHandle( process );
-                    if (HIWORD(machines[count]) & 4 /* native machine */) count++;
-                    if (!machines[count]) break;
-                    if (!(process = start_rundll32( inf_path, LOWORD(machines[count++]) ))) break;
+                    if (count++ || !(process = start_rundll32( inf_path, TRUE ))) break;
                 }
                 else while (PeekMessageW( &msg, 0, 0, 0, PM_REMOVE )) DispatchMessageW( &msg );
             }
-            DestroyWindow( hwnd );
+/*            DestroyWindow( hwnd );*/
         }
         install_root_pnp_devices();
         update_user_profile();
@@ -1664,8 +1664,7 @@ int __cdecl main( int argc, char *argv[] )
 
         memset( &si, 0, sizeof(si) );
         si.cb = sizeof(si);
-        GetSystemDirectoryW( filename, MAX_PATH );
-        wcscat( filename, L"\\wineboot.exe" );
+        GetModuleFileNameW( 0, filename, MAX_PATH );
 
         Wow64DisableWow64FsRedirection( &redir );
         if (CreateProcessW( filename, GetCommandLineW(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi ))

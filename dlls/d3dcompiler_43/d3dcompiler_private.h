@@ -1163,12 +1163,10 @@ HRESULT dxbc_parse(const char *data, SIZE_T data_size, struct dxbc *dxbc) DECLSP
 HRESULT dxbc_add_section(struct dxbc *dxbc, DWORD tag, const char *data, DWORD data_size) DECLSPEC_HIDDEN;
 HRESULT dxbc_init(struct dxbc *dxbc, unsigned int size) DECLSPEC_HIDDEN;
 
-static inline DWORD read_dword(const char **ptr)
+static inline void read_dword(const char **ptr, DWORD *d)
 {
-    DWORD r;
-    memcpy(&r, *ptr, sizeof(r));
-    *ptr += sizeof(r);
-    return r;
+    memcpy(d, *ptr, sizeof(*d));
+    *ptr += sizeof(*d);
 }
 
 static inline void write_dword(char **ptr, DWORD d)

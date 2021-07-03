@@ -1186,7 +1186,6 @@ static BOOL wined3d_context_gl_set_pixel_format(struct wined3d_context_gl *conte
     int format = context_gl->pixel_format;
     HDC dc = context_gl->dc;
     int current;
-    HWND win;
 
     if (private && context_gl->dc_has_format)
         return TRUE;
@@ -1197,43 +1196,55 @@ static BOOL wined3d_context_gl_set_pixel_format(struct wined3d_context_gl *conte
     current = gl_info->gl_ops.wgl.p_wglGetPixelFormat(dc);
     if (current == format) goto success;
 
+    if (!current)
+    {
+        if (!SetPixelFormat(dc, format, NULL))
+        {
+            /* This may also happen if the dc belongs to a destroyed window. */
+            WARN("Failed to set pixel format %d on device context %p, last error %#x.\n",
+                    format, dc, GetLastError());
+            return FALSE;
+        }
+
+        context_gl->restore_pf = 0;
+        context_gl->restore_pf_win = private ? NULL : WindowFromDC(dc);
+        goto success;
+    }
+
     /* By default WGL doesn't allow pixel format adjustments but we need it
      * here. For this reason there's a Wine specific wglSetPixelFormat()
-     * which allows us to set the pixel format multiple times. Use it when we
-     * can, because even though no pixel format may currently be set, the
-     * application may try to set one later. */
+     * which allows us to set the pixel format multiple times. Only use it
+     * when really needed. */
     if (gl_info->supported[WGL_WINE_PIXEL_FORMAT_PASSTHROUGH])
     {
+        HWND win;
+
         if (!GL_EXTCALL(wglSetPixelFormatWINE(dc, format)))
         {
             ERR("wglSetPixelFormatWINE failed to set pixel format %d on device context %p.\n",
                     format, dc);
             return FALSE;
         }
-    }
-    else if (current)
-    {
-        /* OpenGL doesn't allow pixel format adjustments. Print an error and
-         * continue using the old format. There's a big chance that the old
-         * format works although with a performance hit and perhaps rendering
-         * errors. */
-        ERR("Unable to set pixel format %d on device context %p. Already using format %d.\n",
-                format, dc, current);
-        return TRUE;
-    }
-    else if (!SetPixelFormat(dc, format, NULL))
-    {
-        /* This may also happen if the dc belongs to a destroyed window. */
-        WARN("Failed to set pixel format %d on device context %p, last error %#x.\n",
-                format, dc, GetLastError());
-        return FALSE;
+
+        win = private ? NULL : WindowFromDC(dc);
+        if (win != context_gl->restore_pf_win)
+        {
+            wined3d_context_gl_restore_pixel_format(context_gl);
+
+            context_gl->restore_pf = private ? 0 : current;
+            context_gl->restore_pf_win = win;
+        }
+
+        goto success;
     }
 
-    win = private ? NULL : WindowFromDC(dc);
-    if (win != context_gl->restore_pf_win)
-        wined3d_context_gl_restore_pixel_format(context_gl);
-    context_gl->restore_pf = private ? 0 : current;
-    context_gl->restore_pf_win = win;
+    /* OpenGL doesn't allow pixel format adjustments. Print an error and
+     * continue using the old format. There's a big chance that the old
+     * format works although with a performance hit and perhaps rendering
+     * errors. */
+    ERR("Unable to set pixel format %d on device context %p. Already using format %d.\n",
+            format, dc, current);
+    return TRUE;
 
 success:
     if (private)
@@ -2396,8 +2407,8 @@ void wined3d_context_gl_enable_clip_distances(struct wined3d_context_gl *context
 
     clip_distance_count = gl_info->limits.user_clip_distances;
     disable_mask = ~enable_mask;
-    enable_mask &= wined3d_mask_from_size(clip_distance_count);
-    disable_mask &= wined3d_mask_from_size(clip_distance_count);
+    enable_mask &= (1u << clip_distance_count) - 1;
+    disable_mask &= (1u << clip_distance_count) - 1;
     current_mask = context_gl->c.clip_distance_mask;
     context_gl->c.clip_distance_mask = enable_mask;
 
@@ -3310,7 +3321,7 @@ static uint32_t find_draw_buffers_mask(const struct wined3d_context_gl *context_
         return context_generate_rt_mask_from_resource(rts[0]->resource);
 
     rt_mask = ps ? ps->reg_maps.rt_mask : 1;
-    rt_mask &= wined3d_mask_from_size(gl_info->limits.buffers);
+    rt_mask &= (1u << gl_info->limits.buffers) - 1;
     if (state->blend_state && state->blend_state->dual_source)
         rt_mask = 1;
 
@@ -4111,6 +4122,11 @@ static void wined3d_context_gl_setup_target(struct wined3d_context_gl *context_g
             if ((old->alpha_size && !new->alpha_size) || (!old->alpha_size && new->alpha_size)
                     || !(texture->resource.format_flags & WINED3DFMT_FLAG_POSTPIXELSHADER_BLENDING))
                 context_invalidate_state(&context_gl->c, STATE_BLEND);
+
+            /* Update sRGB writing when switching between formats that do/do not support sRGB writing */
+            if ((context_gl->c.current_rt.texture->resource.format_flags & WINED3DFMT_FLAG_SRGB_WRITE)
+                    != (texture->resource.format_flags & WINED3DFMT_FLAG_SRGB_WRITE))
+                context_invalidate_state(&context_gl->c, STATE_RENDER(WINED3D_RS_SRGBWRITEENABLE));
         }
 
         /* When switching away from an offscreen render target, and we're not
@@ -5362,11 +5378,7 @@ static void wined3d_context_gl_load_numbered_arrays(struct wined3d_context_gl *c
 
         if (gl_info->supported[ARB_INSTANCED_ARRAYS])
         {
-            unsigned int divisor = 0;
-
-            if (element->instanced)
-                divisor = element->divisor ? element->divisor : UINT_MAX;
-            GL_EXTCALL(glVertexAttribDivisor(i, divisor));
+            GL_EXTCALL(glVertexAttribDivisor(i, element->divisor));
         }
         else if (element->divisor)
         {

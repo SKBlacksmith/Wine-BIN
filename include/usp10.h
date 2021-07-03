@@ -98,8 +98,7 @@ typedef struct tag_SCRIPT_CONTROL {
   DWORD fNumericOverride	:1;
   DWORD fLegacyBidiClass	:1;
   DWORD fMergeNeutralItems	:1;
-  DWORD fUseStandardBidi	:1;
-  DWORD fReserved		:6;
+  DWORD fReserved		:7;
 } SCRIPT_CONTROL;
 
 typedef struct {

@@ -31,7 +31,6 @@
 #include "windef.h"
 #include "winbase.h"
 #undef strncpy
-#undef wcsncpy
 
 extern BOOL sse2_supported DECLSPEC_HIDDEN;
 

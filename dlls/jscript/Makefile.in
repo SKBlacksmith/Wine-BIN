@@ -27,7 +27,6 @@ C_SRCS = \
 	number.c \
 	object.c \
 	regexp.c \
-	set.c \
 	string.c \
 	vbarray.c
 

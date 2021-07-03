@@ -91,7 +91,7 @@ static DWORD DSOUND_FindSpeakerConfig(IMMDevice *mmdevice, int channels)
         return def;
     }
 
-    phys_speakers = pv.ulVal;
+    phys_speakers = pv.u.ulVal;
 
     PropVariantClear(&pv);
     IPropertyStore_Release(store);

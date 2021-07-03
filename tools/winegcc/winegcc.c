@@ -324,19 +324,6 @@ static char* get_temp_file(const char* prefix, const char* suffix)
     return tmp;
 }
 
-static int is_pe_target( const struct options *opts )
-{
-    switch(opts->target_platform)
-    {
-    case PLATFORM_MINGW:
-    case PLATFORM_CYGWIN:
-    case PLATFORM_WINDOWS:
-        return 1;
-    default:
-        return 0;
-    }
-}
-
 enum tool
 {
     TOOL_CC,
@@ -594,7 +581,6 @@ static strarray *get_link_args( struct options *opts, const char *output_name )
         }
         if (!try_link( opts->prefix, link_args, "-Wl,-z,max-page-size=0x1000"))
             strarray_add( flags, "-Wl,-z,max-page-size=0x1000");
-        if (opts->unix_lib) strarray_add( flags, strmake( "-Wl,-soname,%s.so", output_name ));
         break;
     }
 
@@ -609,6 +595,29 @@ static strarray *get_link_args( struct options *opts, const char *output_name )
 
     strarray_addall( link_args, flags );
     return link_args;
+}
+
+/* check that file is a library for the correct platform */
+static int check_platform( struct options *opts, const char *file )
+{
+    int ret = 0, fd = open( file, O_RDONLY );
+    if (fd != -1)
+    {
+        unsigned char header[16];
+        if (read( fd, header, sizeof(header) ) == sizeof(header))
+        {
+            /* FIXME: only ELF is supported, platform is not checked beyond 32/64 */
+            if (!memcmp( header, "\177ELF", 4 ))
+            {
+                if (header[4] == 2)  /* 64-bit */
+                    ret = (opts->target_cpu == CPU_x86_64 || opts->target_cpu == CPU_ARM64);
+                else
+                    ret = (opts->target_cpu != CPU_x86_64 && opts->target_cpu != CPU_ARM64);
+            }
+        }
+        close( fd );
+    }
+    return ret;
 }
 
 static const char *get_multiarch_dir( enum target_cpu cpu )
@@ -626,41 +635,17 @@ static const char *get_multiarch_dir( enum target_cpu cpu )
    }
 }
 
-static const char *get_wine_arch_dir( enum target_cpu target_cpu, enum target_platform target_platform )
-{
-    const char *cpu;
-
-    switch (target_cpu)
-    {
-    case CPU_x86:     cpu = "i386";     break;
-    case CPU_x86_64:  cpu = "x86_64";   break;
-    case CPU_ARM:     cpu = "arm";      break;
-    case CPU_ARM64:   cpu = "aarch64";  break;
-    default: return "/wine";
-    }
-    switch (target_platform)
-    {
-    case PLATFORM_WINDOWS:
-    case PLATFORM_CYGWIN:
-    case PLATFORM_MINGW:
-        return strmake( "/wine/%s-windows", cpu );
-    default:
-        return strmake( "/wine/%s-unix", cpu );
-    }
-}
-
 static char *get_lib_dir( struct options *opts )
 {
     const char *stdlibpath[] = { libdir, LIBDIR, "/usr/lib", "/usr/local/lib", "/lib" };
-    const char *bit_suffix, *other_bit_suffix, *build_multiarch, *target_multiarch, *winecrt0;
+    static const char ntdll[] = "/wine/ntdll.so";
+    const char *bit_suffix, *other_bit_suffix, *build_multiarch, *target_multiarch;
     const char *root = opts->sysroot ? opts->sysroot : "";
     unsigned int i;
-    struct stat st;
     size_t build_len, target_len;
 
     bit_suffix = opts->target_cpu == CPU_x86_64 || opts->target_cpu == CPU_ARM64 ? "64" : "32";
     other_bit_suffix = opts->target_cpu == CPU_x86_64 || opts->target_cpu == CPU_ARM64 ? "32" : "64";
-    winecrt0 = strmake( "%s/libwinecrt0.a", get_wine_arch_dir( opts->target_cpu, opts->target_platform ));
     build_multiarch = get_multiarch_dir( build_cpu );
     target_multiarch = get_multiarch_dir( opts->target_cpu );
     build_len = strlen( build_multiarch );
@@ -673,31 +658,31 @@ static char *get_lib_dir( struct options *opts )
 
         if (!stdlibpath[i]) continue;
         buffer = xmalloc( strlen(root) + strlen(stdlibpath[i]) +
-                          strlen("/arm-linux-gnueabi") + strlen(winecrt0) + 1 );
+                          strlen("/arm-linux-gnueabi") + strlen(ntdll) + 1 );
         strcpy( buffer, root );
         strcat( buffer, stdlibpath[i] );
         p = buffer + strlen(buffer);
         while (p > buffer && p[-1] == '/') p--;
-        strcpy( p, winecrt0 );
-        if (!stat( buffer, &st )) goto found;
+        strcpy( p, ntdll );
+        if (check_platform( opts, buffer )) goto found;
         if (p > buffer + 2 && (!memcmp( p - 2, "32", 2 ) || !memcmp( p - 2, "64", 2 )))
         {
             p -= 2;
-            strcpy( p, winecrt0 );
-            if (!stat( buffer, &st )) goto found;
+            strcpy( p, ntdll );
+            if (check_platform( opts, buffer )) goto found;
         }
         strcpy( p, bit_suffix );
-        strcat( p, winecrt0 );
-        if (!stat( buffer, &st )) goto found;
+        strcat( p, ntdll );
+        if (check_platform( opts, buffer )) goto found;
         strcpy( p, target_multiarch );
-        strcat( p, winecrt0 );
-        if (!stat( buffer, &st )) goto found;
+        strcat( p, ntdll );
+        if (check_platform( opts, buffer )) goto found;
 
         strcpy( buffer, root );
         strcat( buffer, stdlibpath[i] );
         p = buffer + strlen(buffer);
         while (p > buffer && p[-1] == '/') p--;
-        strcpy( p, winecrt0 );
+        strcpy( p, ntdll );
 
         /* try to fixup each parent dirs named lib, lib32 or lib64 with target bitness suffix */
         while (p > buffer)
@@ -711,7 +696,7 @@ static char *get_lib_dir( struct options *opts )
             {
                 memmove( p + target_len, p + build_len, strlen( p + build_len ) + 1 );
                 memcpy( p, target_multiarch, target_len );
-                if (!stat( buffer, &st )) goto found;
+                if (check_platform( opts, buffer )) goto found;
                 memmove( p + build_len, p + target_len, strlen( p + target_len ) + 1 );
                 memcpy( p, build_multiarch, build_len );
             }
@@ -721,15 +706,15 @@ static char *get_lib_dir( struct options *opts )
             {
                 memmove( p + 6, p + 4, strlen( p + 4 ) + 1 );
                 memcpy( p + 4, bit_suffix, 2 );
-                if (!stat( buffer, &st )) goto found;
+                if (check_platform( opts, buffer )) goto found;
                 memmove( p + 4, p + 6, strlen( p + 6 ) + 1 );
             }
             else if (!memcmp( p + 4, other_bit_suffix, 2 ) && p[6] == '/')
             {
                 memcpy( p + 4, bit_suffix, 2 );
-                if (!stat( buffer, &st )) goto found;
+                if (check_platform( opts, buffer )) goto found;
                 memmove( p + 4, p + 6, strlen( p + 6 ) + 1 );
-                if (!stat( buffer, &st )) goto found;
+                if (check_platform( opts, buffer )) goto found;
                 memmove( p + 6, p + 4, strlen( p + 4 ) + 1 );
                 memcpy( p + 4, other_bit_suffix, 2 );
             }
@@ -739,7 +724,7 @@ static char *get_lib_dir( struct options *opts )
         continue;
 
     found:
-        buffer[strlen(buffer) - strlen(winecrt0)] = 0;
+        buffer[strlen(buffer) - strlen(ntdll)] = 0;
         return buffer;
     }
     return strmake( "%s%s", root, LIBDIR );
@@ -919,7 +904,6 @@ no_compat_defines:
         const char *incl_dirs[] = { INCLUDEDIR, "/usr/include", "/usr/local/include" };
         const char *root = opts->isysroot ? opts->isysroot : opts->sysroot ? opts->sysroot : "";
         const char *isystem = gcc_defs ? "-isystem" : "-I";
-        const char *idirafter = gcc_defs ? "-idirafter" : "-I";
 
         if (opts->use_msvcrt)
         {
@@ -933,14 +917,14 @@ no_compat_defines:
         }
         if (includedir)
         {
+            strarray_add( comp_args, strmake( "-I%s", includedir ));
             strarray_add( comp_args, strmake( "%s%s/wine/windows", isystem, includedir ));
-            strarray_add( comp_args, strmake( "%s%s", idirafter, includedir ));
         }
         for (j = 0; j < ARRAY_SIZE(incl_dirs); j++)
         {
             if (j && !strcmp( incl_dirs[0], incl_dirs[j] )) continue;
+            strarray_add(comp_args, strmake( "-I%s%s", root, incl_dirs[j] ));
             strarray_add(comp_args, strmake( "%s%s%s/wine/windows", isystem, root, incl_dirs[j] ));
-            strarray_add(comp_args, strmake( "%s%s%s", idirafter, root, incl_dirs[j] ));
         }
     }
     else if (opts->wine_objdir)
@@ -1083,27 +1067,14 @@ static const char *find_libgcc(const strarray *prefix, const strarray *link_tool
 /* add specified library to the list of files */
 static void add_library( struct options *opts, strarray *lib_dirs, strarray *files, const char *library )
 {
-    char *static_lib, *fullname = 0, *unixlib;
+    char *static_lib, *fullname = 0;
 
-    switch(get_lib_type(opts->target_platform, lib_dirs, library, "lib", opts->lib_suffix, &fullname))
+    switch(get_lib_type(opts->target_platform, lib_dirs, library, opts->lib_suffix, &fullname))
     {
     case file_arh:
         strarray_add(files, strmake("-a%s", fullname));
         break;
     case file_dll:
-        if (opts->unix_lib && opts->subsystem && !strcmp(opts->subsystem, "native"))
-        {
-            if (get_lib_type(opts->target_platform, lib_dirs, library, "", ".so", &unixlib) == file_so)
-            {
-                strarray_add(files, strmake("-s%s", unixlib));
-                free(unixlib);
-            }
-            else
-            {
-                strarray_add(files, strmake("-l%s", library));
-            }
-            break;
-        }
         strarray_add(files, strmake("-d%s", fullname));
         if ((static_lib = find_static_lib(fullname)))
         {
@@ -1130,7 +1101,7 @@ static void build(struct options* opts)
     int generate_app_loader = 1;
     const char *crt_lib = NULL, *entry_point = NULL;
     int fake_module = 0;
-    int is_pe = is_pe_target( opts );
+    int is_pe = (opts->target_platform == PLATFORM_WINDOWS || opts->target_platform == PLATFORM_CYGWIN || opts->target_platform == PLATFORM_MINGW);
     unsigned int j;
 
     /* NOTE: for the files array we'll use the following convention:
@@ -1176,14 +1147,14 @@ static void build(struct options* opts)
     {
         char *lib_dir = get_lib_dir( opts );
         lib_dirs = strarray_dup(opts->lib_dirs);
-        strarray_add( lib_dirs, strmake( "%s%s", lib_dir,
-                                         get_wine_arch_dir( opts->target_cpu, opts->target_platform )));
+        strarray_add( lib_dirs, strmake( "%s/wine", lib_dir ));
         strarray_add( lib_dirs, lib_dir );
     }
     else
     {
         lib_dirs = strarray_alloc();
         strarray_add(lib_dirs, strmake("%s/dlls", opts->wine_objdir));
+        strarray_add(lib_dirs, strmake("%s/libs/wine", opts->wine_objdir));
         strarray_addall(lib_dirs, opts->lib_dirs);
     }
 
@@ -1279,7 +1250,7 @@ static void build(struct options* opts)
     /* set default entry point, if needed */
     if (!opts->entry_point)
     {
-        if (opts->subsystem && !opts->unix_lib && !strcmp( opts->subsystem, "native" ))
+        if (opts->subsystem && !strcmp( opts->subsystem, "native" ))
             entry_point = (is_pe && opts->target_cpu == CPU_x86) ? "DriverEntry@8" : "DriverEntry";
         else if (opts->use_msvcrt && !opts->shared && !opts->win16_app)
             entry_point = opts->unicode_app ? "wmainCRTStartup" : "mainCRTStartup";
@@ -1422,7 +1393,7 @@ static void build(struct options* opts)
 		strarray_add(link_args, name);
 		break;
 	    case 'a':
-                if (is_pe && !opts->use_msvcrt && !opts->lib_suffix && strchr(name, '/'))
+                if (is_pe && !opts->lib_suffix && strchr(name, '/'))
                 {
                     /* turn the path back into -Ldir -lfoo options
                      * this makes sure that we use the specified libs even
@@ -1708,7 +1679,7 @@ int main(int argc, char **argv)
             strarray_add( opts.args, argv[i] );
             continue;
         }
-        if ((fstat( fd, &st ) == -1)) error( "Cannot stat %s\n", argv[i] + 1 );
+        if ((fstat( fd, &st ) == -1)) error( "Cannot stat %s", argv[i] + 1 );
         if (st.st_size)
         {
             input_buffer = xmalloc( st.st_size + 1 );
@@ -1939,13 +1910,6 @@ int main(int argc, char **argv)
 		    opts.output_name = option_arg;
                     raw_compiler_arg = 0;
 		    break;
-                case 'p':
-                    if (strcmp("-pthread", opts.args->base[i]) == 0)
-                    {
-                        raw_compiler_arg = 1;
-                        raw_linker_arg = 1;
-                    }
-                    break;
                 case 's':
                     if (strcmp("-static", opts.args->base[i]) == 0)
 			linking = -1;
@@ -1982,7 +1946,7 @@ int main(int argc, char **argv)
                     if (strncmp("-Wl,", opts.args->base[i], 4) == 0)
 		    {
                         unsigned int j;
-                        strarray* Wl = strarray_fromstring(opts.args->base[i] + 4, ",=");
+                        strarray* Wl = strarray_fromstring(opts.args->base[i] + 4, ",");
                         for (j = 0; j < Wl->size; j++)
                         {
                             if (!strcmp(Wl->base[j], "--image-base") && j < Wl->size - 1)
@@ -2030,10 +1994,7 @@ int main(int argc, char **argv)
                                 opts.debug_file = strdup( Wl->base[++j] );
                                 continue;
                             }
-                            if (!strcmp(Wl->base[j], "--whole-archive") ||
-                                !strcmp(Wl->base[j], "--no-whole-archive") ||
-                                !strcmp(Wl->base[j], "--start-group") ||
-                                !strcmp(Wl->base[j], "--end-group"))
+                            if (!strcmp(Wl->base[j], "--whole-archive") || !strcmp(Wl->base[j], "--no-whole-archive"))
                             {
                                 strarray_add( opts.files, strmake( "-Wl,%s", Wl->base[j] ));
                                 continue;
@@ -2126,8 +2087,6 @@ int main(int argc, char **argv)
 
     if (opts.processor == proc_cpp) linking = 0;
     if (linking == -1) error("Static linking is not supported\n");
-
-    if (!opts.wine_objdir && is_pe_target( &opts )) opts.use_msvcrt = 1;
 
     if (opts.files->size == 0) forward(&opts);
     else if (linking) build(&opts);

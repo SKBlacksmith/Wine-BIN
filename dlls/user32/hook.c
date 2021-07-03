@@ -379,7 +379,7 @@ void *get_hook_proc( void *proc, const WCHAR *module, HMODULE *free_module )
 static LRESULT call_hook( struct hook_info *info, INT code, WPARAM wparam, LPARAM lparam )
 {
     DWORD_PTR ret = 0;
-    LRESULT lres;
+    LRESULT lres = 0;
 
     if (info->tid)
     {

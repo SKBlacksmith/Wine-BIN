@@ -50,6 +50,8 @@
 WINE_DEFAULT_DEBUG_CHANNEL( mscoree );
 WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
+static HINSTANCE MSCOREE_hInstance;
+
 typedef HRESULT (*fnCreateInstance)(REFIID riid, LPVOID *ppObj);
 
 char *WtoA(LPCWSTR wstr)
@@ -217,6 +219,8 @@ HRESULT WINAPI CorBindToRuntimeHost(LPCWSTR pwszVersion, LPCWSTR pwszBuildFlavor
 BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
     TRACE("(%p, %d, %p)\n", hinstDLL, fdwReason, lpvReserved);
+
+    MSCOREE_hInstance = hinstDLL;
 
     switch (fdwReason)
     {
@@ -879,12 +883,17 @@ HRESULT WINAPI DllRegisterServer(void)
 {
     install_wine_mono();
 
-    return __wine_register_resources();
+    return __wine_register_resources( MSCOREE_hInstance );
 }
 
 HRESULT WINAPI DllUnregisterServer(void)
 {
-    return __wine_unregister_resources();
+    return __wine_unregister_resources( MSCOREE_hInstance );
+}
+
+HRESULT WINAPI DllCanUnloadNow(VOID)
+{
+    return S_FALSE;
 }
 
 void WINAPI CoEEShutDownCOM(void)

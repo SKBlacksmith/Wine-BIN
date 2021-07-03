@@ -502,7 +502,7 @@ static HRESULT session_submit_simple_command(struct media_session *session, enum
     return hr;
 }
 
-static void session_clear_queued_topologies(struct media_session *session)
+static void session_clear_topologies(struct media_session *session)
 {
     struct queued_topology *ptr, *next;
 
@@ -806,26 +806,6 @@ static struct topo_node *session_get_node_by_id(const struct media_session *sess
     return NULL;
 }
 
-static void session_command_complete(struct media_session *session)
-{
-    struct session_op *op;
-    struct list *e;
-
-    /* Pop current command, submit next. */
-    if ((e = list_head(&session->commands)))
-    {
-        op = LIST_ENTRY(e, struct session_op, entry);
-        list_remove(&op->entry);
-        IUnknown_Release(&op->IUnknown_iface);
-    }
-
-    if ((e = list_head(&session->commands)))
-    {
-        op = LIST_ENTRY(e, struct session_op, entry);
-        MFPutWorkItem(MFASYNC_CALLBACK_QUEUE_STANDARD, &session->commands_callback, &op->IUnknown_iface);
-    }
-}
-
 static void session_start(struct media_session *session, const GUID *time_format, const PROPVARIANT *start_position)
 {
     struct media_source *source;
@@ -860,13 +840,33 @@ static void session_start(struct media_session *session, const GUID *time_format
             break;
         case SESSION_STATE_STARTED:
             FIXME("Seeking is not implemented.\n");
-            session_command_complete(session);
             break;
-        default:
+        case SESSION_STATE_CLOSED:
             IMFMediaEventQueue_QueueEventParamVar(session->event_queue, MESessionStarted, &GUID_NULL,
                     MF_E_INVALIDREQUEST, NULL);
-            session_command_complete(session);
             break;
+        default:
+            ;
+    }
+}
+
+static void session_command_complete(struct media_session *session)
+{
+    struct session_op *op;
+    struct list *e;
+
+    /* Pop current command, submit next. */
+    if ((e = list_head(&session->commands)))
+    {
+        op = LIST_ENTRY(e, struct session_op, entry);
+        list_remove(&op->entry);
+        IUnknown_Release(&op->IUnknown_iface);
+    }
+
+    if ((e = list_head(&session->commands)))
+    {
+        op = LIST_ENTRY(e, struct session_op, entry);
+        MFPutWorkItem(MFASYNC_CALLBACK_QUEUE_STANDARD, &session->commands_callback, &op->IUnknown_iface);
     }
 }
 
@@ -903,12 +903,9 @@ static void session_set_started(struct media_session *session)
     session_command_complete(session);
 }
 
-static void session_set_paused(struct media_session *session, unsigned int state, HRESULT status)
+static void session_set_paused(struct media_session *session, HRESULT status)
 {
-    /* Failed event status could indicate a failure during normal transition to paused state,
-       or an attempt to pause from invalid initial state. To finalize failed transition in the former case,
-       state is still forced to PAUSED, otherwise previous state is retained. */
-    if (state != ~0u) session->state = state;
+    session->state = SESSION_STATE_PAUSED;
     if (SUCCEEDED(status))
         session_set_caps(session, session->caps & ~MFSESSIONCAP_PAUSE);
     IMFMediaEventQueue_QueueEventParamVar(session->event_queue, MESessionPaused, &GUID_NULL, status, NULL);
@@ -926,7 +923,6 @@ static void session_set_closed(struct media_session *session, HRESULT status)
 
 static void session_pause(struct media_session *session)
 {
-    unsigned int state = ~0u;
     HRESULT hr;
 
     switch (session->state)
@@ -936,19 +932,14 @@ static void session_pause(struct media_session *session)
             /* Transition in two steps - pause the clock, wait for sinks, then pause sources. */
             if (SUCCEEDED(hr = IMFPresentationClock_Pause(session->clock)))
                 session->state = SESSION_STATE_PAUSING_SINKS;
-            state = SESSION_STATE_PAUSED;
 
-            break;
-
-        case SESSION_STATE_STOPPED:
-            hr = MF_E_SESSION_PAUSEWHILESTOPPED;
             break;
         default:
             hr = MF_E_INVALIDREQUEST;
     }
 
     if (FAILED(hr))
-        session_set_paused(session, state, hr);
+        session_set_paused(session, hr);
 }
 
 static void session_clear_end_of_presentation(struct media_session *session)
@@ -1064,22 +1055,8 @@ static void session_close(struct media_session *session)
             break;
     }
 
-    session_clear_queued_topologies(session);
     if (FAILED(hr))
         session_set_closed(session, hr);
-}
-
-static void session_clear_topologies(struct media_session *session)
-{
-    HRESULT hr = S_OK;
-
-    if (session->state == SESSION_STATE_CLOSED)
-        hr = MF_E_INVALIDREQUEST;
-    else
-        session_clear_queued_topologies(session);
-    IMFMediaEventQueue_QueueEventParamVar(session->event_queue, MESessionTopologiesCleared,
-            &GUID_NULL, hr, NULL);
-    session_command_complete(session);
 }
 
 static struct media_source *session_get_media_source(struct media_session *session, IMFMediaSource *source)
@@ -1584,7 +1561,7 @@ static void session_set_topology(struct media_session *session, DWORD flags, IMF
     }
     else if (topology && flags & MFSESSION_SETTOPOLOGY_IMMEDIATE)
     {
-        session_clear_queued_topologies(session);
+        session_clear_topologies(session);
         session_clear_presentation(session);
     }
 
@@ -1659,7 +1636,7 @@ static ULONG WINAPI mfsession_Release(IMFMediaSession *iface)
 
     if (!refcount)
     {
-        session_clear_queued_topologies(session);
+        session_clear_topologies(session);
         session_clear_presentation(session);
         session_clear_command_list(session);
         if (session->presentation.current_topology)
@@ -2102,6 +2079,9 @@ static HRESULT WINAPI session_commands_callback_Invoke(IMFAsyncCallback *iface, 
     {
         case SESSION_CMD_CLEAR_TOPOLOGIES:
             session_clear_topologies(session);
+            IMFMediaEventQueue_QueueEventParamVar(session->event_queue, MESessionTopologiesCleared, &GUID_NULL,
+                    S_OK, NULL);
+            session_command_complete(session);
             break;
         case SESSION_CMD_SET_TOPOLOGY:
             session_set_topology(session, op->u.set_topology.flags, op->u.set_topology.topology);
@@ -2511,7 +2491,7 @@ static void session_set_source_object_state(struct media_session *session, IUnkn
             if (!session_is_source_nodes_state(session, OBJ_STATE_PAUSED))
                 break;
 
-            session_set_paused(session, SESSION_STATE_PAUSED, S_OK);
+            session_set_paused(session, S_OK);
             break;
         case SESSION_STATE_STOPPING_SOURCES:
             if (!session_is_source_nodes_state(session, OBJ_STATE_STOPPED))
@@ -2587,7 +2567,7 @@ static void session_set_sink_stream_state(struct media_session *session, IMFStre
             }
 
             if (FAILED(hr))
-                session_set_paused(session, SESSION_STATE_PAUSED, hr);
+                session_set_paused(session, hr);
 
             break;
         case SESSION_STATE_STOPPING_SINKS:
@@ -3361,7 +3341,7 @@ static HRESULT WINAPI session_sink_finalizer_callback_Invoke(IMFAsyncCallback *i
         if (state == (IUnknown *)sink->sink)
         {
             if (FAILED(hr = IMFMediaSink_QueryInterface(sink->sink, &IID_IMFFinalizableMediaSink, (void **)&fin_sink)))
-                WARN("Unexpected, missing IMFFinalizableMediaSink, hr %#x.\n", hr);
+                WARN("Unexpected, missing IMFFinalizableSink, hr %#x.\n", hr);
         }
         else
         {

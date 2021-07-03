@@ -78,8 +78,6 @@ static void     (WINAPI *pRtlWakeAddressAll)( const void * );
 static void     (WINAPI *pRtlWakeAddressSingle)( const void * );
 static NTSTATUS (WINAPI *pNtOpenProcess)( HANDLE *, ACCESS_MASK, const OBJECT_ATTRIBUTES *, const CLIENT_ID * );
 static NTSTATUS (WINAPI *pNtCreateDebugObject)( HANDLE *, ACCESS_MASK, OBJECT_ATTRIBUTES *, ULONG );
-static NTSTATUS (WINAPI *pNtGetNextThread)(HANDLE process, HANDLE thread, ACCESS_MASK access, ULONG attributes,
-                                            ULONG flags, HANDLE *handle);
 
 #define KEYEDEVENT_WAIT       0x0001
 #define KEYEDEVENT_WAKE       0x0002
@@ -1381,7 +1379,6 @@ static void test_query_object(void)
     char buffer[1024];
     NTSTATUS status;
     ULONG len, expected_len;
-    OBJECT_BASIC_INFORMATION info;
     OBJECT_ATTRIBUTES attr;
     UNICODE_STRING path, target, *str;
     char dir[MAX_PATH], tmp_path[MAX_PATH], file1[MAX_PATH + 16];
@@ -1392,20 +1389,6 @@ static void test_query_object(void)
     InitializeObjectAttributes( &attr, &path, 0, 0, 0 );
 
     handle = CreateEventA( NULL, FALSE, FALSE, "test_event" );
-
-    status = pNtQueryObject( handle, ObjectBasicInformation, NULL, 0, NULL );
-    ok( status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryObject failed %x\n", status );
-
-    status = pNtQueryObject( handle, ObjectBasicInformation, &info, 0, NULL );
-    ok( status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryObject failed %x\n", status );
-
-    status = pNtQueryObject( handle, ObjectBasicInformation, NULL, 0, &len );
-    ok( status == STATUS_INFO_LENGTH_MISMATCH, "NtQueryObject failed %x\n", status );
-
-    len = 0;
-    status = pNtQueryObject( handle, ObjectBasicInformation, &info, sizeof(OBJECT_BASIC_INFORMATION), &len );
-    ok( status == STATUS_SUCCESS, "NtQueryObject failed %x\n", status );
-    ok( len >= sizeof(OBJECT_BASIC_INFORMATION), "unexpected len %u\n", len );
 
     len = 0;
     status = pNtQueryObject( handle, ObjectNameInformation, buffer, 0, &len );
@@ -1500,9 +1483,9 @@ static void test_query_object(void)
     GetTempFileNameA(tmp_path, "foo", 0, file1);
     handle = CreateFileA(file1, GENERIC_WRITE | DELETE, 0, NULL, CREATE_ALWAYS, 0, 0);
     test_object_type(handle, L"File");
+    DeleteFileA( file1 );
     test_file_info( handle );
     pNtClose( handle );
-    DeleteFileA( file1 );
 
     status = pNtCreateIoCompletion( &handle, IO_COMPLETION_ALL_ACCESS, NULL, 0 );
     ok( status == STATUS_SUCCESS, "NtCreateIoCompletion failed %x\n", status);
@@ -2304,7 +2287,7 @@ static void test_wait_on_address(void)
     status = pRtlWaitOnAddress(&address, &compare, 8, &timeout);
     ticks = GetTickCount() - ticks;
     ok(status == STATUS_TIMEOUT, "got 0x%08x\n", status);
-    ok(ticks >= 80 && ticks <= 1000, "got %u\n", ticks);
+    ok(ticks >= 90 && ticks <= 1000, "got %u\n", ticks);
     ok(address == 0, "got %s\n", wine_dbgstr_longlong(address));
     ok(compare == 0, "got %s\n", wine_dbgstr_longlong(compare));
 
@@ -2319,7 +2302,7 @@ static void test_wait_on_address(void)
         status = pRtlWaitOnAddress(&address, &compare, size, &timeout);
         ticks = GetTickCount() - ticks;
         ok(status == STATUS_TIMEOUT, "got 0x%08x\n", status);
-        ok(ticks >= 80 && ticks <= 1000, "got %u\n", ticks);
+        ok(ticks >= 90 && ticks <= 1000, "got %u\n", ticks);
 
         status = pRtlWaitOnAddress(&address, &compare, size << 1, &timeout);
         ok(!status, "got 0x%08x\n", status);
@@ -2566,95 +2549,6 @@ static void test_object_types(void)
     }
 }
 
-static DWORD WINAPI test_get_next_thread_proc( void *arg )
-{
-    HANDLE event = (HANDLE)arg;
-
-    WaitForSingleObject(event, INFINITE);
-    return 0;
-}
-
-static void test_get_next_thread(void)
-{
-    HANDLE hprocess = GetCurrentProcess();
-    HANDLE handle, thread, event, prev;
-    NTSTATUS status;
-    DWORD thread_id;
-    BOOL found;
-
-    if (!pNtGetNextThread)
-    {
-        win_skip("NtGetNextThread is not available.\n");
-        return;
-    }
-
-    event = CreateEventA(NULL, FALSE, FALSE, NULL);
-
-    thread = CreateThread( NULL, 0, test_get_next_thread_proc, event, 0, &thread_id );
-
-    status = pNtGetNextThread(hprocess, NULL, THREAD_QUERY_LIMITED_INFORMATION, OBJ_INHERIT, 0, NULL);
-    ok(status == STATUS_ACCESS_VIOLATION, "Got unexpected status %#x.\n", status);
-
-    found = FALSE;
-    prev = NULL;
-    while (!(status = pNtGetNextThread(hprocess, prev, THREAD_QUERY_LIMITED_INFORMATION, OBJ_INHERIT, 0, &handle)))
-    {
-        if (prev)
-        {
-            if (GetThreadId(handle) == thread_id)
-                found = TRUE;
-            pNtClose(prev);
-        }
-        else
-        {
-            ok(GetThreadId(handle) == GetCurrentThreadId(), "Got unexpected thread id %04x, current %04x.\n",
-                    GetThreadId(handle), GetCurrentThreadId());
-        }
-        prev = handle;
-        handle = (HANDLE)0xdeadbeef;
-    }
-    pNtClose(prev);
-    ok(!handle, "Got unexpected handle %p.\n", handle);
-    ok(status == STATUS_NO_MORE_ENTRIES, "Unexpected status %#x.\n", status);
-    ok(found, "Thread not found.\n");
-
-    handle = (HANDLE)0xdeadbeef;
-    status = pNtGetNextThread((void *)0xdeadbeef, 0, PROCESS_QUERY_LIMITED_INFORMATION, OBJ_INHERIT, 0, &handle);
-    ok(status == STATUS_INVALID_HANDLE, "Unexpected status %#x.\n", status);
-    ok(!handle, "Got unexpected handle %p.\n", handle);
-    handle = (HANDLE)0xdeadbeef;
-    status = pNtGetNextThread(hprocess, (void *)0xdeadbeef, PROCESS_QUERY_LIMITED_INFORMATION, OBJ_INHERIT, 0, &handle);
-    ok(status == STATUS_INVALID_HANDLE, "Unexpected status %#x.\n", status);
-    ok(!handle, "Got unexpected handle %p.\n", handle);
-
-    /* Reversed search is only supported on recent enough Win10. */
-    status = pNtGetNextThread(hprocess, 0, PROCESS_QUERY_LIMITED_INFORMATION, OBJ_INHERIT, 1, &handle);
-    ok(!status || broken(status == STATUS_INVALID_PARAMETER), "Unexpected status %#x.\n", status);
-    if (!status)
-        pNtClose(handle);
-
-    status = pNtGetNextThread(hprocess, 0, PROCESS_QUERY_LIMITED_INFORMATION, OBJ_INHERIT, 2, &handle);
-    ok(status == STATUS_INVALID_PARAMETER, "Unexpected status %#x.\n", status);
-
-    SetEvent(event);
-    WaitForSingleObject(thread, INFINITE);
-
-    found = FALSE;
-    prev = NULL;
-    while (!(status = pNtGetNextThread(hprocess, prev, THREAD_QUERY_LIMITED_INFORMATION, OBJ_INHERIT, 0, &handle)))
-    {
-        if (prev)
-            pNtClose(prev);
-        if (GetThreadId(handle) == thread_id)
-            found = TRUE;
-        prev = handle;
-    }
-    pNtClose(prev);
-    ok(found, "Thread not found.\n");
-
-    CloseHandle(thread);
-}
-
 START_TEST(om)
 {
     HMODULE hntdll = GetModuleHandleA("ntdll.dll");
@@ -2706,7 +2600,6 @@ START_TEST(om)
     pRtlWakeAddressSingle   =  (void *)GetProcAddress(hntdll, "RtlWakeAddressSingle");
     pNtOpenProcess          =  (void *)GetProcAddress(hntdll, "NtOpenProcess");
     pNtCreateDebugObject    =  (void *)GetProcAddress(hntdll, "NtCreateDebugObject");
-    pNtGetNextThread        =  (void *)GetProcAddress(hntdll, "NtGetNextThread");
 
     test_case_sensitive();
     test_namespace_pipe();
@@ -2724,5 +2617,4 @@ START_TEST(om)
     test_wait_on_address();
     test_process();
     test_object_types();
-    test_get_next_thread();
 }

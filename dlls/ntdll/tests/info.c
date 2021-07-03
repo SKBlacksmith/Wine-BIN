@@ -64,6 +64,7 @@ static inline DWORD_PTR get_affinity_mask(DWORD num_cpus)
     p ## func = (void*)GetProcAddress(hntdll, #func); \
     if(!p ## func) { \
       trace("GetProcAddress(%s) failed\n", #func); \
+      return FALSE; \
     } \
   } while(0)
 
@@ -72,14 +73,13 @@ static inline DWORD_PTR get_affinity_mask(DWORD num_cpus)
 #define FIRM 0x4649524D
 #define RSMB 0x52534D42
 
-static void InitFunctionPtrs(void)
+static BOOL InitFunctionPtrs(void)
 {
     /* All needed functions are NT based, so using GetModuleHandle is a good check */
     HMODULE hntdll = GetModuleHandleA("ntdll");
     HMODULE hkernel32 = GetModuleHandleA("kernel32");
 
     NTDLL_GET_PROC(NtQuerySystemInformation);
-    NTDLL_GET_PROC(NtQuerySystemInformationEx);
     NTDLL_GET_PROC(NtSetSystemInformation);
     NTDLL_GET_PROC(RtlGetNativeSystemInformation);
     NTDLL_GET_PROC(NtPowerInformation);
@@ -97,14 +97,24 @@ static void InitFunctionPtrs(void)
     NTDLL_GET_PROC(NtQueryObject);
     NTDLL_GET_PROC(NtCreateDebugObject);
     NTDLL_GET_PROC(NtSetInformationDebugObject);
-    NTDLL_GET_PROC(NtGetCurrentProcessorNumber);
     NTDLL_GET_PROC(DbgUiConvertStateChangeStructure);
+
+    /* not present before XP */
+    pNtGetCurrentProcessorNumber = (void *) GetProcAddress(hntdll, "NtGetCurrentProcessorNumber");
 
     pIsWow64Process = (void *)GetProcAddress(hkernel32, "IsWow64Process");
     if (!pIsWow64Process || !pIsWow64Process( GetCurrentProcess(), &is_wow64 )) is_wow64 = FALSE;
 
     pGetSystemDEPPolicy = (void *)GetProcAddress(hkernel32, "GetSystemDEPPolicy");
+
+    /* starting with Win7 */
+    pNtQuerySystemInformationEx = (void *) GetProcAddress(hntdll, "NtQuerySystemInformationEx");
+    if (!pNtQuerySystemInformationEx)
+        win_skip("NtQuerySystemInformationEx() is not supported, some tests will be skipped.\n");
+
     pGetLogicalProcessorInformationEx = (void *) GetProcAddress(hkernel32, "GetLogicalProcessorInformationEx");
+
+    return TRUE;
 }
 
 static void test_query_basic(void)
@@ -192,9 +202,8 @@ static void test_query_cpu(void)
     ok( sizeof(sci) == ReturnLength, "Inconsistent length %d\n", ReturnLength);
 
     /* Check if we have some return values */
-    if (winetest_debug > 1) trace("Processor FeatureSet : %08x\n", sci.ProcessorFeatureBits);
-    ok( sci.ProcessorFeatureBits != 0, "Expected some features for this processor, got %08x\n",
-        sci.ProcessorFeatureBits);
+    if (winetest_debug > 1) trace("Processor FeatureSet : %08x\n", sci.FeatureSet);
+    ok( sci.FeatureSet != 0, "Expected some features for this processor, got %08x\n", sci.FeatureSet);
 }
 
 static void test_query_performance(void)
@@ -706,21 +715,21 @@ static void test_query_cache(void)
     for (i = sizeof(buffer); i>= expected; i--)
     {
         ReturnLength = 0xdeadbeef;
-        status = pNtQuerySystemInformation(SystemFileCacheInformation, sci, i, &ReturnLength);
+        status = pNtQuerySystemInformation(SystemCacheInformation, sci, i, &ReturnLength);
         ok(!status && (ReturnLength == expected),
             "%d: got 0x%x and %u (expected STATUS_SUCCESS and %u)\n", i, status, ReturnLength, expected);
     }
 
     /* buffer too small for the full result.
        Up to win7, the function succeeds with a partial result. */
-    status = pNtQuerySystemInformation(SystemFileCacheInformation, sci, i, &ReturnLength);
+    status = pNtQuerySystemInformation(SystemCacheInformation, sci, i, &ReturnLength);
     if (!status)
     {
         expected = offsetof(SYSTEM_CACHE_INFORMATION, MinimumWorkingSet);
         for (; i>= expected; i--)
         {
             ReturnLength = 0xdeadbeef;
-            status = pNtQuerySystemInformation(SystemFileCacheInformation, sci, i, &ReturnLength);
+            status = pNtQuerySystemInformation(SystemCacheInformation, sci, i, &ReturnLength);
             ok(!status && (ReturnLength == expected),
                 "%d: got 0x%x and %u (expected STATUS_SUCCESS and %u)\n", i, status, ReturnLength, expected);
         }
@@ -728,7 +737,7 @@ static void test_query_cache(void)
 
     /* buffer too small for the result, this call will always fail */
     ReturnLength = 0xdeadbeef;
-    status = pNtQuerySystemInformation(SystemFileCacheInformation, sci, i, &ReturnLength);
+    status = pNtQuerySystemInformation(SystemCacheInformation, sci, i, &ReturnLength);
     ok( status == STATUS_INFO_LENGTH_MISMATCH &&
         ((ReturnLength == expected) || broken(!ReturnLength) || broken(ReturnLength == 0xfffffff0)),
         "%d: got 0x%x and %u (expected STATUS_INFO_LENGTH_MISMATCH and %u)\n", i, status, ReturnLength, expected);
@@ -736,7 +745,7 @@ static void test_query_cache(void)
     if (0) {
         /* this crashes on some vista / win7 machines */
         ReturnLength = 0xdeadbeef;
-        status = pNtQuerySystemInformation(SystemFileCacheInformation, sci, 0, &ReturnLength);
+        status = pNtQuerySystemInformation(SystemCacheInformation, sci, 0, &ReturnLength);
         ok( status == STATUS_INFO_LENGTH_MISMATCH &&
             ((ReturnLength == expected) || broken(!ReturnLength) || broken(ReturnLength == 0xfffffff0)),
             "0: got 0x%x and %u (expected STATUS_INFO_LENGTH_MISMATCH and %u)\n", status, ReturnLength, expected);
@@ -1088,89 +1097,6 @@ static void test_query_logicalprocex(void)
     HeapFree(GetProcessHeap(), 0, infoex_cache);
     HeapFree(GetProcessHeap(), 0, infoex_package);
     HeapFree(GetProcessHeap(), 0, infoex_group);
-}
-
-static void test_query_cpusetinfo(void)
-{
-    SYSTEM_CPU_SET_INFORMATION *info;
-    unsigned int i, cpu_count;
-    ULONG len, expected_len;
-    NTSTATUS status;
-    SYSTEM_INFO si;
-    HANDLE process;
-
-    if (!pNtQuerySystemInformationEx)
-        return;
-
-    GetSystemInfo(&si);
-    cpu_count = si.dwNumberOfProcessors;
-    expected_len = cpu_count * sizeof(*info);
-
-    process = GetCurrentProcess();
-
-    status = pNtQuerySystemInformationEx(SystemCpuSetInformation, &process, sizeof(process), NULL, 0, &len);
-    if (status == STATUS_INVALID_INFO_CLASS)
-    {
-        win_skip("SystemCpuSetInformation is not supported\n");
-        return;
-    }
-
-    ok(status == STATUS_BUFFER_TOO_SMALL, "Got unexpected status %#x.\n", status);
-    ok(len == expected_len, "Got unexpected length %u.\n", len);
-
-    len = 0xdeadbeef;
-    status = pNtQuerySystemInformation(SystemCpuSetInformation, NULL, 0, &len);
-    ok(status == STATUS_INVALID_PARAMETER || status == STATUS_INVALID_INFO_CLASS,
-            "Got unexpected status %#x.\n", status);
-    ok(len == 0xdeadbeef, "Got unexpected len %u.\n", len);
-
-    len = 0xdeadbeef;
-    process = (HANDLE)0xdeadbeef;
-    status = pNtQuerySystemInformationEx(SystemCpuSetInformation, &process, sizeof(process), NULL, 0, &len);
-    ok(status == STATUS_INVALID_HANDLE, "Got unexpected status %#x.\n", status);
-    ok(len == 0xdeadbeef, "Got unexpected length %u.\n", len);
-
-    len = 0xdeadbeef;
-    process = NULL;
-    status = pNtQuerySystemInformationEx(SystemCpuSetInformation, &process, 4 * sizeof(process), NULL, 0, &len);
-    ok((status == STATUS_INVALID_PARAMETER && len == 0xdeadbeef)
-            || (status == STATUS_BUFFER_TOO_SMALL && len == expected_len),
-            "Got unexpected status %#x, length %u.\n", status, len);
-
-    len = 0xdeadbeef;
-    status = pNtQuerySystemInformationEx(SystemCpuSetInformation, NULL, sizeof(process), NULL, 0, &len);
-    ok(status == STATUS_INVALID_PARAMETER, "Got unexpected status %#x.\n", status);
-    ok(len == 0xdeadbeef, "Got unexpected length %u.\n", len);
-
-    status = pNtQuerySystemInformationEx(SystemCpuSetInformation, &process, sizeof(process), NULL, 0, &len);
-    ok(status == STATUS_BUFFER_TOO_SMALL, "Got unexpected status %#x.\n", status);
-    ok(len == expected_len, "Got unexpected length %u.\n", len);
-
-    len = 0xdeadbeef;
-    status = pNtQuerySystemInformationEx(SystemCpuSetInformation, &process, sizeof(process), NULL,
-            expected_len, &len);
-    ok(status == STATUS_ACCESS_VIOLATION, "Got unexpected status %#x.\n", status);
-    ok(len == 0xdeadbeef, "Got unexpected length %u.\n", len);
-
-    info = malloc(expected_len);
-    len = 0;
-    status = pNtQuerySystemInformationEx(SystemCpuSetInformation, &process, sizeof(process), info, expected_len, &len);
-    ok(status == STATUS_SUCCESS, "Got unexpected status %#x.\n", status);
-    ok(len == expected_len, "Got unexpected length %u.\n", len);
-
-    for (i = 0; i < cpu_count; ++i)
-    {
-        SYSTEM_CPU_SET_INFORMATION *d = &info[i];
-
-        ok(d->Size == sizeof(*d), "Got unexpected size %u, i %u.\n", d->Size, i);
-        ok(d->Type == CpuSetInformation, "Got unexpected type %u, i %u.\n", d->Type, i);
-        ok(d->CpuSet.Id == 0x100 + i, "Got unexpected Id %#x, i %u.\n", d->CpuSet.Id, i);
-        ok(!d->CpuSet.Group, "Got unexpected Group %u, i %u.\n", d->CpuSet.Group, i);
-        ok(d->CpuSet.LogicalProcessorIndex == i, "Got unexpected LogicalProcessorIndex %u, i %u.\n",
-                d->CpuSet.LogicalProcessorIndex, i);
-        ok(!d->CpuSet.AllFlags, "Got unexpected AllFlags %#x, i %u.\n", d->CpuSet.AllFlags, i);
-    }
-    free(info);
 }
 
 static void test_query_firmware(void)
@@ -2960,6 +2886,47 @@ static void test_thread_info(void)
     ok( len == 0xdeadbeef, "wrong len %u\n", len );
 }
 
+static void test_wow64(void)
+{
+#ifndef _WIN64
+    if (is_wow64)
+    {
+        PEB64 *peb64;
+        TEB64 *teb64 = (TEB64 *)NtCurrentTeb()->GdiBatchCount;
+
+        ok( !!teb64, "GdiBatchCount not set\n" );
+        ok( (char *)NtCurrentTeb() + NtCurrentTeb()->WowTebOffset == (char *)teb64 ||
+            broken(!NtCurrentTeb()->WowTebOffset),  /* pre-win10 */
+            "wrong WowTebOffset %x (%p/%p)\n", NtCurrentTeb()->WowTebOffset, teb64, NtCurrentTeb() );
+        ok( (char *)teb64 + 0x2000 == (char *)NtCurrentTeb(), "unexpected diff %p / %p\n",
+            teb64, NtCurrentTeb() );
+        ok( teb64->Tib.ExceptionList == PtrToUlong( NtCurrentTeb() ), "wrong Tib.ExceptionList %s / %p\n",
+            wine_dbgstr_longlong(teb64->Tib.ExceptionList), NtCurrentTeb() );
+        ok( teb64->Tib.Self == PtrToUlong( teb64 ), "wrong Tib.Self %s / %p\n",
+            wine_dbgstr_longlong(teb64->Tib.Self), teb64 );
+        ok( teb64->StaticUnicodeString.Buffer == PtrToUlong( teb64->StaticUnicodeBuffer ),
+            "wrong StaticUnicodeString %s / %p\n",
+            wine_dbgstr_longlong(teb64->StaticUnicodeString.Buffer), teb64->StaticUnicodeBuffer );
+        ok( teb64->ClientId.UniqueProcess == GetCurrentProcessId(), "wrong pid %s / %x\n",
+            wine_dbgstr_longlong(teb64->ClientId.UniqueProcess), GetCurrentProcessId() );
+        ok( teb64->ClientId.UniqueThread == GetCurrentThreadId(), "wrong tid %s / %x\n",
+            wine_dbgstr_longlong(teb64->ClientId.UniqueThread), GetCurrentThreadId() );
+        peb64 = ULongToPtr( teb64->Peb );
+        ok( peb64->ImageBaseAddress == PtrToUlong( NtCurrentTeb()->Peb->ImageBaseAddress ),
+            "wrong ImageBaseAddress %s / %p\n",
+            wine_dbgstr_longlong(peb64->ImageBaseAddress), NtCurrentTeb()->Peb->ImageBaseAddress);
+        ok( peb64->OSBuildNumber == NtCurrentTeb()->Peb->OSBuildNumber, "wrong OSBuildNumber %x / %x\n",
+            peb64->OSBuildNumber, NtCurrentTeb()->Peb->OSBuildNumber );
+        ok( peb64->OSPlatformId == NtCurrentTeb()->Peb->OSPlatformId, "wrong OSPlatformId %x / %x\n",
+            peb64->OSPlatformId, NtCurrentTeb()->Peb->OSPlatformId );
+        return;
+    }
+#endif
+    ok( !NtCurrentTeb()->GdiBatchCount, "GdiBatchCount set to %x\n", NtCurrentTeb()->GdiBatchCount );
+    ok( !NtCurrentTeb()->WowTebOffset || broken( NtCurrentTeb()->WowTebOffset == 1 ), /* vista */
+        "WowTebOffset set to %x\n", NtCurrentTeb()->WowTebOffset );
+}
+
 static void test_debug_object(void)
 {
     NTSTATUS status;
@@ -3069,7 +3036,8 @@ START_TEST(info)
     char **argv;
     int argc;
 
-    InitFunctionPtrs();
+    if(!InitFunctionPtrs())
+        return;
 
     argc = winetest_get_mainargs(&argv);
     if (argc >= 3) return; /* Child */
@@ -3091,7 +3059,6 @@ START_TEST(info)
     test_query_regquota();
     test_query_logicalproc();
     test_query_logicalprocex();
-    test_query_cpusetinfo();
     test_query_firmware();
     test_query_data_alignment();
 
@@ -3122,6 +3089,7 @@ START_TEST(info)
     test_thread_lookup();
 
     test_affinity();
+    test_wow64();
     test_debug_object();
 
     /* belongs to its own file */

@@ -183,7 +183,7 @@
 @ stdcall -syscall NtCreateSection(ptr long ptr ptr long long long)
 @ stdcall -syscall NtCreateSemaphore(ptr long ptr long long)
 @ stdcall -syscall NtCreateSymbolicLinkObject(ptr long ptr ptr)
-@ stdcall -syscall NtCreateThread(ptr long ptr long ptr ptr ptr long)
+@ stub NtCreateThread
 @ stdcall -syscall NtCreateThreadEx(ptr long ptr long ptr ptr long long long long ptr)
 @ stdcall -syscall NtCreateTimer(ptr long ptr long)
 @ stub NtCreateToken
@@ -223,7 +223,6 @@
 @ stdcall -norelay -syscall NtGetContextThread(long ptr)
 @ stdcall -syscall NtGetCurrentProcessorNumber()
 # @ stub NtGetDevicePowerState
-@ stdcall -syscall NtGetNextThread(ptr ptr long long long ptr)
 @ stdcall -syscall NtGetNlsSectionPtr(long long long ptr ptr)
 @ stub NtGetPlugPlayEvent
 @ stdcall NtGetTickCount()
@@ -412,7 +411,7 @@
 @ stdcall -syscall NtTerminateJobObject(long long)
 @ stdcall -syscall NtTerminateProcess(long long)
 @ stdcall -syscall NtTerminateThread(long long)
-@ stdcall -syscall NtTestAlert()
+@ stub NtTestAlert
 # @ stub NtTraceEvent
 # @ stub NtTranslateFilePath
 @ stdcall -syscall NtUnloadDriver(ptr)
@@ -430,9 +429,6 @@
 @ stdcall -syscall NtWaitForSingleObject(long long ptr)
 @ stub NtWaitHighEventPair
 @ stub NtWaitLowEventPair
-@ stdcall -syscall -arch=win32 NtWow64AllocateVirtualMemory64(long ptr int64 ptr long long)
-@ stdcall -syscall -arch=win32 NtWow64ReadVirtualMemory64(long int64 ptr int64 ptr)
-@ stdcall -syscall -arch=win32 NtWow64WriteVirtualMemory64(long int64 ptr int64 ptr)
 @ stdcall -syscall NtWriteFile(long long ptr ptr ptr ptr long ptr ptr)
 @ stdcall -syscall NtWriteFileGather(long long ptr ptr ptr ptr long ptr ptr)
 @ stub NtWriteRequestData
@@ -530,7 +526,6 @@
 @ stub RtlConvertUiListToApiList
 @ stdcall -arch=win32 -ret64 RtlConvertUlongToLargeInteger(long)
 # @ stub RtlConvertVariantToProperty
-@ stdcall RtlCopyContext(ptr long ptr)
 @ stdcall RtlCopyExtendedContext(ptr long ptr)
 @ stdcall RtlCopyLuid(ptr ptr)
 @ stdcall RtlCopyLuidAndAttributesArray(long ptr ptr)
@@ -566,7 +561,7 @@
 @ stdcall RtlCreateUserProcess(ptr long ptr ptr ptr long long long long ptr)
 @ stub RtlCreateUserSecurityObject
 @ stdcall RtlCreateUserStack(long long long long long ptr)
-@ stdcall RtlCreateUserThread(long ptr long long long long ptr ptr ptr ptr)
+@ stdcall RtlCreateUserThread(long ptr long ptr long long ptr ptr ptr ptr)
 @ stdcall RtlCustomCPToUnicodeN(ptr ptr long ptr str long)
 @ stub RtlCutoverTimeToSystemTime
 @ stdcall RtlDeNormalizeProcessParams(ptr)
@@ -657,7 +652,6 @@
 @ stdcall RtlFindClearBits(ptr long long)
 @ stdcall RtlFindClearBitsAndSet(ptr long long)
 @ stdcall RtlFindClearRuns(ptr ptr long long)
-@ stdcall RtlFindExportedRoutineByName(ptr str)
 @ stdcall RtlFindLastBackwardRunClear(ptr long ptr)
 @ stdcall RtlFindLastBackwardRunSet(ptr long ptr)
 @ stdcall RtlFindLeastSignificantBit(int64)
@@ -903,12 +897,10 @@
 @ stdcall RtlQueryProcessDebugInformation(long long ptr)
 @ stub RtlQueryProcessHeapInformation
 @ stub RtlQueryProcessLockInformation
-@ stdcall RtlQueryProcessPlaceholderCompatibilityMode()
 @ stub RtlQueryProperties
 @ stub RtlQueryPropertyNames
 @ stub RtlQueryPropertySet
 @ stdcall RtlQueryRegistryValues(long ptr ptr ptr ptr)
-@ stdcall RtlQueryRegistryValuesEx(long ptr ptr ptr ptr) RtlQueryRegistryValues
 @ stub RtlQuerySecurityObject
 @ stub RtlQueryTagHeap
 @ stdcall RtlQueryTimeZoneInformation(ptr)
@@ -1074,14 +1066,8 @@
 @ stdcall RtlWalkHeap(long ptr)
 @ stdcall RtlWow64EnableFsRedirection(long)
 @ stdcall RtlWow64EnableFsRedirectionEx(long ptr)
-@ stdcall -arch=win64 RtlWow64GetCpuAreaInfo(ptr long ptr)
-@ stdcall -arch=win64 RtlWow64GetCurrentCpuArea(ptr ptr ptr)
-@ stdcall RtlWow64GetCurrentMachine()
-@ stdcall RtlWow64GetProcessMachines(long ptr ptr)
-@ stdcall -arch=win64 RtlWow64GetThreadContext(long ptr)
-@ stdcall -arch=win64 RtlWow64GetThreadSelectorEntry(long ptr long ptr)
-@ stdcall RtlWow64IsWowGuestMachineSupported(long ptr)
-@ stdcall -arch=win64 RtlWow64SetThreadContext(long ptr)
+@ stdcall -arch=x86_64 RtlWow64GetThreadContext(long ptr)
+@ stdcall -arch=x86_64 RtlWow64SetThreadContext(long ptr)
 @ stub RtlWriteMemoryStream
 @ stdcall RtlWriteRegistryValue(long ptr ptr long ptr long)
 @ stub RtlZeroHeap
@@ -1143,7 +1129,6 @@
 @ stdcall WinSqmIsOptedIn()
 @ stdcall WinSqmSetDWORD(ptr long long)
 @ stdcall WinSqmStartSession(ptr long long)
-@ extern -arch=win32 Wow64Transition
 @ stdcall -private -syscall ZwAcceptConnectPort(ptr long ptr long ptr ptr) NtAcceptConnectPort
 @ stdcall -private -syscall ZwAccessCheck(ptr long long ptr ptr ptr ptr ptr) NtAccessCheck
 @ stdcall -private -syscall ZwAccessCheckAndAuditAlarm(ptr long ptr ptr ptr long ptr long ptr ptr ptr) NtAccessCheckAndAuditAlarm
@@ -1204,7 +1189,7 @@
 @ stdcall -private -syscall ZwCreateSection(ptr long ptr ptr long long long) NtCreateSection
 @ stdcall -private -syscall ZwCreateSemaphore(ptr long ptr long long) NtCreateSemaphore
 @ stdcall -private -syscall ZwCreateSymbolicLinkObject(ptr long ptr ptr) NtCreateSymbolicLinkObject
-@ stdcall -private -syscall ZwCreateThread(ptr long ptr long ptr ptr ptr long) NtCreateThread
+@ stub ZwCreateThread
 @ stdcall -private -syscall ZwCreateThreadEx(ptr long ptr long ptr ptr long long long long ptr) NtCreateThreadEx
 @ stdcall -private -syscall ZwCreateTimer(ptr long ptr long) NtCreateTimer
 @ stub ZwCreateToken
@@ -1229,7 +1214,7 @@
 # @ stub ZwEnumerateSystemEnvironmentValuesEx
 @ stdcall -private -syscall ZwEnumerateValueKey(long long long ptr long ptr) NtEnumerateValueKey
 @ stub ZwExtendSection
-@ stdcall -private -syscall ZwFilterToken(long long ptr ptr ptr ptr) NtFilterToken
+# @ stub ZwFilterToken
 @ stdcall -private -syscall ZwFindAtom(ptr long ptr) NtFindAtom
 @ stdcall -private -syscall ZwFlushBuffersFile(long ptr) NtFlushBuffersFile
 @ stdcall -private -syscall ZwFlushInstructionCache(long ptr long) NtFlushInstructionCache
@@ -1431,7 +1416,7 @@
 @ stdcall -private -syscall ZwTerminateJobObject(long long) NtTerminateJobObject
 @ stdcall -private -syscall ZwTerminateProcess(long long) NtTerminateProcess
 @ stdcall -private -syscall ZwTerminateThread(long long) NtTerminateThread
-@ stdcall -private -syscall ZwTestAlert() NtTestAlert
+@ stub ZwTestAlert
 # @ stub ZwTraceEvent
 # @ stub ZwTranslateFilePath
 @ stdcall -private -syscall ZwUnloadDriver(ptr) NtUnloadDriver
@@ -1449,9 +1434,6 @@
 @ stdcall -private -syscall ZwWaitForSingleObject(long long ptr) NtWaitForSingleObject
 @ stub ZwWaitHighEventPair
 @ stub ZwWaitLowEventPair
-@ stdcall -syscall -arch=win32 ZwWow64AllocateVirtualMemory64(long ptr int64 ptr long long) NtWow64AllocateVirtualMemory64
-@ stdcall -syscall -arch=win32 ZwWow64ReadVirtualMemory64(long int64 ptr int64 ptr) NtWow64ReadVirtualMemory64
-@ stdcall -syscall -arch=win32 ZwWow64WriteVirtualMemory64(long int64 ptr int64 ptr) NtWow64WriteVirtualMemory64
 @ stdcall -private -syscall ZwWriteFile(long long ptr ptr ptr ptr long ptr ptr) NtWriteFile
 @ stdcall -private -syscall ZwWriteFileGather(long long ptr ptr ptr ptr long ptr ptr) NtWriteFileGather
 @ stub ZwWriteRequestData
@@ -1619,29 +1601,33 @@
 @ cdecl -syscall -norelay wine_server_call(ptr)
 @ cdecl -syscall wine_server_fd_to_handle(long long long ptr)
 @ cdecl -syscall wine_server_handle_to_fd(long long ptr ptr)
+@ cdecl -syscall wine_server_release_fd(long long)
+@ cdecl -syscall wine_server_send_fd(long)
+@ cdecl -syscall __wine_make_process_system()
 
 # Unix interface
-@ cdecl -syscall __wine_unix_call(int64 long ptr)
 @ cdecl __wine_set_unix_funcs(long ptr)
 @ cdecl __wine_init_unix_lib(long long ptr ptr)
-@ stdcall __wine_ctrl_routine(ptr)
 @ extern __wine_syscall_dispatcher
 @ extern -arch=i386 __wine_ldt_copy
+@ cdecl __wine_set_unix_env(ptr ptr)
 
 # Debugging
-@ stdcall -syscall -norelay __wine_dbg_write(ptr long)
 @ cdecl -norelay __wine_dbg_get_channel_flags(ptr)
 @ cdecl -norelay __wine_dbg_header(long long str)
 @ cdecl -norelay __wine_dbg_output(str)
 @ cdecl -norelay __wine_dbg_strdup(str)
 
 # Virtual memory
-@ cdecl -syscall __wine_needs_override_large_address_aware()
+@ cdecl -syscall __wine_locked_recvmsg(long ptr long)
 
 # Version
-@ cdecl wine_get_version()
-@ cdecl wine_get_build_id()
-@ cdecl wine_get_host_version(ptr ptr)
+@ cdecl -syscall wine_get_version()
+@ cdecl -syscall wine_get_build_id()
+@ cdecl -syscall wine_get_host_version(ptr ptr)
+
+# Codepages
+@ cdecl __wine_get_unix_codepage()
 
 # Filesystem
 @ cdecl -syscall wine_nt_to_unix_file_name(ptr ptr ptr long)

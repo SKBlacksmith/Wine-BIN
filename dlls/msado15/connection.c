@@ -292,54 +292,98 @@ static HRESULT WINAPI connection_Close( _Connection *iface )
     return S_OK;
 }
 
+HRESULT create_command_text(IUnknown *session, BSTR command, ICommandText **cmd_text)
+{
+    HRESULT hr;
+    IOpenRowset *openrowset;
+    ICommandText *command_text;
+    ICommand *cmd;
+    IDBCreateCommand *create_command;
+
+    hr = IUnknown_QueryInterface(session, &IID_IOpenRowset, (void**)&openrowset);
+    if (FAILED(hr))
+        return hr;
+
+    hr = IOpenRowset_QueryInterface(openrowset, &IID_IDBCreateCommand, (void**)&create_command);
+    IOpenRowset_Release(openrowset);
+    if (FAILED(hr))
+        return hr;
+
+    hr = IDBCreateCommand_CreateCommand(create_command, NULL, &IID_IUnknown, (IUnknown **)&cmd);
+    IDBCreateCommand_Release(create_command);
+    if (FAILED(hr))
+        return hr;
+
+    hr = ICommand_QueryInterface(cmd, &IID_ICommandText, (void**)&command_text);
+    ICommand_Release(cmd);
+    if (FAILED(hr))
+    {
+        FIXME("Currently only ICommandText interface is support\n");
+        return hr;
+    }
+
+    hr = ICommandText_SetCommandText(command_text, &DBGUID_DEFAULT, command);
+    if (FAILED(hr))
+    {
+        ICommandText_Release(command_text);
+        return hr;
+    }
+
+    *cmd_text = command_text;
+
+    return S_OK;
+}
+
 static HRESULT WINAPI connection_Execute( _Connection *iface, BSTR command, VARIANT *records_affected,
                                           LONG options, _Recordset **record_set )
 {
     struct connection *connection = impl_from_Connection( iface );
     HRESULT hr;
+    ICommandText *comand_text;
+    DBROWCOUNT affected;
+    IUnknown *rowset;
     _Recordset *recordset;
-    VARIANT source, active;
-    IDispatch *dispatch;
+    ADORecordsetConstruction *construct;
 
     FIXME( "%p, %s, %p, 0x%08x, %p Semi-stub\n", iface, debugstr_w(command), records_affected, options, record_set );
 
     if (connection->state == adStateClosed) return MAKE_ADO_HRESULT( adErrObjectClosed );
 
+    hr = create_command_text(connection->session, command, &comand_text);
+    if (FAILED(hr))
+        return hr;
+
+    hr = ICommandText_Execute(comand_text, NULL, &IID_IUnknown, NULL, &affected, &rowset);
+    ICommandText_Release(comand_text);
+    if (FAILED(hr))
+        return hr;
+
     hr = Recordset_create( (void**)&recordset);
     if (FAILED(hr))
     {
+        IUnknown_Release(rowset);
         return hr;
     }
 
-    _Recordset_put_CursorLocation(recordset, connection->location);
-
-    V_VT(&source) = VT_BSTR;
-    V_BSTR(&source) = command;
-
-    hr = _Connection_QueryInterface(&connection->Connection_iface, &IID_IDispatch, (void**)&dispatch);
+    hr = _Recordset_QueryInterface(recordset, &IID_ADORecordsetConstruction, (void**)&construct);
     if (FAILED(hr))
     {
+        IUnknown_Release(rowset);
         _Recordset_Release(recordset);
         return hr;
     }
 
-    V_VT(&active) = VT_DISPATCH;
-    V_DISPATCH(&active) = dispatch;
-
-    hr = _Recordset_Open(recordset, source, active, adOpenDynamic, adLockPessimistic, 0);
-    VariantClear(&active);
-    if (FAILED(hr))
-    {
-        _Recordset_Release(recordset);
-        return hr;
-    }
+    ADORecordsetConstruction_put_Rowset(construct, rowset);
+    ADORecordsetConstruction_Release(construct);
+    IUnknown_Release(rowset);
 
     if (records_affected)
     {
         V_VT(records_affected) = VT_I4;
-        _Recordset_get_RecordCount(recordset, &V_I4(records_affected));
+        V_I4(records_affected) = affected;
     }
 
+    _Recordset_put_CursorLocation(recordset, connection->location);
     *record_set = recordset;
 
     return hr;

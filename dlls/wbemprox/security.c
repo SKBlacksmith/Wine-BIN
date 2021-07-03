@@ -138,7 +138,7 @@ HRESULT security_get_sd( IWbemClassObject *obj, IWbemContext *context, IWbemClas
     SECURITY_DESCRIPTOR *sd;
     DWORD sd_size;
 
-    TRACE("%p, %p, %p, %p\n", obj, context, in, out);
+    TRACE("%p, %p\n", in, out);
 
     hr = create_signature( L"__SystemSecurity", L"GetSD", PARAM_OUT, &sig );
 

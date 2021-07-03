@@ -680,7 +680,8 @@ DECL_HANDLER(dup_handle)
         }
         /* close the handle no matter what happened */
         if ((req->options & DUPLICATE_CLOSE_SOURCE) && (src != dst || req->src_handle != reply->handle))
-            close_handle( src, req->src_handle );
+            reply->closed = !close_handle( src, req->src_handle );
+        reply->self = (src == current->process);
         release_object( src );
     }
 }
@@ -688,22 +689,13 @@ DECL_HANDLER(dup_handle)
 DECL_HANDLER(get_object_info)
 {
     struct object *obj;
+    WCHAR *name;
 
     if (!(obj = get_handle_obj( current->process, req->handle, 0, NULL ))) return;
 
     reply->access = get_handle_access( current->process, req->handle );
     reply->ref_count = obj->refcount;
     reply->handle_count = obj->handle_count;
-    release_object( obj );
-}
-
-DECL_HANDLER(get_object_name)
-{
-    struct object *obj;
-    WCHAR *name;
-
-    if (!(obj = get_handle_obj( current->process, req->handle, 0, NULL ))) return;
-
     if ((name = obj->ops->get_full_name( obj, &reply->total )))
         set_reply_data_ptr( name, min( reply->total, get_reply_max_size() ));
     release_object( obj );

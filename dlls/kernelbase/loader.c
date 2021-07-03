@@ -107,11 +107,7 @@ static BOOL load_library_as_datafile( LPCWSTR load_path, DWORD flags, LPCWSTR na
     if (!(flags & LOAD_LIBRARY_AS_IMAGE_RESOURCE))
     {
         /* make sure it's a valid PE file */
-        if (!RtlImageNtHeader( module ))
-        {
-            SetLastError( ERROR_BAD_EXE_FORMAT );
-            goto failed;
-        }
+        if (!RtlImageNtHeader( module )) goto failed;
         *mod_ret = (HMODULE)((char *)module + 1); /* set bit 0 for data file module */
 
         if (flags & LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE)
@@ -158,22 +154,31 @@ static HMODULE load_library( const UNICODE_STRING *libname, DWORD flags )
 
         LdrLockLoaderLock( 0, NULL, &magic );
         if (!LdrGetDllHandle( load_path, flags, libname, &module ))
-            LdrAddRefDll( 0, module );
-        else
-            load_library_as_datafile( load_path, flags, libname->Buffer, &module );
-        LdrUnlockLoaderLock( 0, magic );
-    }
-    else
-    {
-        status = LdrLoadDll( load_path, flags, libname, &module );
-        if (!set_ntstatus( status ))
         {
-            module = 0;
-            if (status == STATUS_DLL_NOT_FOUND && (GetVersion() & 0x80000000))
-                SetLastError( ERROR_DLL_NOT_FOUND );
+            LdrAddRefDll( 0, module );
+            LdrUnlockLoaderLock( 0, magic );
+            goto done;
         }
+        if (load_library_as_datafile( load_path, flags, libname->Buffer, &module ))
+        {
+            LdrUnlockLoaderLock( 0, magic );
+            goto done;
+        }
+        LdrUnlockLoaderLock( 0, magic );
+        flags |= DONT_RESOLVE_DLL_REFERENCES; /* Just in case */
+        /* Fallback to normal behaviour */
     }
 
+    status = LdrLoadDll( load_path, flags, libname, &module );
+    if (status != STATUS_SUCCESS)
+    {
+        module = 0;
+        if (status == STATUS_DLL_NOT_FOUND && (GetVersion() & 0x80000000))
+            SetLastError( ERROR_DLL_NOT_FOUND );
+        else
+            SetLastError( RtlNtStatusToDosError( status ) );
+    }
+done:
     RtlReleasePath( load_path );
     return module;
 }

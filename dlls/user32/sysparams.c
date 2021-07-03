@@ -363,57 +363,38 @@ static void SYSPARAMS_NonClientMetrics32ATo32W( const NONCLIENTMETRICSA* lpnm32A
 
 /* Helper functions to retrieve monitors info */
 
-static BOOL CALLBACK get_virtual_screen_proc( HMONITOR monitor, HDC hdc, LPRECT rect, LPARAM lp )
+struct monitor_info
 {
-    RECT *virtual_rect = (RECT *)lp;
+    int count;
+    RECT primary_rect;
+    RECT virtual_rect;
+};
 
-    UnionRect( virtual_rect, virtual_rect, rect );
+static BOOL CALLBACK monitor_info_proc( HMONITOR monitor, HDC hdc, LPRECT rect, LPARAM lp )
+{
+    MONITORINFO mi;
+    struct monitor_info *info = (struct monitor_info *)lp;
+    info->count++;
+    UnionRect( &info->virtual_rect, &info->virtual_rect, rect );
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfoW( monitor, &mi ) && (mi.dwFlags & MONITORINFOF_PRIMARY))
+        info->primary_rect = mi.rcMonitor;
     return TRUE;
+}
+
+static void get_monitors_info( struct monitor_info *info )
+{
+    info->count = 0;
+    SetRectEmpty( &info->primary_rect );
+    SetRectEmpty( &info->virtual_rect );
+    EnumDisplayMonitors( 0, NULL, monitor_info_proc, (LPARAM)info );
 }
 
 RECT get_virtual_screen_rect(void)
 {
-    RECT rect = {0};
-
-    EnumDisplayMonitors( 0, NULL, get_virtual_screen_proc, (LPARAM)&rect );
-    return rect;
-}
-
-static BOOL CALLBACK get_primary_monitor_proc( HMONITOR monitor, HDC hdc, LPRECT rect, LPARAM lp )
-{
-    RECT *primary_rect = (RECT *)lp;
-
-    if (!rect->top && !rect->left && rect->right && rect->bottom)
-    {
-        *primary_rect = *rect;
-        return FALSE;
-    }
-
-    return TRUE;
-}
-
-RECT get_primary_monitor_rect(void)
-{
-    RECT rect = {0};
-
-    EnumDisplayMonitors( 0, NULL, get_primary_monitor_proc, (LPARAM)&rect );
-    return rect;
-}
-
-static BOOL CALLBACK get_monitor_count_proc( HMONITOR monitor, HDC hdc, LPRECT rect, LPARAM lp )
-{
-    INT *count = (INT *)lp;
-
-    ++(*count);
-    return TRUE;
-}
-
-static INT get_monitor_count(void)
-{
-    INT count = 0;
-
-    EnumDisplayMonitors( 0, NULL, get_monitor_count_proc, (LPARAM)&count );
-    return count;
+    struct monitor_info info;
+    get_monitors_info( &info );
+    return info.virtual_rect;
 }
 
 static BOOL get_primary_adapter(WCHAR *name)
@@ -1321,37 +1302,37 @@ static USERPREF_ENTRY( SPEECHRECOGNITION,        4, 0x20 );
 static struct sysparam_rgb_entry system_colors[] =
 {
 #define RGB_ENTRY(name,val,reg) { { get_rgb_entry, set_rgb_entry, init_rgb_entry, COLORS_KEY, reg }, (val) }
-    RGB_ENTRY( COLOR_SCROLLBAR, RGB(200, 200, 200), L"Scrollbar" ),
-    RGB_ENTRY( COLOR_BACKGROUND, RGB(0, 0, 0), L"Background" ),
-    RGB_ENTRY( COLOR_ACTIVECAPTION, RGB(153, 180, 209), L"ActiveTitle" ),
-    RGB_ENTRY( COLOR_INACTIVECAPTION, RGB(191, 205, 219), L"InactiveTitle" ),
-    RGB_ENTRY( COLOR_MENU, RGB(240, 240, 240), L"Menu" ),
+    RGB_ENTRY( COLOR_SCROLLBAR, RGB(212, 208, 200), L"Scrollbar" ),
+    RGB_ENTRY( COLOR_BACKGROUND, RGB(58, 110, 165), L"Background" ),
+    RGB_ENTRY( COLOR_ACTIVECAPTION, RGB(10, 36, 106), L"ActiveTitle" ),
+    RGB_ENTRY( COLOR_INACTIVECAPTION, RGB(128, 128, 128), L"InactiveTitle" ),
+    RGB_ENTRY( COLOR_MENU, RGB(212, 208, 200), L"Menu" ),
     RGB_ENTRY( COLOR_WINDOW, RGB(255, 255, 255), L"Window" ),
-    RGB_ENTRY( COLOR_WINDOWFRAME, RGB(100, 100, 100), L"WindowFrame" ),
+    RGB_ENTRY( COLOR_WINDOWFRAME, RGB(0, 0, 0), L"WindowFrame" ),
     RGB_ENTRY( COLOR_MENUTEXT, RGB(0, 0, 0), L"MenuText" ),
     RGB_ENTRY( COLOR_WINDOWTEXT, RGB(0, 0, 0), L"WindowText" ),
-    RGB_ENTRY( COLOR_CAPTIONTEXT, RGB(0, 0, 0), L"TitleText" ),
-    RGB_ENTRY( COLOR_ACTIVEBORDER, RGB(180, 180, 180), L"ActiveBorder" ),
-    RGB_ENTRY( COLOR_INACTIVEBORDER, RGB(244, 247, 252), L"InactiveBorder" ),
-    RGB_ENTRY( COLOR_APPWORKSPACE, RGB(171, 171, 171), L"AppWorkSpace" ),
-    RGB_ENTRY( COLOR_HIGHLIGHT, RGB(0, 120, 215), L"Hilight" ),
+    RGB_ENTRY( COLOR_CAPTIONTEXT, RGB(255, 255, 255), L"TitleText" ),
+    RGB_ENTRY( COLOR_ACTIVEBORDER, RGB(212, 208, 200), L"ActiveBorder" ),
+    RGB_ENTRY( COLOR_INACTIVEBORDER, RGB(212, 208, 200), L"InactiveBorder" ),
+    RGB_ENTRY( COLOR_APPWORKSPACE, RGB(128, 128, 128), L"AppWorkSpace" ),
+    RGB_ENTRY( COLOR_HIGHLIGHT, RGB(10, 36, 106), L"Hilight" ),
     RGB_ENTRY( COLOR_HIGHLIGHTTEXT, RGB(255, 255, 255), L"HilightText" ),
-    RGB_ENTRY( COLOR_BTNFACE, RGB(240, 240, 240), L"ButtonFace" ),
-    RGB_ENTRY( COLOR_BTNSHADOW, RGB(160, 160, 160), L"ButtonShadow" ),
-    RGB_ENTRY( COLOR_GRAYTEXT, RGB(109, 109, 109), L"GrayText" ),
+    RGB_ENTRY( COLOR_BTNFACE, RGB(212, 208, 200), L"ButtonFace" ),
+    RGB_ENTRY( COLOR_BTNSHADOW, RGB(128, 128, 128), L"ButtonShadow" ),
+    RGB_ENTRY( COLOR_GRAYTEXT, RGB(128, 128, 128), L"GrayText" ),
     RGB_ENTRY( COLOR_BTNTEXT, RGB(0, 0, 0), L"ButtonText" ),
-    RGB_ENTRY( COLOR_INACTIVECAPTIONTEXT, RGB(0, 0, 0), L"InactiveTitleText" ),
+    RGB_ENTRY( COLOR_INACTIVECAPTIONTEXT, RGB(212, 208, 200), L"InactiveTitleText" ),
     RGB_ENTRY( COLOR_BTNHIGHLIGHT, RGB(255, 255, 255), L"ButtonHilight" ),
-    RGB_ENTRY( COLOR_3DDKSHADOW, RGB(105, 105, 105), L"ButtonDkShadow" ),
-    RGB_ENTRY( COLOR_3DLIGHT, RGB(227, 227, 227), L"ButtonLight" ),
+    RGB_ENTRY( COLOR_3DDKSHADOW, RGB(64, 64, 64), L"ButtonDkShadow" ),
+    RGB_ENTRY( COLOR_3DLIGHT, RGB(212, 208, 200), L"ButtonLight" ),
     RGB_ENTRY( COLOR_INFOTEXT, RGB(0, 0, 0), L"InfoText" ),
     RGB_ENTRY( COLOR_INFOBK, RGB(255, 255, 225), L"InfoWindow" ),
-    RGB_ENTRY( COLOR_ALTERNATEBTNFACE, RGB(240, 240, 240), L"ButtonAlternateFace" ),
-    RGB_ENTRY( COLOR_HOTLIGHT, RGB(0, 102, 204), L"HotTrackingColor" ),
-    RGB_ENTRY( COLOR_GRADIENTACTIVECAPTION, RGB(185, 209, 234), L"GradientActiveTitle" ),
-    RGB_ENTRY( COLOR_GRADIENTINACTIVECAPTION, RGB(215, 228, 242), L"GradientInactiveTitle" ),
-    RGB_ENTRY( COLOR_MENUHILIGHT, RGB(51, 153, 255), L"MenuHilight" ),
-    RGB_ENTRY( COLOR_MENUBAR, RGB(240, 240, 240), L"MenuBar" )
+    RGB_ENTRY( COLOR_ALTERNATEBTNFACE, RGB(181, 181, 181), L"ButtonAlternateFace" ),
+    RGB_ENTRY( COLOR_HOTLIGHT, RGB(0, 0, 200), L"HotTrackingColor" ),
+    RGB_ENTRY( COLOR_GRADIENTACTIVECAPTION, RGB(166, 202, 240), L"GradientActiveTitle" ),
+    RGB_ENTRY( COLOR_GRADIENTINACTIVECAPTION, RGB(192, 192, 192), L"GradientInactiveTitle" ),
+    RGB_ENTRY( COLOR_MENUHILIGHT, RGB(10, 36, 106), L"MenuHilight" ),
+    RGB_ENTRY( COLOR_MENUBAR, RGB(212, 208, 200), L"MenuBar" )
 #undef RGB_ENTRY
 };
 
@@ -1844,7 +1825,9 @@ BOOL WINAPI SystemParametersInfoW( UINT uiAction, UINT uiParam,
         spi_idx = SPI_SETWORKAREA_IDX;
         if (!spi_loaded[spi_idx])
         {
-            work_area = get_primary_monitor_rect();
+            SetRect( &work_area, 0, 0,
+                     GetSystemMetrics( SM_CXSCREEN ),
+                     GetSystemMetrics( SM_CYSCREEN ) );
             EnumDisplayMonitors( 0, NULL, enum_monitors, (LPARAM)&work_area );
             spi_loaded[spi_idx] = TRUE;
         }
@@ -2533,10 +2516,10 @@ BOOL WINAPI SystemParametersInfoA( UINT uiAction, UINT uiParam,
  */
 INT WINAPI GetSystemMetrics( INT index )
 {
+    struct monitor_info info;
     NONCLIENTMETRICSW ncm;
     MINIMIZEDMETRICS mm;
     ICONMETRICSW im;
-    RECT rect;
     UINT ret;
     HDC hdc;
 
@@ -2742,25 +2725,26 @@ INT WINAPI GetSystemMetrics( INT index )
     case SM_MOUSEWHEELPRESENT:
         return 1;
     case SM_CXSCREEN:
-        rect = get_primary_monitor_rect();
-        return rect.right - rect.left;
+        get_monitors_info( &info );
+        return info.primary_rect.right - info.primary_rect.left;
     case SM_CYSCREEN:
-        rect = get_primary_monitor_rect();
-        return rect.bottom - rect.top;
+        get_monitors_info( &info );
+        return info.primary_rect.bottom - info.primary_rect.top;
     case SM_XVIRTUALSCREEN:
-        rect = get_virtual_screen_rect();
-        return rect.left;
+        get_monitors_info( &info );
+        return info.virtual_rect.left;
     case SM_YVIRTUALSCREEN:
-        rect = get_virtual_screen_rect();
-        return rect.top;
+        get_monitors_info( &info );
+        return info.virtual_rect.top;
     case SM_CXVIRTUALSCREEN:
-        rect = get_virtual_screen_rect();
-        return rect.right - rect.left;
+        get_monitors_info( &info );
+        return info.virtual_rect.right - info.virtual_rect.left;
     case SM_CYVIRTUALSCREEN:
-        rect = get_virtual_screen_rect();
-        return rect.bottom - rect.top;
+        get_monitors_info( &info );
+        return info.virtual_rect.bottom - info.virtual_rect.top;
     case SM_CMONITORS:
-        return get_monitor_count();
+        get_monitors_info( &info );
+        return info.count;
     case SM_SAMEDISPLAYFORMAT:
         return 1;
     case SM_IMMENABLED:

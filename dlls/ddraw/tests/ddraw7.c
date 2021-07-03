@@ -388,29 +388,6 @@ static D3DCOLOR get_surface_color(IDirectDrawSurface7 *surface, UINT x, UINT y)
     return color;
 }
 
-static void fill_surface(IDirectDrawSurface7 *surface, D3DCOLOR color)
-{
-    DDSURFACEDESC2 surface_desc = {sizeof(surface_desc)};
-    HRESULT hr;
-    unsigned int x, y;
-    DWORD *ptr;
-
-    hr = IDirectDrawSurface7_Lock(surface, NULL, &surface_desc, DDLOCK_WAIT, NULL);
-    ok(hr == DD_OK, "Got unexpected hr %#x.\n", hr);
-
-    for (y = 0; y < surface_desc.dwHeight; ++y)
-    {
-        ptr = (DWORD *)((BYTE *)surface_desc.lpSurface + y * U1(surface_desc).lPitch);
-        for (x = 0; x < surface_desc.dwWidth; ++x)
-        {
-            ptr[x] = color;
-        }
-    }
-
-    hr = IDirectDrawSurface7_Unlock(surface, NULL);
-    ok(hr == DD_OK, "Got unexpected hr %#x.\n", hr);
-}
-
 #define check_rect(a, b, c) check_rect_(__LINE__, a, b, c)
 static void check_rect_(unsigned int line, IDirectDrawSurface7 *surface, RECT r, const char *message)
 {
@@ -482,7 +459,7 @@ static HRESULT WINAPI enum_devtype_cb(char *desc_str, char *name, D3DDEVICEDESC7
     return DDENUMRET_OK;
 }
 
-static IDirect3DDevice7 *create_device_ex(HWND window, DWORD coop_level, const GUID *device_guid)
+static IDirect3DDevice7 *create_device(HWND window, DWORD coop_level)
 {
     IDirectDrawSurface7 *surface, *ds;
     IDirect3DDevice7 *device = NULL;
@@ -491,6 +468,8 @@ static IDirect3DDevice7 *create_device_ex(HWND window, DWORD coop_level, const G
     IDirectDraw7 *ddraw;
     IDirect3D7 *d3d7;
     HRESULT hr;
+    BOOL hal_ok = FALSE;
+    const GUID *devtype = &IID_IDirect3DHALDevice;
 
     if (!(ddraw = create_ddraw()))
         return NULL;
@@ -502,8 +481,6 @@ static IDirect3DDevice7 *create_device_ex(HWND window, DWORD coop_level, const G
     surface_desc.dwSize = sizeof(surface_desc);
     surface_desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
     surface_desc.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE;
-    if (is_software_device_type(device_guid))
-        surface_desc.ddsCaps.dwCaps |= DDSCAPS_SYSTEMMEMORY;
     surface_desc.dwWidth = 640;
     surface_desc.dwHeight = 480;
 
@@ -531,8 +508,12 @@ static IDirect3DDevice7 *create_device_ex(HWND window, DWORD coop_level, const G
         return NULL;
     }
 
+    hr = IDirect3D7_EnumDevices(d3d7, enum_devtype_cb, &hal_ok);
+    ok(SUCCEEDED(hr), "Failed to enumerate devices, hr %#x.\n", hr);
+    if (hal_ok) devtype = &IID_IDirect3DTnLHalDevice;
+
     memset(&z_fmt, 0, sizeof(z_fmt));
-    hr = IDirect3D7_EnumZBufferFormats(d3d7, device_guid, enum_z_fmt, &z_fmt);
+    hr = IDirect3D7_EnumZBufferFormats(d3d7, devtype, enum_z_fmt, &z_fmt);
     if (FAILED(hr) || !z_fmt.dwSize)
     {
         IDirect3D7_Release(d3d7);
@@ -544,8 +525,6 @@ static IDirect3DDevice7 *create_device_ex(HWND window, DWORD coop_level, const G
     surface_desc.dwSize = sizeof(surface_desc);
     surface_desc.dwFlags = DDSD_CAPS | DDSD_PIXELFORMAT | DDSD_WIDTH | DDSD_HEIGHT;
     surface_desc.ddsCaps.dwCaps = DDSCAPS_ZBUFFER;
-    if (is_software_device_type(device_guid))
-        surface_desc.ddsCaps.dwCaps |= DDSCAPS_SYSTEMMEMORY;
     U4(surface_desc).ddpfPixelFormat = z_fmt;
     surface_desc.dwWidth = 640;
     surface_desc.dwHeight = 480;
@@ -568,38 +547,13 @@ static IDirect3DDevice7 *create_device_ex(HWND window, DWORD coop_level, const G
         return NULL;
     }
 
-    hr = IDirect3D7_CreateDevice(d3d7, device_guid, surface, &device);
+    hr = IDirect3D7_CreateDevice(d3d7, devtype, surface, &device);
     IDirect3D7_Release(d3d7);
     IDirectDrawSurface7_Release(surface);
     if (FAILED(hr))
         return NULL;
 
     return device;
-}
-
-static IDirect3DDevice7 *create_device(HWND window, DWORD coop_level)
-{
-    const GUID *device_guid = &IID_IDirect3DHALDevice;
-    IDirectDraw7 *ddraw;
-    BOOL hal_ok = FALSE;
-    IDirect3D7 *d3d7;
-    HRESULT hr;
-
-    if (!(ddraw = create_ddraw()))
-        return NULL;
-    hr = IDirectDraw7_QueryInterface(ddraw, &IID_IDirect3D7, (void **)&d3d7);
-    IDirectDraw7_Release(ddraw);
-    if (FAILED(hr))
-        return NULL;
-
-    hr = IDirect3D7_EnumDevices(d3d7, enum_devtype_cb, &hal_ok);
-    ok(hr == DD_OK, "Got unexpected hr %#x.\n", hr);
-    if (hal_ok)
-        device_guid = &IID_IDirect3DTnLHalDevice;
-
-    IDirect3D7_Release(d3d7);
-
-    return create_device_ex(window, coop_level, device_guid);
 }
 
 struct message
@@ -1437,7 +1391,7 @@ static void test_coop_level_threaded(void)
     IDirectDraw7_Release(ddraw);
 }
 
-static void test_depth_blit(const GUID *device_guid)
+static void test_depth_blit(void)
 {
     IDirect3DDevice7 *device;
     static struct
@@ -1472,7 +1426,7 @@ static void test_depth_blit(const GUID *device_guid)
     HWND window;
 
     window = create_window();
-    if (!(device = create_device_ex(window, DDSCL_NORMAL, device_guid)))
+    if (!(device = create_device(window, DDSCL_NORMAL)))
     {
         skip("Failed to create a 3D device, skipping test.\n");
         DestroyWindow(window);
@@ -1492,11 +1446,9 @@ static void test_depth_blit(const GUID *device_guid)
     memset(&ddsd_existing, 0, sizeof(ddsd_existing));
     ddsd_existing.dwSize = sizeof(ddsd_existing);
     hr = IDirectDrawSurface7_GetSurfaceDesc(ds1, &ddsd_existing);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get surface desc, hr %#x.\n", hr);
     ddsd_new.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
     ddsd_new.ddsCaps.dwCaps = DDSCAPS_ZBUFFER;
-    if (is_software_device_type(device_guid))
-        ddsd_new.ddsCaps.dwCaps |= DDSCAPS_SYSTEMMEMORY;
     ddsd_new.dwWidth = ddsd_existing.dwWidth;
     ddsd_new.dwHeight = ddsd_existing.dwHeight;
     U4(ddsd_new).ddpfPixelFormat = U4(ddsd_existing).ddpfPixelFormat;
@@ -1569,41 +1521,27 @@ static void test_depth_blit(const GUID *device_guid)
     memset(&fx, 0, sizeof(fx));
     fx.dwSize = sizeof(fx);
     hr = IDirectDrawSurface7_Blt(ds2, NULL, NULL, NULL, DDBLT_DEPTHFILL | DDBLT_WAIT, &fx);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to clear the source z buffer, hr %#x.\n", hr);
 
     hr = IDirect3DDevice7_Clear(device, 0, NULL, D3DCLEAR_ZBUFFER | D3DCLEAR_TARGET, 0xffff0000, 1.0f, 0);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-
-    hr = IDirect3DDevice7_GetRenderTarget(device, &rt);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-    color = get_surface_color(rt, 80, 60);
-
-    /* For some reason clears and colour fill blits randomly fail with software render target. */
-    ok(color == 0x00ff0000 || broken(is_software_device_type(device_guid) && !color),
-            "Got unexpected colour 0x%08x.\n", color);
-    if (!color)
-    {
-        fill_surface(rt, 0xffff0000);
-
-        color = get_surface_color(rt, 80, 60);
-        ok(color == 0x00ff0000, "Got unexpected colour 0x%08x.\n", color);
-    }
-
+    ok(SUCCEEDED(hr), "Failed to clear the color and z buffers, hr %#x.\n", hr);
     SetRect(&dst_rect, 0, 0, 320, 240);
     hr = IDirectDrawSurface7_Blt(ds1, &dst_rect, ds2, NULL, DDBLT_WAIT, NULL);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Got unexpected hr %#x.\n", hr);
     IDirectDrawSurface7_Release(ds3);
     IDirectDrawSurface7_Release(ds2);
     IDirectDrawSurface7_Release(ds1);
 
     hr = IDirect3DDevice7_BeginScene(device);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to start scene, hr %#x.\n", hr);
     hr = IDirect3DDevice7_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DFVF_XYZ | D3DFVF_DIFFUSE,
             quad1, 4, 0);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
     hr = IDirect3DDevice7_EndScene(device);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
 
+    hr = IDirect3DDevice7_GetRenderTarget(device, &rt);
+    ok(SUCCEEDED(hr), "Failed to get render target, hr %#x.\n", hr);
     for (i = 0; i < 4; ++i)
     {
         for (j = 0; j < 4; ++j)
@@ -1612,8 +1550,7 @@ static void test_depth_blit(const GUID *device_guid)
             unsigned int y = 60 * ((2 * i) + 1);
             color = get_surface_color(rt, x, y);
             ok(compare_color(color, expected_colors[i][j], 1),
-                    "Expected color 0x%08x at %u,%u, got 0x%08x, software device %#x.\n",
-                    expected_colors[i][j], x, y, color, is_software_device_type(device_guid));
+                    "Expected color 0x%08x at %u,%u, got 0x%08x.\n", expected_colors[i][j], x, y, color);
         }
     }
 
@@ -1709,7 +1646,7 @@ static void test_texture_load_ckey(void)
     DestroyWindow(window);
 }
 
-static void test_zenable(const GUID *device_guid)
+static void test_zenable(void)
 {
     static struct
     {
@@ -1732,7 +1669,7 @@ static void test_zenable(const GUID *device_guid)
     UINT i, j;
 
     window = create_window();
-    if (!(device = create_device_ex(window, DDSCL_NORMAL, device_guid)))
+    if (!(device = create_device(window, DDSCL_NORMAL)))
     {
         skip("Failed to create a 3D device, skipping test.\n");
         DestroyWindow(window);
@@ -1740,33 +1677,19 @@ static void test_zenable(const GUID *device_guid)
     }
 
     hr = IDirect3DDevice7_SetRenderState(device, D3DRENDERSTATE_ZENABLE, D3DZB_FALSE);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to disable z-buffering, hr %#x.\n", hr);
 
     hr = IDirect3DDevice7_Clear(device, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xffff0000, 0.0f, 0);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to clear render target, hr %#x.\n", hr);
+    hr = IDirect3DDevice7_BeginScene(device);
+    ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
+    hr = IDirect3DDevice7_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DFVF_XYZRHW | D3DFVF_DIFFUSE, tquad, 4, 0);
+    ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
+    hr = IDirect3DDevice7_EndScene(device);
+    ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
 
     hr = IDirect3DDevice7_GetRenderTarget(device, &rt);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-
-    color = get_surface_color(rt, 80, 60);
-    /* For some reason clears and colour fill blits randomly fail with software render target. */
-    ok(color == 0x00ff0000 || broken(is_software_device_type(device_guid) && !color),
-            "Got unexpected colour 0x%08x.\n", color);
-    if (!color)
-    {
-        fill_surface(rt, 0xffff0000);
-
-        color = get_surface_color(rt, 80, 60);
-        ok(color == 0x00ff0000, "Got unexpected colour 0x%08x.\n", color);
-    }
-
-    hr = IDirect3DDevice7_BeginScene(device);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-    hr = IDirect3DDevice7_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DFVF_XYZRHW | D3DFVF_DIFFUSE, tquad, 4, 0);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-    hr = IDirect3DDevice7_EndScene(device);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-
+    ok(SUCCEEDED(hr), "Failed to get render target, hr %#x.\n", hr);
     for (i = 0; i < 4; ++i)
     {
         for (j = 0; j < 4; ++j)
@@ -1784,7 +1707,7 @@ static void test_zenable(const GUID *device_guid)
     DestroyWindow(window);
 }
 
-static void test_ck_rgba(const GUID *device_guid)
+static void test_ck_rgba(void)
 {
     static struct
     {
@@ -1837,7 +1760,7 @@ static void test_ck_rgba(const GUID *device_guid)
     UINT i;
 
     window = create_window();
-    if (!(device = create_device_ex(window, DDSCL_NORMAL, device_guid)))
+    if (!(device = create_device(window, DDSCL_NORMAL)))
     {
         skip("Failed to create a 3D device, skipping test.\n");
         DestroyWindow(window);
@@ -1845,17 +1768,15 @@ static void test_ck_rgba(const GUID *device_guid)
     }
 
     hr = IDirect3DDevice7_GetDirect3D(device, &d3d);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get d3d interface, hr %#x.\n", hr);
     hr = IDirect3D7_QueryInterface(d3d, &IID_IDirectDraw7, (void **)&ddraw);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get ddraw interface, hr %#x.\n", hr);
     IDirect3D7_Release(d3d);
 
     memset(&surface_desc, 0, sizeof(surface_desc));
     surface_desc.dwSize = sizeof(surface_desc);
     surface_desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT | DDSD_CKSRCBLT;
     surface_desc.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
-    if (is_software_device_type(device_guid))
-        surface_desc.ddsCaps.dwCaps |= DDSCAPS_SYSTEMMEMORY;
     surface_desc.dwWidth = 256;
     surface_desc.dwHeight = 256;
     U4(surface_desc).ddpfPixelFormat.dwSize = sizeof(U4(surface_desc).ddpfPixelFormat);
@@ -1868,64 +1789,60 @@ static void test_ck_rgba(const GUID *device_guid)
     surface_desc.ddckCKSrcBlt.dwColorSpaceLowValue = 0xff00ff00;
     surface_desc.ddckCKSrcBlt.dwColorSpaceHighValue = 0xff00ff00;
     hr = IDirectDraw7_CreateSurface(ddraw, &surface_desc, &texture, NULL);
-    ok(hr == DD_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to create destination surface, hr %#x.\n", hr);
 
     hr = IDirect3DDevice7_SetTexture(device, 0, texture);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to set texture, hr %#x.\n", hr);
     hr = IDirect3DDevice7_SetRenderState(device, D3DRENDERSTATE_SRCBLEND, D3DBLEND_SRCALPHA);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to enable alpha blending, hr %#x.\n", hr);
     hr = IDirect3DDevice7_SetRenderState(device, D3DRENDERSTATE_DESTBLEND, D3DBLEND_INVSRCALPHA);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to enable alpha blending, hr %#x.\n", hr);
 
     hr = IDirect3DDevice7_GetRenderTarget(device, &rt);
-    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    ok(SUCCEEDED(hr), "Failed to get render target, hr %#x.\n", hr);
 
     for (i = 0; i < ARRAY_SIZE(tests); ++i)
     {
         hr = IDirect3DDevice7_SetRenderState(device, D3DRENDERSTATE_COLORKEYENABLE, tests[i].color_key);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to enable color keying, hr %#x.\n", hr);
         hr = IDirect3DDevice7_SetRenderState(device, D3DRENDERSTATE_ALPHABLENDENABLE, tests[i].blend);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to enable alpha blending, hr %#x.\n", hr);
 
         memset(&fx, 0, sizeof(fx));
         fx.dwSize = sizeof(fx);
         U5(fx).dwFillColor = tests[i].fill_color;
         hr = IDirectDrawSurface7_Blt(texture, NULL, NULL, NULL, DDBLT_COLORFILL | DDBLT_WAIT, &fx);
-        ok(hr == DD_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to fill texture, hr %#x.\n", hr);
 
         hr = IDirect3DDevice7_Clear(device, 0, NULL, D3DCLEAR_TARGET | D3DCLEAR_ZBUFFER, 0xffff0000, 1.0f, 0);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-        /* RT clears are broken on Windows for software render target. */
-        if (is_software_device_type(device_guid))
-            fill_surface(rt, 0xffff0000);
-
+        ok(SUCCEEDED(hr), "Failed to clear render target, hr %#x.\n", hr);
         hr = IDirect3DDevice7_BeginScene(device);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
         hr = IDirect3DDevice7_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DFVF_XYZRHW | D3DFVF_TEX1, &tquad[0], 4, 0);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
         hr = IDirect3DDevice7_EndScene(device);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
 
         color = get_surface_color(rt, 320, 240);
-        ok(compare_color(color, tests[i].result1, 2) || compare_color(color, tests[i].result1_broken, 1),
+        ok(compare_color(color, tests[i].result1, 1) || compare_color(color, tests[i].result1_broken, 1),
                 "Expected color 0x%08x for test %u, got 0x%08x.\n",
                 tests[i].result1, i, color);
 
         U5(fx).dwFillColor = 0xff0000ff;
         hr = IDirectDrawSurface7_Blt(texture, NULL, NULL, NULL, DDBLT_COLORFILL | DDBLT_WAIT, &fx);
-        ok(hr == DD_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to fill texture, hr %#x.\n", hr);
 
         hr = IDirect3DDevice7_BeginScene(device);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
         hr = IDirect3DDevice7_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DFVF_XYZRHW | D3DFVF_TEX1, &tquad[4], 4, 0);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
         hr = IDirect3DDevice7_EndScene(device);
-        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
 
         /* This tests that fragments that are masked out by the color key are
          * discarded, instead of just fully transparent. */
         color = get_surface_color(rt, 320, 240);
-        ok(compare_color(color, tests[i].result2, 2) || compare_color(color, tests[i].result2_broken, 1),
+        ok(compare_color(color, tests[i].result2, 1) || compare_color(color, tests[i].result2_broken, 1),
                 "Expected color 0x%08x for test %u, got 0x%08x.\n",
                 tests[i].result2, i, color);
     }
@@ -6179,10 +6096,10 @@ static void test_rt_caps(const GUID *device_guid)
     PALETTEENTRY palette_entries[256];
     IDirectDrawPalette *palette;
     BOOL software_device;
+    DWORD expected_caps;
     IDirectDraw7 *ddraw;
     DDPIXELFORMAT z_fmt;
     IDirect3D7 *d3d;
-    DDCAPS hal_caps;
     unsigned int i;
     ULONG refcount;
     HWND window;
@@ -6198,7 +6115,9 @@ static void test_rt_caps(const GUID *device_guid)
     {
         const DDPIXELFORMAT *pf;
         DWORD caps_in;
+        DWORD caps_out[2];
         DWORD caps2_in;
+        DWORD caps2_out;
         HRESULT create_device_hr;
         HRESULT set_rt_hr, alternative_set_rt_hr;
     }
@@ -6207,6 +6126,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY,
+            {DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM},
+            0,
             0,
             D3D_OK,
             D3D_OK,
@@ -6215,6 +6136,9 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE,
+            {DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM,
+                    DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE | DDSCAPS_SYSTEMMEMORY},
+            0,
             0,
             D3D_OK,
             D3D_OK,
@@ -6223,6 +6147,9 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_OFFSCREENPLAIN,
+            {DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM,
+                    DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDCAPS,
@@ -6231,6 +6158,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY | DDSCAPS_3DDEVICE,
+            {DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY | DDSCAPS_3DDEVICE},
+            0,
             0,
             D3DERR_SURFACENOTINVIDMEM,
             DDERR_INVALIDPARAMS,
@@ -6239,6 +6168,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY,
+            {DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDCAPS,
@@ -6247,6 +6178,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY,
+            {DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM},
+            0,
             0,
             D3D_OK,
             D3D_OK,
@@ -6255,6 +6188,9 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_3DDEVICE,
+            {DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM,
+                    DDSCAPS_3DDEVICE | DDSCAPS_SYSTEMMEMORY},
+            0,
             0,
             D3D_OK,
             D3D_OK,
@@ -6262,6 +6198,8 @@ static void test_rt_caps(const GUID *device_guid)
         },
         {
             NULL,
+            0,
+            {DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM, DDSCAPS_SYSTEMMEMORY},
             0,
             0,
             DDERR_INVALIDCAPS,
@@ -6271,6 +6209,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_SYSTEMMEMORY | DDSCAPS_3DDEVICE,
+            {DDSCAPS_SYSTEMMEMORY | DDSCAPS_3DDEVICE},
+            0,
             0,
             D3DERR_SURFACENOTINVIDMEM,
             DDERR_INVALIDPARAMS,
@@ -6279,6 +6219,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_SYSTEMMEMORY,
+            {DDSCAPS_SYSTEMMEMORY},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDCAPS,
@@ -6287,6 +6229,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_TEXTURE | DDSCAPS_3DDEVICE,
+            {DDSCAPS_TEXTURE | DDSCAPS_3DDEVICE | DDSCAPS_SYSTEMMEMORY},
+            DDSCAPS2_TEXTUREMANAGE,
             DDSCAPS2_TEXTUREMANAGE,
             D3DERR_SURFACENOTINVIDMEM,
             DDERR_INVALIDPARAMS,
@@ -6295,6 +6239,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             NULL,
             DDSCAPS_TEXTURE | DDSCAPS_3DDEVICE,
+            {DDSCAPS_TEXTURE | DDSCAPS_3DDEVICE | DDSCAPS_SYSTEMMEMORY},
+            DDSCAPS2_D3DTEXTUREMANAGE,
             DDSCAPS2_D3DTEXTUREMANAGE,
             D3DERR_SURFACENOTINVIDMEM,
             DDERR_INVALIDPARAMS,
@@ -6302,6 +6248,8 @@ static void test_rt_caps(const GUID *device_guid)
         },
         {
             &p8_fmt,
+            0,
+            {DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM},
             0,
             0,
             DDERR_INVALIDCAPS,
@@ -6311,6 +6259,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &p8_fmt,
             DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE,
+            {~0u /* AMD r200 */, DDSCAPS_OFFSCREENPLAIN | DDSCAPS_3DDEVICE | DDSCAPS_SYSTEMMEMORY},
+            0,
             0,
             DDERR_NOPALETTEATTACHED,
             DDERR_INVALIDCAPS,
@@ -6319,6 +6269,9 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &p8_fmt,
             DDSCAPS_OFFSCREENPLAIN,
+            {DDSCAPS_OFFSCREENPLAIN | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM,
+                    DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDCAPS,
@@ -6327,6 +6280,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &p8_fmt,
             DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY | DDSCAPS_3DDEVICE,
+            {DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY | DDSCAPS_3DDEVICE},
+            0,
             0,
             DDERR_NOPALETTEATTACHED,
             DDERR_INVALIDCAPS,
@@ -6335,6 +6290,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &p8_fmt,
             DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY,
+            {DDSCAPS_OFFSCREENPLAIN | DDSCAPS_SYSTEMMEMORY},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDCAPS,
@@ -6343,6 +6300,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &z_fmt,
             DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY | DDSCAPS_ZBUFFER,
+            {DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY | DDSCAPS_ZBUFFER | DDSCAPS_LOCALVIDMEM},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDPIXELFORMAT,
@@ -6351,6 +6310,9 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &z_fmt,
             DDSCAPS_3DDEVICE | DDSCAPS_ZBUFFER,
+            {DDSCAPS_3DDEVICE | DDSCAPS_VIDEOMEMORY | DDSCAPS_ZBUFFER | DDSCAPS_LOCALVIDMEM,
+                    DDSCAPS_3DDEVICE | DDSCAPS_SYSTEMMEMORY | DDSCAPS_ZBUFFER},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDPIXELFORMAT,
@@ -6359,6 +6321,9 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &z_fmt,
             DDSCAPS_ZBUFFER,
+            {DDSCAPS_VIDEOMEMORY | DDSCAPS_ZBUFFER | DDSCAPS_LOCALVIDMEM,
+                    DDSCAPS_SYSTEMMEMORY | DDSCAPS_ZBUFFER},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDCAPS,
@@ -6367,6 +6332,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &z_fmt,
             DDSCAPS_SYSTEMMEMORY | DDSCAPS_3DDEVICE | DDSCAPS_ZBUFFER,
+            {DDSCAPS_SYSTEMMEMORY | DDSCAPS_3DDEVICE | DDSCAPS_ZBUFFER},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDPARAMS,
@@ -6375,6 +6342,8 @@ static void test_rt_caps(const GUID *device_guid)
         {
             &z_fmt,
             DDSCAPS_SYSTEMMEMORY | DDSCAPS_ZBUFFER,
+            {DDSCAPS_SYSTEMMEMORY | DDSCAPS_ZBUFFER},
+            0,
             0,
             DDERR_INVALIDCAPS,
             DDERR_INVALIDCAPS,
@@ -6409,25 +6378,16 @@ static void test_rt_caps(const GUID *device_guid)
     hr = IDirectDraw7_CreatePalette(ddraw, DDPCAPS_ALLOW256 | DDPCAPS_8BIT, palette_entries, &palette, NULL);
     ok(hr == DD_OK, "Got unexpected hr %#x.\n", hr);
 
-    memset(&hal_caps, 0, sizeof(hal_caps));
-    hal_caps.dwSize = sizeof(hal_caps);
-    hr = IDirectDraw7_GetCaps(ddraw, &hal_caps, NULL);
-    ok(hr == DD_OK, "Got unexpected hr %#x.\n", hr);
-
     for (i = 0; i < ARRAY_SIZE(test_data); ++i)
     {
         IDirectDrawSurface7 *surface, *rt, *expected_rt, *tmp;
         DDSURFACEDESC2 surface_desc;
-        DWORD caps_in, expected_caps;
         IDirect3DDevice7 *device;
-        HRESULT expected_hr;
-
-        caps_in = test_data[i].caps_in;
 
         memset(&surface_desc, 0, sizeof(surface_desc));
         surface_desc.dwSize = sizeof(surface_desc);
         surface_desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT;
-        surface_desc.ddsCaps.dwCaps = caps_in;
+        surface_desc.ddsCaps.dwCaps = test_data[i].caps_in;
         surface_desc.ddsCaps.dwCaps2 = test_data[i].caps2_in;
         if (test_data[i].pf)
         {
@@ -6436,12 +6396,13 @@ static void test_rt_caps(const GUID *device_guid)
         }
         surface_desc.dwWidth = 640;
         surface_desc.dwHeight = 480;
-        if ((caps_in & DDSCAPS_VIDEOMEMORY) && !(hal_caps.ddsCaps.dwCaps & DDSCAPS_VIDEOMEMORY))
-            expected_hr = DDERR_NODIRECTDRAWHW;
-        else
-            expected_hr = DD_OK;
         hr = IDirectDraw7_CreateSurface(ddraw, &surface_desc, &surface, NULL);
-        ok(hr == expected_hr || (software_device && (surface_desc.ddsCaps.dwCaps & (DDSCAPS_VIDEOMEMORY | DDSCAPS_ZBUFFER))
+        if (surface_desc.ddsCaps.dwCaps & DDSCAPS_VIDEOMEMORY && hr == DDERR_NODIRECTDRAWHW)
+        {
+            skip("No 3d hardware, skipping test %u, software_device %u.\n", i, software_device);
+            continue;
+        }
+        ok(hr == DD_OK || (software_device && (surface_desc.ddsCaps.dwCaps & (DDSCAPS_VIDEOMEMORY | DDSCAPS_ZBUFFER))
                 == (DDSCAPS_VIDEOMEMORY | DDSCAPS_ZBUFFER) && hr == DDERR_UNSUPPORTED)
                 || broken(software_device && test_data[i].pf == &p8_fmt && hr == DDERR_INVALIDPIXELFORMAT),
                 "Got unexpected hr %#x, test %u, software_device %u.\n", hr, i, software_device);
@@ -6453,22 +6414,27 @@ static void test_rt_caps(const GUID *device_guid)
         hr = IDirectDrawSurface7_GetSurfaceDesc(surface, &surface_desc);
         ok(hr == DD_OK, "Got unexpected hr %#x, test %u, software_device %u.\n", hr, i, software_device);
 
-        if ((caps_in & DDSCAPS_SYSTEMMEMORY) || (test_data[i].caps2_in & (DDSCAPS2_D3DTEXTUREMANAGE
-                | DDSCAPS2_TEXTUREMANAGE)) || !(hal_caps.ddsCaps.dwCaps & DDSCAPS_VIDEOMEMORY))
-           expected_caps = caps_in | DDSCAPS_SYSTEMMEMORY;
+        if (software_device)
+        {
+            expected_caps = test_data[i].caps_out[software_device]
+                    ? test_data[i].caps_out[software_device] : test_data[i].caps_out[0];
+
+            todo_wine_if(test_data[i].caps_out[software_device]
+                    && surface_desc.ddsCaps.dwCaps == test_data[i].caps_out[0])
+            ok(surface_desc.ddsCaps.dwCaps == expected_caps
+                    || broken(surface_desc.ddsCaps.dwCaps == test_data[i].caps_out[0]),
+                    "Got unexpected caps %#x, test %u, software_device %u.\n",
+                    surface_desc.ddsCaps.dwCaps, i, software_device);
+        }
         else
-           expected_caps = caps_in | DDSCAPS_VIDEOMEMORY | DDSCAPS_LOCALVIDMEM;
-
-        ok(surface_desc.ddsCaps.dwCaps == expected_caps || (test_data[i].pf == &p8_fmt
-                && surface_desc.ddsCaps.dwCaps == (caps_in | DDSCAPS_SYSTEMMEMORY))
-                || (software_device && test_data[i].pf == &z_fmt
-                && surface_desc.ddsCaps.dwCaps == (caps_in | DDSCAPS_SYSTEMMEMORY)),
-                "Got unexpected caps %#x, expected %#x, test %u, software_device %u.\n",
-                surface_desc.ddsCaps.dwCaps, expected_caps, i, software_device);
-
-        ok(surface_desc.ddsCaps.dwCaps2 == test_data[i].caps2_in,
+        {
+            ok(test_data[i].caps_out[0] == ~0u || surface_desc.ddsCaps.dwCaps == test_data[i].caps_out[0],
+                    "Got unexpected caps %#x, expected %#x, test %u, software_device %u.\n",
+                    surface_desc.ddsCaps.dwCaps, test_data[i].caps_out[0], i, software_device);
+        }
+        ok(surface_desc.ddsCaps.dwCaps2 == test_data[i].caps2_out,
                 "Got unexpected caps2 %#x, expected %#x, test %u, software_device %u.\n",
-                surface_desc.ddsCaps.dwCaps2, test_data[i].caps2_in, i, software_device);
+                surface_desc.ddsCaps.dwCaps2, test_data[i].caps2_out, i, software_device);
 
         hr = IDirect3D7_CreateDevice(d3d, device_guid, surface, &device);
         ok((!software_device && hr == test_data[i].create_device_hr)
@@ -6525,7 +6491,7 @@ static void test_rt_caps(const GUID *device_guid)
 
         hr = IDirect3DDevice7_SetRenderTarget(device, rt, 0);
         ok(hr == test_data[i].set_rt_hr || (software_device && hr == DDERR_NOPALETTEATTACHED)
-                || hr == test_data[i].alternative_set_rt_hr,
+                || broken(hr == test_data[i].alternative_set_rt_hr),
                 "Got unexpected hr %#x, test %u, software_device %u.\n",
                 hr, i, software_device);
         if (SUCCEEDED(hr) || hr == DDERR_INVALIDPIXELFORMAT)
@@ -7034,6 +7000,29 @@ static void test_surface_discard(void)
     }
 
     DestroyWindow(window);
+}
+
+static void fill_surface(IDirectDrawSurface7 *surface, D3DCOLOR color)
+{
+    DDSURFACEDESC2 surface_desc = {sizeof(surface_desc)};
+    HRESULT hr;
+    unsigned int x, y;
+    DWORD *ptr;
+
+    hr = IDirectDrawSurface7_Lock(surface, NULL, &surface_desc, DDLOCK_WAIT, NULL);
+    ok(SUCCEEDED(hr), "Failed to lock surface, hr %#x.\n", hr);
+
+    for (y = 0; y < surface_desc.dwHeight; ++y)
+    {
+        ptr = (DWORD *)((BYTE *)surface_desc.lpSurface + y * U1(surface_desc).lPitch);
+        for (x = 0; x < surface_desc.dwWidth; ++x)
+        {
+            ptr[x] = color;
+        }
+    }
+
+    hr = IDirectDrawSurface7_Unlock(surface, NULL);
+    ok(SUCCEEDED(hr), "Failed to unlock surface, hr %#x.\n", hr);
 }
 
 static void test_flip(void)
@@ -18756,10 +18745,10 @@ START_TEST(ddraw7)
     test_coop_level_d3d_state();
     test_surface_interface_mismatch();
     test_coop_level_threaded();
-    run_for_each_device_type(test_depth_blit);
+    test_depth_blit();
     test_texture_load_ckey();
-    run_for_each_device_type(test_zenable);
-    run_for_each_device_type(test_ck_rgba);
+    test_zenable();
+    test_ck_rgba();
     test_ck_default();
     test_ck_complex();
     test_surface_qi();

@@ -22,30 +22,33 @@
 
 #define ULONG CoreFoundation_ULONG
 #define HRESULT CoreFoundation_HRESULT
+#ifndef HAVE_AUDIOUNIT_AUDIOCOMPONENT_H
+#include <CoreServices/CoreServices.h>
+#endif
 #include <AudioUnit/AudioUnit.h>
 #include <AudioToolbox/AudioToolbox.h>
 #undef ULONG
 #undef HRESULT
 #undef STDMETHODCALLTYPE
-#undef SUCCEEDED
-#undef FAILED
-#undef IS_ERROR
-#undef HRESULT_FACILITY
-#undef MAKE_HRESULT
-#undef S_OK
-#undef S_FALSE
-#undef E_UNEXPECTED
-#undef E_NOTIMPL
-#undef E_OUTOFMEMORY
-#undef E_INVALIDARG
-#undef E_NOINTERFACE
-#undef E_POINTER
-#undef E_HANDLE
-#undef E_ABORT
-#undef E_FAIL
-#undef E_ACCESSDENIED
 #include "coreaudio.h"
 #include "wine/debug.h"
+
+#ifndef HAVE_AUDIOUNIT_AUDIOCOMPONENT_H
+/* Define new AudioComponent Manager types for compatibility's sake */
+typedef ComponentDescription AudioComponentDescription;
+#endif
+
+#ifndef HAVE_AUGRAPHADDNODE
+static inline OSStatus AUGraphAddNode(AUGraph graph, const AudioComponentDescription *desc, AUNode *node)
+{
+    return AUGraphNewNode(graph, desc, 0, NULL, node);
+}
+
+static inline OSStatus AUGraphNodeInfo(AUGraph graph, AUNode node, AudioComponentDescription *desc, AudioUnit *au)
+{
+    return AUGraphGetNodeInfo(graph, node, desc, 0, NULL, au);
+}
+#endif
 
 WINE_DEFAULT_DEBUG_CHANNEL(wave);
 WINE_DECLARE_DEBUG_CHANNEL(midi);

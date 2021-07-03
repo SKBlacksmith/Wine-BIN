@@ -127,6 +127,7 @@ static DWORD CALLBACK _beginthread_trampoline(LPVOID arg)
 
     local_trampoline.start_address(local_trampoline.arglist);
     _endthread();
+    return 0;
 }
 
 /*********************************************************************
@@ -142,8 +143,6 @@ uintptr_t CDECL _beginthread(
 
   TRACE("(%p, %d, %p)\n", start_address, stack_size, arglist);
 
-  if (!MSVCRT_CHECK_PMT(start_address)) return -1;
-
   trampoline = malloc(sizeof(*trampoline));
   if(!trampoline) {
       *_errno() = EAGAIN;
@@ -154,7 +153,7 @@ uintptr_t CDECL _beginthread(
           trampoline, CREATE_SUSPENDED, NULL);
   if(!thread) {
       free(trampoline);
-      msvcrt_set_errno(GetLastError());
+      *_errno() = EAGAIN;
       return -1;
   }
 

@@ -29,6 +29,7 @@
 #include "windows.h"
 #include "ole2.h"
 #include "msxml2.h"
+#include "msxml6.h"
 #include "msxml2did.h"
 #include "ocidl.h"
 #include "dispex.h"
@@ -3824,10 +3825,8 @@ static void test_mxwriter_startendelement_batch2(const struct writer_startendele
 static void test_mxwriter_startendelement(void)
 {
     ISAXContentHandler *content;
-    IVBSAXContentHandler *vb_content;
     IMXWriter *writer;
     VARIANT dest;
-    BSTR bstr_null = NULL, bstr_empty, bstr_a, bstr_b, bstr_ab;
     HRESULT hr;
 
     test_mxwriter_startendelement_batch(writer_startendelement);
@@ -3837,87 +3836,10 @@ static void test_mxwriter_startendelement(void)
             &IID_IMXWriter, (void**)&writer);
     ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
 
-    hr = IMXWriter_put_omitXMLDeclaration(writer, VARIANT_TRUE);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    hr = IMXWriter_QueryInterface(writer, &IID_IVBSAXContentHandler, (void**)&vb_content);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_startDocument(vb_content);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    bstr_empty = SysAllocString(L"");
-    bstr_a = SysAllocString(L"a");
-    bstr_b = SysAllocString(L"b");
-    bstr_ab = SysAllocString(L"a:b");
-
-    hr = IVBSAXContentHandler_startElement(vb_content, &bstr_null, &bstr_empty, &bstr_b, NULL);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_startElement(vb_content, &bstr_empty, &bstr_b, &bstr_empty, NULL);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    V_VT(&dest) = VT_EMPTY;
-    hr = IMXWriter_get_output(writer, &dest);
-    ok(hr == S_OK, "got %08x\n", hr);
-    ok(V_VT(&dest) == VT_BSTR, "got %d\n", V_VT(&dest));
-    ok(!lstrcmpW(L"<>", V_BSTR(&dest)), "got wrong content %s\n", wine_dbgstr_w(V_BSTR(&dest)));
-    VariantClear(&dest);
-
-    hr = IVBSAXContentHandler_startElement(vb_content, &bstr_empty, &bstr_empty, &bstr_b, NULL);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    V_VT(&dest) = VT_EMPTY;
-    hr = IMXWriter_get_output(writer, &dest);
-    ok(hr == S_OK, "got %08x\n", hr);
-    ok(V_VT(&dest) == VT_BSTR, "got %d\n", V_VT(&dest));
-    ok(!lstrcmpW(L"<><b>", V_BSTR(&dest)), "got wrong content %s\n", wine_dbgstr_w(V_BSTR(&dest)));
-    VariantClear(&dest);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_null, &bstr_null, &bstr_b);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_null, &bstr_a, &bstr_b);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_a, &bstr_b, &bstr_null);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_empty, &bstr_null, &bstr_b);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_empty, &bstr_b, &bstr_null);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_empty, &bstr_empty, &bstr_b);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    V_VT(&dest) = VT_EMPTY;
-    hr = IMXWriter_get_output(writer, &dest);
-    ok(hr == S_OK, "got %08x\n", hr);
-    ok(V_VT(&dest) == VT_BSTR, "got %d\n", V_VT(&dest));
-    ok(!lstrcmpW(L"<><b></b>", V_BSTR(&dest)), "got wrong content %s\n", wine_dbgstr_w(V_BSTR(&dest)));
-    VariantClear(&dest);
-
-    SysFreeString(bstr_empty);
-    SysFreeString(bstr_a);
-    SysFreeString(bstr_b);
-    SysFreeString(bstr_ab);
-
-    hr = IVBSAXContentHandler_endDocument(vb_content);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    IVBSAXContentHandler_Release(vb_content);
-    IMXWriter_Release(writer);
-
-    hr = CoCreateInstance(&CLSID_MXXMLWriter, NULL, CLSCTX_INPROC_SERVER,
-            &IID_IMXWriter, (void**)&writer);
-    ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
-
-    hr = IMXWriter_put_omitXMLDeclaration(writer, VARIANT_TRUE);
-    ok(hr == S_OK, "got %08x\n", hr);
-
     hr = IMXWriter_QueryInterface(writer, &IID_ISAXContentHandler, (void**)&content);
+    ok(hr == S_OK, "got %08x\n", hr);
+
+    hr = IMXWriter_put_omitXMLDeclaration(writer, VARIANT_TRUE);
     ok(hr == S_OK, "got %08x\n", hr);
 
     hr = ISAXContentHandler_startDocument(content);

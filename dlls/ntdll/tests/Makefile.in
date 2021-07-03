@@ -23,5 +23,4 @@ C_SRCS = \
 	string.c \
 	threadpool.c \
 	time.c \
-	virtual.c \
-	wow64.c
+	virtual.c

@@ -11019,7 +11019,6 @@ static HRESULT WINAPI ICreateTypeInfo2_fnAddVarDesc(ICreateTypeInfo2 *iface,
 {
     ITypeInfoImpl *This = info_impl_from_ICreateTypeInfo2(iface);
     TLBVarDesc *var_desc;
-    HRESULT hr;
 
     TRACE("%p %u %p\n", This, index, varDesc);
 
@@ -11045,9 +11044,7 @@ static HRESULT WINAPI ICreateTypeInfo2_fnAddVarDesc(ICreateTypeInfo2 *iface,
         var_desc = This->vardescs = heap_alloc_zero(sizeof(TLBVarDesc));
 
     TLBVarDesc_Constructor(var_desc);
-    hr = TLB_AllocAndInitVarDesc(varDesc, &var_desc->vardesc_create);
-    if (FAILED(hr))
-        return hr;
+    TLB_AllocAndInitVarDesc(varDesc, &var_desc->vardesc_create);
     var_desc->vardesc = *var_desc->vardesc_create;
 
     ++This->typeattr.cVars;

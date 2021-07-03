@@ -486,53 +486,22 @@ static BOOL color_match(COLORREF a, COLORREF b)
     return (a & 0x00F8F8F8) == (b & 0x00F8F8F8);
 }
 
-static void check_copy_image(HBITMAP bitmap, UINT type, UINT flags, INT copyWidth, INT copyHeight,
-        INT expectedWidth, INT expectedHeight, WORD expectedDepth, BOOL dibExpected)
+static void test_CopyImage_Check(HBITMAP bitmap, UINT flags, INT copyWidth, INT copyHeight,
+                                  INT expectedWidth, INT expectedHeight, WORD expectedDepth, BOOL dibExpected)
 {
     HBITMAP copy;
     BITMAP origBitmap;
     BITMAP copyBitmap;
+    BOOL orig_is_dib;
     BOOL copy_is_dib;
-    BOOL ret;
 
-    GetObjectA(bitmap, sizeof(origBitmap), &origBitmap);
-
-    winetest_push_context("%s, type %#x, flags %#x, size %ux%u",
-            origBitmap.bmBits ? "DIB" : "DDB", type, flags, copyWidth, copyHeight);
-
-    if (type == IMAGE_BITMAP)
-    {
-        copy = CopyImage(bitmap, type, copyWidth, copyHeight, flags);
-    }
-    else
-    {
-        ICONINFO info =
-        {
-            .fIcon = (type == IMAGE_ICON),
-            .hbmColor = bitmap,
-            .hbmMask = bitmap,
-        };
-        HICON icon = CreateIconIndirect(&info);
-        ok(!!icon, "Failed to create icon, error %u\n", GetLastError());
-        copy = CopyImage(icon, type, copyWidth, copyHeight, flags);
-        ret = DestroyIcon(icon);
-        ok(ret, "Failed to destroy icon, error %u\n", GetLastError());
-    }
+    copy = CopyImage(bitmap, IMAGE_BITMAP, copyWidth, copyHeight, flags);
     ok(copy != NULL, "CopyImage() failed\n");
     if (copy != NULL)
     {
-        if (type == IMAGE_BITMAP)
-        {
-            GetObjectA(copy, sizeof(copyBitmap), &copyBitmap);
-        }
-        else
-        {
-            ICONINFO info;
-
-            ret = GetIconInfo((HICON)copy, &info);
-            ok(ret, "Failed to get icon info, error %u\n", GetLastError());
-            GetObjectA(info.hbmColor, sizeof(copyBitmap), &copyBitmap);
-        }
+        GetObjectA(bitmap, sizeof(origBitmap), &origBitmap);
+        GetObjectA(copy, sizeof(copyBitmap), &copyBitmap);
+        orig_is_dib = (origBitmap.bmBits != NULL);
         copy_is_dib = (copyBitmap.bmBits != NULL);
 
         if (copy_is_dib && dibExpected
@@ -556,49 +525,21 @@ static void check_copy_image(HBITMAP bitmap, UINT type, UINT flags, INT copyWidt
             expectedDepth = origBitmap.bmBitsPixel;
         }
 
-        if (type != IMAGE_BITMAP)
-        {
-            dibExpected = FALSE;
-            expectedDepth = 32;
-        }
+        ok((!(dibExpected ^ copy_is_dib)
+             && (copyBitmap.bmWidth == expectedWidth)
+             && (copyBitmap.bmHeight == expectedHeight)
+             && (copyBitmap.bmBitsPixel == expectedDepth)),
+             "CopyImage ((%s, %dx%d, %u bpp), %d, %d, %#x): Expected (%s, %dx%d, %u bpp), got (%s, %dx%d, %u bpp)\n",
+                  orig_is_dib ? "DIB" : "DDB", origBitmap.bmWidth, origBitmap.bmHeight, origBitmap.bmBitsPixel,
+                  copyWidth, copyHeight, flags,
+                  dibExpected ? "DIB" : "DDB", expectedWidth, expectedHeight, expectedDepth,
+                  copy_is_dib ? "DIB" : "DDB", copyBitmap.bmWidth, copyBitmap.bmHeight, copyBitmap.bmBitsPixel);
 
-        ok(copy_is_dib == dibExpected, "Expected %s, got %s\n",
-                dibExpected ? "DIB" : "DDB", copy_is_dib ? "DIB" : "DDB");
-        ok(copyBitmap.bmWidth == expectedWidth, "Expected width %u, got %u\n",
-                expectedWidth, copyBitmap.bmWidth);
-        ok(copyBitmap.bmHeight == expectedHeight, "Expected height %u, got %u\n",
-                expectedHeight, copyBitmap.bmHeight);
-        ok(copyBitmap.bmBitsPixel == expectedDepth, "Expected depth %u, got %u\n",
-                expectedDepth, copyBitmap.bmBitsPixel);
-
-        if (type != IMAGE_BITMAP)
-        {
-            ICONINFO info;
-
-            ret = GetIconInfo((HICON)copy, &info);
-            ok(ret, "Failed to get icon info, error %u\n", GetLastError());
-            GetObjectA(info.hbmMask, sizeof(copyBitmap), &copyBitmap);
-
-            ok(!copyBitmap.bmBits, "Expected DDB\n");
-            ok(copyBitmap.bmWidth == expectedWidth, "Expected mask width %u, got %u\n",
-                    expectedWidth, copyBitmap.bmWidth);
-            ok(copyBitmap.bmHeight == expectedHeight, "Expected mask height %u, got %u\n",
-                    expectedHeight, copyBitmap.bmHeight);
-            ok(copyBitmap.bmBitsPixel == 1, "Got mask depth %u\n", copyBitmap.bmBitsPixel);
-        }
-
-        if (type == IMAGE_BITMAP)
-            DeleteObject(copy);
-        else if (type == IMAGE_ICON)
-            DestroyIcon((HICON)copy);
-        else
-            DestroyCursor((HCURSOR)copy);
+        DeleteObject(copy);
     }
-
-    winetest_pop_context();
 }
 
-static void do_test_copy_image(UINT type, UINT depth)
+static void test_CopyImage_Bitmap(int depth)
 {
     HBITMAP ddb, dib;
     HDC screenDC;
@@ -641,53 +582,53 @@ static void do_test_copy_image(UINT type, UINT depth)
 
     if (ddb != NULL)
     {
-        check_copy_image(ddb, type, 0, 0, 0, 2, 2, depth == 1 ? 1 : screen_depth, FALSE);
-        check_copy_image(ddb, type, 0, 0, 5, 2, 5, depth == 1 ? 1 : screen_depth, FALSE);
-        check_copy_image(ddb, type, 0, 5, 0, 5, 2, depth == 1 ? 1 : screen_depth, FALSE);
-        check_copy_image(ddb, type, 0, 5, 5, 5, 5, depth == 1 ? 1 : screen_depth, FALSE);
+        test_CopyImage_Check(ddb, 0, 0, 0, 2, 2, depth == 1 ? 1 : screen_depth, FALSE);
+        test_CopyImage_Check(ddb, 0, 0, 5, 2, 5, depth == 1 ? 1 : screen_depth, FALSE);
+        test_CopyImage_Check(ddb, 0, 5, 0, 5, 2, depth == 1 ? 1 : screen_depth, FALSE);
+        test_CopyImage_Check(ddb, 0, 5, 5, 5, 5, depth == 1 ? 1 : screen_depth, FALSE);
 
-        check_copy_image(ddb, type, LR_MONOCHROME, 0, 0, 2, 2, 1, FALSE);
-        check_copy_image(ddb, type, LR_MONOCHROME, 5, 0, 5, 2, 1, FALSE);
-        check_copy_image(ddb, type, LR_MONOCHROME, 0, 5, 2, 5, 1, FALSE);
-        check_copy_image(ddb, type, LR_MONOCHROME, 5, 5, 5, 5, 1, FALSE);
+        test_CopyImage_Check(ddb, LR_MONOCHROME, 0, 0, 2, 2, 1, FALSE);
+        test_CopyImage_Check(ddb, LR_MONOCHROME, 5, 0, 5, 2, 1, FALSE);
+        test_CopyImage_Check(ddb, LR_MONOCHROME, 0, 5, 2, 5, 1, FALSE);
+        test_CopyImage_Check(ddb, LR_MONOCHROME, 5, 5, 5, 5, 1, FALSE);
 
-        check_copy_image(ddb, type, LR_CREATEDIBSECTION, 0, 0, 2, 2, depth, TRUE);
-        check_copy_image(ddb, type, LR_CREATEDIBSECTION, 5, 0, 5, 2, depth, TRUE);
-        check_copy_image(ddb, type, LR_CREATEDIBSECTION, 0, 5, 2, 5, depth, TRUE);
-        check_copy_image(ddb, type, LR_CREATEDIBSECTION, 5, 5, 5, 5, depth, TRUE);
+        test_CopyImage_Check(ddb, LR_CREATEDIBSECTION, 0, 0, 2, 2, depth, TRUE);
+        test_CopyImage_Check(ddb, LR_CREATEDIBSECTION, 5, 0, 5, 2, depth, TRUE);
+        test_CopyImage_Check(ddb, LR_CREATEDIBSECTION, 0, 5, 2, 5, depth, TRUE);
+        test_CopyImage_Check(ddb, LR_CREATEDIBSECTION, 5, 5, 5, 5, depth, TRUE);
 
         /* LR_MONOCHROME is ignored if LR_CREATEDIBSECTION is present */
-        check_copy_image(ddb, type, LR_MONOCHROME | LR_CREATEDIBSECTION, 0, 0, 2, 2, depth, TRUE);
-        check_copy_image(ddb, type, LR_MONOCHROME | LR_CREATEDIBSECTION, 5, 0, 5, 2, depth, TRUE);
-        check_copy_image(ddb, type, LR_MONOCHROME | LR_CREATEDIBSECTION, 0, 5, 2, 5, depth, TRUE);
-        check_copy_image(ddb, type, LR_MONOCHROME | LR_CREATEDIBSECTION, 5, 5, 5, 5, depth, TRUE);
+        test_CopyImage_Check(ddb, LR_MONOCHROME | LR_CREATEDIBSECTION, 0, 0, 2, 2, depth, TRUE);
+        test_CopyImage_Check(ddb, LR_MONOCHROME | LR_CREATEDIBSECTION, 5, 0, 5, 2, depth, TRUE);
+        test_CopyImage_Check(ddb, LR_MONOCHROME | LR_CREATEDIBSECTION, 0, 5, 2, 5, depth, TRUE);
+        test_CopyImage_Check(ddb, LR_MONOCHROME | LR_CREATEDIBSECTION, 5, 5, 5, 5, depth, TRUE);
 
         DeleteObject(ddb);
     }
 
     if (depth != 1)
     {
-        check_copy_image(dib, type, 0, 0, 0, 2, 2, screen_depth, FALSE);
-        check_copy_image(dib, type, 0, 5, 0, 5, 2, screen_depth, FALSE);
-        check_copy_image(dib, type, 0, 0, 5, 2, 5, screen_depth, FALSE);
-        check_copy_image(dib, type, 0, 5, 5, 5, 5, screen_depth, FALSE);
+        test_CopyImage_Check(dib, 0, 0, 0, 2, 2, screen_depth, FALSE);
+        test_CopyImage_Check(dib, 0, 5, 0, 5, 2, screen_depth, FALSE);
+        test_CopyImage_Check(dib, 0, 0, 5, 2, 5, screen_depth, FALSE);
+        test_CopyImage_Check(dib, 0, 5, 5, 5, 5, screen_depth, FALSE);
     }
 
-    check_copy_image(dib, type, LR_MONOCHROME, 0, 0, 2, 2, 1, FALSE);
-    check_copy_image(dib, type, LR_MONOCHROME, 5, 0, 5, 2, 1, FALSE);
-    check_copy_image(dib, type, LR_MONOCHROME, 0, 5, 2, 5, 1, FALSE);
-    check_copy_image(dib, type, LR_MONOCHROME, 5, 5, 5, 5, 1, FALSE);
+    test_CopyImage_Check(dib, LR_MONOCHROME, 0, 0, 2, 2, 1, FALSE);
+    test_CopyImage_Check(dib, LR_MONOCHROME, 5, 0, 5, 2, 1, FALSE);
+    test_CopyImage_Check(dib, LR_MONOCHROME, 0, 5, 2, 5, 1, FALSE);
+    test_CopyImage_Check(dib, LR_MONOCHROME, 5, 5, 5, 5, 1, FALSE);
 
-    check_copy_image(dib, type, LR_CREATEDIBSECTION, 0, 0, 2, 2, depth, TRUE);
-    check_copy_image(dib, type, LR_CREATEDIBSECTION, 5, 0, 5, 2, depth, TRUE);
-    check_copy_image(dib, type, LR_CREATEDIBSECTION, 0, 5, 2, 5, depth, TRUE);
-    check_copy_image(dib, type, LR_CREATEDIBSECTION, 5, 5, 5, 5, depth, TRUE);
+    test_CopyImage_Check(dib, LR_CREATEDIBSECTION, 0, 0, 2, 2, depth, TRUE);
+    test_CopyImage_Check(dib, LR_CREATEDIBSECTION, 5, 0, 5, 2, depth, TRUE);
+    test_CopyImage_Check(dib, LR_CREATEDIBSECTION, 0, 5, 2, 5, depth, TRUE);
+    test_CopyImage_Check(dib, LR_CREATEDIBSECTION, 5, 5, 5, 5, depth, TRUE);
 
     /* LR_MONOCHROME is ignored if LR_CREATEDIBSECTION is present */
-    check_copy_image(dib, type, LR_MONOCHROME | LR_CREATEDIBSECTION, 0, 0, 2, 2, depth, TRUE);
-    check_copy_image(dib, type, LR_MONOCHROME | LR_CREATEDIBSECTION, 5, 0, 5, 2, depth, TRUE);
-    check_copy_image(dib, type, LR_MONOCHROME | LR_CREATEDIBSECTION, 0, 5, 2, 5, depth, TRUE);
-    check_copy_image(dib, type, LR_MONOCHROME | LR_CREATEDIBSECTION, 5, 5, 5, 5, depth, TRUE);
+    test_CopyImage_Check(dib, LR_MONOCHROME | LR_CREATEDIBSECTION, 0, 0, 2, 2, depth, TRUE);
+    test_CopyImage_Check(dib, LR_MONOCHROME | LR_CREATEDIBSECTION, 5, 0, 5, 2, depth, TRUE);
+    test_CopyImage_Check(dib, LR_MONOCHROME | LR_CREATEDIBSECTION, 0, 5, 2, 5, depth, TRUE);
+    test_CopyImage_Check(dib, LR_MONOCHROME | LR_CREATEDIBSECTION, 5, 5, 5, 5, depth, TRUE);
 
     DeleteObject(dib);
 
@@ -710,10 +651,10 @@ static void do_test_copy_image(UINT type, UINT depth)
             info->bmiColors[1].rgbBlue = 0;
 
             dib = CreateDIBSection(NULL, info, DIB_RGB_COLORS, &bits, NULL, 0);
-            check_copy_image(dib, type, 0, 0, 0, 2, 2, screen_depth, FALSE);
-            check_copy_image(dib, type, 0, 5, 0, 5, 2, screen_depth, FALSE);
-            check_copy_image(dib, type, 0, 0, 5, 2, 5, screen_depth, FALSE);
-            check_copy_image(dib, type, 0, 5, 5, 5, 5, screen_depth, FALSE);
+            test_CopyImage_Check(dib, 0, 0, 0, 2, 2, screen_depth, FALSE);
+            test_CopyImage_Check(dib, 0, 5, 0, 5, 2, screen_depth, FALSE);
+            test_CopyImage_Check(dib, 0, 0, 5, 2, 5, screen_depth, FALSE);
+            test_CopyImage_Check(dib, 0, 5, 5, 5, 5, screen_depth, FALSE);
             DeleteObject(dib);
 
             info->bmiHeader.biBitCount = 1;
@@ -725,10 +666,10 @@ static void do_test_copy_image(UINT type, UINT depth)
             info->bmiColors[1].rgbBlue = 0xFF;
 
             dib = CreateDIBSection(NULL, info, DIB_RGB_COLORS, &bits, NULL, 0);
-            check_copy_image(dib, type, 0, 0, 0, 2, 2, 1, FALSE);
-            check_copy_image(dib, type, 0, 5, 0, 5, 2, 1, FALSE);
-            check_copy_image(dib, type, 0, 0, 5, 2, 5, 1, FALSE);
-            check_copy_image(dib, type, 0, 5, 5, 5, 5, 1, FALSE);
+            test_CopyImage_Check(dib, 0, 0, 0, 2, 2, 1, FALSE);
+            test_CopyImage_Check(dib, 0, 5, 0, 5, 2, 1, FALSE);
+            test_CopyImage_Check(dib, 0, 0, 5, 2, 5, 1, FALSE);
+            test_CopyImage_Check(dib, 0, 5, 5, 5, 5, 1, FALSE);
             DeleteObject(dib);
 
             info->bmiHeader.biBitCount = 1;
@@ -740,10 +681,10 @@ static void do_test_copy_image(UINT type, UINT depth)
             info->bmiColors[1].rgbBlue = 0;
 
             dib = CreateDIBSection(NULL, info, DIB_RGB_COLORS, &bits, NULL, 0);
-            check_copy_image(dib, type, 0, 0, 0, 2, 2, 1, FALSE);
-            check_copy_image(dib, type, 0, 5, 0, 5, 2, 1, FALSE);
-            check_copy_image(dib, type, 0, 0, 5, 2, 5, 1, FALSE);
-            check_copy_image(dib, type, 0, 5, 5, 5, 5, 1, FALSE);
+            test_CopyImage_Check(dib, 0, 0, 0, 2, 2, 1, FALSE);
+            test_CopyImage_Check(dib, 0, 5, 0, 5, 2, 1, FALSE);
+            test_CopyImage_Check(dib, 0, 0, 5, 2, 5, 1, FALSE);
+            test_CopyImage_Check(dib, 0, 5, 5, 5, 5, 1, FALSE);
             DeleteObject(dib);
         }
     }
@@ -768,8 +709,7 @@ static void test_initial_cursor(void)
     ok(error == 0xdeadbeef, "Last error: 0x%08x\n", error);
 }
 
-static void test_icon_info_(HICON hIcon, UINT exp_cx, UINT exp_cy,
-        UINT exp_mask_cy, UINT exp_bpp, UINT has_color, int line)
+static void test_icon_info_dbg(HICON hIcon, UINT exp_cx, UINT exp_cy, UINT exp_mask_cy, UINT exp_bpp, int line)
 {
     ICONINFO info;
     DWORD ret;
@@ -786,7 +726,8 @@ static void test_icon_info_(HICON hIcon, UINT exp_cx, UINT exp_cy,
     ret = GetObjectA(info.hbmMask, sizeof(bmMask), &bmMask);
     ok_(__FILE__, line)(ret == sizeof(bmMask), "GetObject(info.hbmMask) failed, ret %u\n", ret);
 
-    ok_(__FILE__, line)(!!info.hbmColor == has_color, "got hbmColor %p\n", info.hbmColor);
+    if (exp_bpp == 1)
+        ok_(__FILE__, line)(info.hbmColor == 0, "info.hbmColor should be NULL\n");
 
     if (info.hbmColor)
     {
@@ -849,7 +790,7 @@ static void test_icon_info_(HICON hIcon, UINT exp_cx, UINT exp_cy,
     }
 }
 
-#define test_icon_info(a,b,c,d,e,f) test_icon_info_(a,b,c,d,e,f,__LINE__)
+#define test_icon_info(a,b,c,d,e) test_icon_info_dbg((a),(b),(c),(d),(e),__LINE__)
 
 static void test_CreateIcon(void)
 {
@@ -873,17 +814,12 @@ static void test_CreateIcon(void)
 
     hIcon = CreateIcon(0, 16, 16, 1, 1, bmp_bits, bmp_bits);
     ok(hIcon != 0, "CreateIcon failed\n");
-    test_icon_info(hIcon, 16, 16, 32, 1, FALSE);
+    test_icon_info(hIcon, 16, 16, 32, 1);
     DestroyIcon(hIcon);
-
-    hIcon = CreateCursor(0, 8, 8, 16, 16, bmp_bits, bmp_bits);
-    ok(hIcon != 0, "CreateCursor failed\n");
-    test_icon_info(hIcon, 16, 16, 32, 1, FALSE);
-    DestroyCursor(hIcon);
 
     hIcon = CreateIcon(0, 16, 16, 1, display_bpp, bmp_bits, bmp_bits);
     ok(hIcon != 0, "CreateIcon failed\n");
-    test_icon_info(hIcon, 16, 16, 16, display_bpp, TRUE);
+    test_icon_info(hIcon, 16, 16, 16, display_bpp);
     DestroyIcon(hIcon);
 
     hbmMask = CreateBitmap(16, 16, 1, 1, bmp_bits);
@@ -918,7 +854,7 @@ static void test_CreateIcon(void)
     info.hbmColor = hbmColor;
     hIcon = CreateIconIndirect(&info);
     ok(hIcon != 0, "CreateIconIndirect failed\n");
-    test_icon_info(hIcon, 16, 16, 16, display_bpp, TRUE);
+    test_icon_info(hIcon, 16, 16, 16, display_bpp);
     DestroyIcon(hIcon);
 
     DeleteObject(hbmMask);
@@ -935,17 +871,8 @@ static void test_CreateIcon(void)
     SetLastError(0xdeadbeaf);
     hIcon = CreateIconIndirect(&info);
     ok(hIcon != 0, "CreateIconIndirect failed\n");
-    test_icon_info(hIcon, 16, 16, 32, 1, FALSE);
+    test_icon_info(hIcon, 16, 16, 32, 1);
     DestroyIcon(hIcon);
-
-    info.hbmMask = hbmMask;
-    info.hbmColor = hbmMask;
-    SetLastError(0xdeadbeaf);
-    hIcon = CreateIconIndirect(&info);
-    ok(hIcon != 0, "CreateIconIndirect failed\n");
-    test_icon_info(hIcon, 16, 32, 32, 1, TRUE);
-    DestroyIcon(hIcon);
-
     DeleteObject(hbmMask);
 
     for (i = 0; i <= 4; i++)
@@ -961,23 +888,10 @@ static void test_CreateIcon(void)
         SetLastError(0xdeadbeaf);
         hIcon = CreateIconIndirect(&info);
         ok(hIcon != 0, "CreateIconIndirect failed\n");
-        test_icon_info(hIcon, 1, i / 2, max(i,1), 1, FALSE);
+        test_icon_info(hIcon, 1, i / 2, max(i,1), 1);
         DestroyIcon(hIcon);
         DeleteObject(hbmMask);
     }
-
-    hbmMask = CreateBitmap(16, 32, 1, 16, bmp_bits);
-    ok(hbmMask != 0, "CreateBitmap failed\n");
-
-    info.hbmMask = hbmMask;
-    info.hbmColor = 0;
-    SetLastError(0xdeadbeaf);
-    hIcon = CreateIconIndirect(&info);
-    ok(hIcon != 0, "CreateIconIndirect failed\n");
-    test_icon_info(hIcon, 16, 16, 32, 1, FALSE);
-    DestroyIcon(hIcon);
-
-    DeleteObject(hbmMask);
 
     /* test creating an icon from a DIB section */
 
@@ -1006,7 +920,7 @@ static void test_CreateIcon(void)
     SetLastError(0xdeadbeaf);
     hIcon = CreateIconIndirect(&info);
     ok(hIcon != 0, "CreateIconIndirect failed\n");
-    test_icon_info(hIcon, 32, 32, 32, 8, TRUE);
+    test_icon_info(hIcon, 32, 32, 32, 8);
     DestroyIcon(hIcon);
     DeleteObject(hbmColor);
 
@@ -1024,7 +938,7 @@ static void test_CreateIcon(void)
     SetLastError(0xdeadbeaf);
     hIcon = CreateIconIndirect(&info);
     ok(hIcon != 0, "CreateIconIndirect failed\n");
-    test_icon_info(hIcon, 32, 32, 32, 8, TRUE);
+    test_icon_info(hIcon, 32, 32, 32, 8);
     DestroyIcon(hIcon);
     DeleteObject(hbmColor);
 
@@ -1042,7 +956,7 @@ static void test_CreateIcon(void)
     SetLastError(0xdeadbeaf);
     hIcon = CreateIconIndirect(&info);
     ok(hIcon != 0, "CreateIconIndirect failed\n");
-    test_icon_info(hIcon, 32, 32, 32, 8, TRUE);
+    test_icon_info(hIcon, 32, 32, 32, 8);
     DestroyIcon(hIcon);
 
     DeleteObject(hbmMask);
@@ -2748,7 +2662,7 @@ static void test_PrivateExtractIcons(void)
     ok(ret == 1, "PrivateExtractIconsA returned %u\n", ret);
     ok(icon != NULL, "icon == NULL\n");
 
-    test_icon_info(icon, 32, 32, 32, 32, TRUE);
+    test_icon_info(icon, 32, 32, 32, 32);
     DestroyIcon(icon);
 
     DeleteFileA("extract.ico");
@@ -2897,10 +2811,10 @@ static COLORREF get_color_from_bits(const unsigned char *bits, const BITMAPINFO 
     return RGB(color.rgbRed, color.rgbGreen, color.rgbBlue);
 }
 
-#define compare_bitmap_bits(a, b, c, d, e, f, g, h) compare_bitmap_bits_(__LINE__, a, b, c, d, e, f, g, h)
+#define compare_bitmap_bits(a, b, c, d, e, f, g) compare_bitmap_bits_(__LINE__, a, b, c, d, e, f, g)
 static void compare_bitmap_bits_(unsigned int line, HDC hdc, HBITMAP bitmap, BITMAPINFO *bmi,
         size_t result_bits_size, const unsigned char *expected_bits, unsigned int test_index,
-        BOOL allow_todo, const unsigned char *expected_broken_bits)
+        const unsigned char *expected_broken_bits)
 {
     unsigned char *result_bits;
     unsigned int row, column;
@@ -2919,7 +2833,6 @@ static void compare_bitmap_bits_(unsigned int line, HDC hdc, HBITMAP bitmap, BIT
             result = get_color_from_bits(result_bits, bmi, row, column);
             expected = get_color_from_bits(expected_bits, bmi, row, column);
 
-            todo_wine_if(allow_todo && result != expected)
             ok_(__FILE__, line)(result == expected || broken(expected_broken_bits
                     && result == get_color_from_bits(expected_broken_bits, bmi, row, column)),
                     "Colors do not match, got 0x%06x, expected 0x%06x, test_index %u, row %u, column %u.\n",
@@ -3000,22 +2913,21 @@ static void test_Image_StretchMode(void)
         size_t test_bits_size, result_bits_size;
         const RGBQUAD *bmi_colors;
         size_t bmi_colors_size;
-        BOOL allow_todo;
         const unsigned char *expected_broken_bits;
     }
     tests[] =
     {
         {4, 4, 2, 2, 24, test_bits_24, expected_bits_24,
-                sizeof(test_bits_24), sizeof(expected_bits_24), NULL, 0, TRUE,
+                sizeof(test_bits_24), sizeof(expected_bits_24), NULL, 0,
                 /* Broken on Windows before Win10 1607+ */ expected_broken_bits_24},
         {4, 4, 2, 2, 1, test_bits_1, expected_bits_1,
                 sizeof(test_bits_1), sizeof(expected_bits_1), colors_bits_1,
                 sizeof(colors_bits_1)},
         {4, 4, 2, 2, 8, test_bits_8, expected_bits_8,
                 sizeof(test_bits_8), sizeof(expected_bits_8), colors_bits_8,
-                sizeof(colors_bits_8), TRUE},
+                sizeof(colors_bits_8)},
         {4, 4, 2, 2, 16, (const unsigned char *)test_bits_16, (const unsigned char *)expected_bits_16,
-                sizeof(test_bits_16), sizeof(expected_bits_16), NULL, 0, TRUE},
+                sizeof(test_bits_16), sizeof(expected_bits_16), NULL, 0},
     };
     static const char filename[] = "test.bmp";
     BITMAPINFO *bmi, *bmi_output;
@@ -3061,8 +2973,7 @@ static void test_Image_StretchMode(void)
         ok(!!bitmap_copy, "CopyImage() failed, result %u.\n", GetLastError());
 
         compare_bitmap_bits(hdc, bitmap_copy, bmi_output, tests[test_index].result_bits_size,
-                tests[test_index].expected_bits, test_index, tests[test_index].allow_todo,
-                tests[test_index].expected_broken_bits);
+                tests[test_index].expected_bits, test_index, tests[test_index].expected_broken_bits);
         DeleteObject(bitmap);
         DeleteObject(bitmap_copy);
 
@@ -3072,26 +2983,12 @@ static void test_Image_StretchMode(void)
         ok(!!bitmap, "LoadImageA() failed, result %u.\n", GetLastError());
         DeleteFileA(filename);
         compare_bitmap_bits(hdc, bitmap, bmi_output, tests[test_index].result_bits_size,
-                tests[test_index].expected_bits, test_index, tests[test_index].allow_todo,
-                tests[test_index].expected_broken_bits);
+                tests[test_index].expected_bits, test_index, tests[test_index].expected_broken_bits);
         DeleteObject(bitmap);
     }
     ReleaseDC(0, hdc);
     HeapFree(GetProcessHeap(), 0, bmi_output);
     HeapFree(GetProcessHeap(), 0, bmi);
-}
-
-static void test_copy_image(void)
-{
-    static const UINT types[] = {IMAGE_BITMAP, IMAGE_ICON, IMAGE_CURSOR};
-    static const UINT depths[] = {1, 4, 8, 16, 24, 32};
-    unsigned int i, j;
-
-    for (i = 0; i < ARRAY_SIZE(types); ++i)
-    {
-        for (j = 0; j < ARRAY_SIZE(depths); ++j)
-            do_test_copy_image(types[i], depths[j]);
-    }
 }
 
 START_TEST(cursoricon)
@@ -3115,7 +3012,12 @@ START_TEST(cursoricon)
         return;
     }
 
-    test_copy_image();
+    test_CopyImage_Bitmap(1);
+    test_CopyImage_Bitmap(4);
+    test_CopyImage_Bitmap(8);
+    test_CopyImage_Bitmap(16);
+    test_CopyImage_Bitmap(24);
+    test_CopyImage_Bitmap(32);
     test_Image_StretchMode();
     test_initial_cursor();
     test_CreateIcon();

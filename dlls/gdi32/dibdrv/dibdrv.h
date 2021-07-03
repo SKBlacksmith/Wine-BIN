@@ -189,8 +189,8 @@ typedef struct primitive_funcs
                                     const dib_info *brush, const rop_mask_bits *bits);
     void              (* copy_rect)(const dib_info *dst, const RECT *rc, const dib_info *src,
                                     const POINT *origin, int rop2, int overlap);
-    void            (* blend_rects)(const dib_info *dst, int num, const RECT *rc, const dib_info *src,
-                                    const POINT *offset, BLENDFUNCTION blend);
+    void             (* blend_rect)(const dib_info *dst, const RECT *rc, const dib_info *src,
+                                    const POINT *origin, BLENDFUNCTION blend);
     BOOL          (* gradient_rect)(const dib_info *dib, const RECT *rc, const TRIVERTEX *v, int mode);
     void              (* mask_rect)(const dib_info *dst, const RECT *rc, const dib_info *src,
                                     const POINT *origin, int rop2);
@@ -211,8 +211,6 @@ typedef struct primitive_funcs
     void             (* shrink_row)(const dib_info *dst_dib, const POINT *dst_start,
                                     const dib_info *src_dib, const POINT *src_start,
                                     const struct stretch_params *params, int mode, BOOL keep_dst);
-    void               (* halftone)(const dib_info *dst_dib, const struct bitblt_coords *dst,
-                                    const dib_info *src_dib, const struct bitblt_coords *src);
 } primitive_funcs;
 
 extern const primitive_funcs funcs_8888 DECLSPEC_HIDDEN;

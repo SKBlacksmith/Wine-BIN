@@ -12523,9 +12523,8 @@ done:
 static void wait_move_event(HWND hwnd, int x, int y)
 {
     MSG msg;
-    DWORD timeout = GetTickCount() + 500;
+    DWORD timeout = GetTickCount() + 500, delay;
     BOOL ret;
-    int delay;
 
     while ((delay = timeout - GetTickCount()) > 0)
     {

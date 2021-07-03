@@ -32,11 +32,13 @@
 WINE_DEFAULT_DEBUG_CHANNEL(bitmap);
 
 
+static HGDIOBJ BITMAP_SelectObject( HGDIOBJ handle, HDC hdc );
 static INT BITMAP_GetObject( HGDIOBJ handle, INT count, LPVOID buffer );
 static BOOL BITMAP_DeleteObject( HGDIOBJ handle );
 
 static const struct gdi_obj_funcs bitmap_funcs =
 {
+    BITMAP_SelectObject,  /* pSelectObject */
     BITMAP_GetObject,     /* pGetObjectA */
     BITMAP_GetObject,     /* pGetObjectW */
     NULL,                 /* pUnrealizeObject */
@@ -220,7 +222,7 @@ HBITMAP WINAPI CreateBitmapIndirect( const BITMAP *bmp )
         return 0;
     }
 
-    if (!(hbitmap = alloc_gdi_handle( &bmpobj->obj, OBJ_BITMAP, &bitmap_funcs )))
+    if (!(hbitmap = alloc_gdi_handle( bmpobj, OBJ_BITMAP, &bitmap_funcs )))
     {
         HeapFree( GetProcessHeap(), 0, bmpobj->dib.dsBm.bmBits );
         HeapFree( GetProcessHeap(), 0, bmpobj );
@@ -421,9 +423,9 @@ LONG WINAPI SetBitmapBits(
 
 
 /***********************************************************************
- *           NtGdiSelectBitmap (win32u.@)
+ *           BITMAP_SelectObject
  */
-HGDIOBJ WINAPI NtGdiSelectBitmap( HDC hdc, HGDIOBJ handle )
+static HGDIOBJ BITMAP_SelectObject( HGDIOBJ handle, HDC hdc )
 {
     HGDIOBJ ret;
     BITMAPOBJ *bitmap;
@@ -454,8 +456,7 @@ HGDIOBJ WINAPI NtGdiSelectBitmap( HDC hdc, HGDIOBJ handle )
         goto done;
     }
 
-    if (!is_bitmapobj_dib( bitmap ) &&
-        bitmap->dib.dsBm.bmBitsPixel != 1 &&
+    if (bitmap->dib.dsBm.bmBitsPixel != 1 &&
         bitmap->dib.dsBm.bmBitsPixel != GetDeviceCaps( hdc, BITSPIXEL ))
     {
         WARN( "Wrong format bitmap %u bpp\n", bitmap->dib.dsBm.bmBitsPixel );

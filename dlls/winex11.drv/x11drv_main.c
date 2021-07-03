@@ -68,7 +68,7 @@ Colormap default_colormap = None;
 XPixmapFormatValues **pixmap_formats;
 unsigned int screen_bpp;
 Window root_window;
-BOOL usexvidmode = TRUE;
+BOOL usexvidmode = FALSE;
 BOOL usexrandr = TRUE;
 BOOL usexcomposite = TRUE;
 BOOL use_xfixes = FALSE;
@@ -89,12 +89,14 @@ BOOL client_side_with_render = TRUE;
 BOOL shape_layered_windows = TRUE;
 int copy_default_colors = 128;
 int alloc_system_colors = 256;
+int limit_number_of_resolutions = 0;
 DWORD thread_data_tls_index = TLS_OUT_OF_INDEXES;
 int xrender_error_base = 0;
 int xfixes_event_base = 0;
 HMODULE x11drv_module = 0;
 char *process_name = NULL;
 HANDLE steam_overlay_event;
+BOOL layered_window_client_hack = FALSE;
 
 static x11drv_error_callback err_callback;   /* current callback for error */
 static Display *err_callback_display;        /* display callback is set for */
@@ -113,15 +115,6 @@ static CRITICAL_SECTION_DEBUG critsect_debug =
     0, 0, { (DWORD_PTR)(__FILE__ ": x11drv_section") }
 };
 static CRITICAL_SECTION x11drv_section = { &critsect_debug, -1, 0, 0, 0, 0 };
-
-static CRITICAL_SECTION x11drv_error_section;
-static CRITICAL_SECTION_DEBUG x11drv_error_section_debug =
-{
-    0, 0, &x11drv_error_section,
-    { &x11drv_error_section_debug.ProcessLocksList, &x11drv_error_section_debug.ProcessLocksList },
-    0, 0, { (DWORD_PTR)(__FILE__ ": x11drv_error_section") }
-};
-static CRITICAL_SECTION x11drv_error_section = { &x11drv_error_section_debug, -1, 0, 0, 0, 0 };
 
 struct d3dkmt_vidpn_source
 {
@@ -152,6 +145,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "TEXT",
     "TIMESTAMP",
     "UTF8_STRING",
+    "STRING",
     "RAW_ASCENT",
     "RAW_DESCENT",
     "RAW_CAP_HEIGHT",
@@ -159,6 +153,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "Rel Y",
     "WM_PROTOCOLS",
     "WM_DELETE_WINDOW",
+    "WM_NAME",
     "WM_STATE",
     "WM_TAKE_FOCUS",
     "DndProtocol",
@@ -168,6 +163,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "_NET_STARTUP_INFO_BEGIN",
     "_NET_STARTUP_INFO",
     "_NET_SUPPORTED",
+    "_NET_SUPPORTING_WM_CHECK",
     "_NET_SYSTEM_TRAY_OPCODE",
     "_NET_SYSTEM_TRAY_S0",
     "_NET_SYSTEM_TRAY_VISUAL",
@@ -219,6 +215,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "WCF_SYLK",
     "WCF_TIFF",
     "WCF_WAVE",
+    "WINDOW",
     "image/bmp",
     "image/gif",
     "image/jpeg",
@@ -272,7 +269,6 @@ static inline BOOL ignore_error( Display *display, XErrorEvent *event )
  */
 void X11DRV_expect_error( Display *display, x11drv_error_callback callback, void *arg )
 {
-    EnterCriticalSection( &x11drv_error_section );
     err_callback         = callback;
     err_callback_display = display;
     err_callback_arg     = arg;
@@ -289,10 +285,8 @@ void X11DRV_expect_error( Display *display, x11drv_error_callback callback, void
  */
 int X11DRV_check_error(void)
 {
-    int res = err_callback_result;
     err_callback = NULL;
-    LeaveCriticalSection( &x11drv_error_section );
-    return res;
+    return err_callback_result;
 }
 
 
@@ -323,6 +317,9 @@ static int error_handler( Display *display, XErrorEvent *error_evt )
              error_evt->serial, error_evt->request_code );
         DebugBreak();  /* force an entry in the debugger */
     }
+    TRACE("passing on error %d req %d:%d res 0x%lx\n",
+            error_evt->error_code, error_evt->request_code,
+            error_evt->minor_code, error_evt->resourceid);
     old_error_handler( display, error_evt );
     return 0;
 }
@@ -454,6 +451,9 @@ static void setup_options(void)
 
     if (!get_config_key( hkey, appkey, "AllocSystemColors", buffer, sizeof(buffer) ))
         alloc_system_colors = atoi(buffer);
+
+    if (!get_config_key( hkey, appkey, "LimitNumberOfResolutions", buffer, sizeof(buffer) ))
+        limit_number_of_resolutions = atoi(buffer);
 
     get_config_key( hkey, appkey, "InputStyle", input_style, sizeof(input_style) );
 
@@ -702,6 +702,13 @@ static BOOL process_attach(void)
     dlopen( SONAME_LIBXEXT, RTLD_NOW|RTLD_GLOBAL );
 #endif
 
+    {
+        const char *e = getenv("WINE_ALLOW_XIM");
+        if(e){
+            use_xim = IS_OPTION_TRUE(*e);
+        }
+    }
+
     setup_options();
 
     if ((thread_data_tls_index = TlsAlloc()) == TLS_OUT_OF_INDEXES) return FALSE;
@@ -751,7 +758,22 @@ static BOOL process_attach(void)
     if (use_xkb) use_xkb = XkbUseExtension( gdi_display, NULL, NULL );
 #endif
     X11DRV_InitKeyboard( gdi_display );
+    X11DRV_InitMouse( gdi_display );
     if (use_xim) use_xim = X11DRV_InitXIM( input_style );
+
+    fs_hack_init();
+
+    {
+        const char *sgi = getenv("SteamGameId");
+        const char *e = getenv("WINE_LAYERED_WINDOW_CLIENT_HACK");
+        layered_window_client_hack =
+            (sgi && (
+                strcmp(sgi, "435150") == 0 || /* Divinity: Original Sin 2 launcher */
+                strcmp(sgi, "227020") == 0 /* Rise of Venice launcher */
+            )) ||
+            (e && *e != '\0' && *e != '0');
+    }
+
 
     X11DRV_DisplayDevices_Init(FALSE);
     return TRUE;
@@ -767,6 +789,8 @@ void CDECL X11DRV_ThreadDetach(void)
 
     if (data)
     {
+        if (GetWindowThreadProcessId( GetDesktopWindow(), NULL ) == GetCurrentThreadId())
+            X11DRV_XInput2_Disable();
         if (data->xim) XCloseIM( data->xim );
         if (data->font_set) XFreeFontSet( data->display, data->font_set );
         XCloseDisplay( data->display );
@@ -836,6 +860,8 @@ struct x11drv_thread_data *x11drv_init_thread_data(void)
     TlsSetValue( thread_data_tls_index, data );
 
     if (use_xim) X11DRV_SetupXIM();
+    if (GetWindowThreadProcessId( GetDesktopWindow(), NULL ) == GetCurrentThreadId())
+        X11DRV_XInput2_Enable();
 
     return data;
 }

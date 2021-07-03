@@ -1500,10 +1500,7 @@ static void get_enus_string(IDWriteLocalizedStrings *strings, WCHAR *buff, unsig
 
     hr = IDWriteLocalizedStrings_FindLocaleName(strings, L"en-us", &index, &exists);
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    /* Not all fonts have an en-us name! */
-    if (!exists)
-        index = 0;
+    ok(exists, "Failed to find locale name %d.\n", exists);
 
     hr = IDWriteLocalizedStrings_GetString(strings, index, buff, size);
     ok(hr == S_OK, "Failed to get name string, hr %#x.\n", hr);

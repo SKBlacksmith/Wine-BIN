@@ -18,7 +18,6 @@
  */
 
 #define NONAMELESSUNION
-#define WINE_NO_NAMELESS_EXTENSION
 #include "d3d11_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3d11);

@@ -22,7 +22,7 @@
  *    This file contains the implementation for the OLE Clipboard and its
  *    internal interfaces. The OLE clipboard interacts with an IDataObject
  *    interface via the OleSetClipboard, OleGetClipboard and
- *    OleIsCurrentClipboard APIs. An internal IDataObject delegates
+ *    OleIsCurrentClipboard API's. An internal IDataObject delegates
  *    to a client supplied IDataObject or the WIN32 clipboard API depending
  *    on whether OleSetClipboard has been invoked.
  *    Here are some operating scenarios:
@@ -1138,7 +1138,6 @@ static DWORD get_tymed_from_nonole_cf(UINT cf)
     case CF_TEXT:
     case CF_OEMTEXT:
     case CF_UNICODETEXT:
-    case CF_HDROP:
         return TYMED_ISTREAM | TYMED_HGLOBAL;
     case CF_ENHMETAFILE:
         return TYMED_ENHMF;

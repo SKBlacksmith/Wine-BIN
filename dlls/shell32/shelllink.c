@@ -2158,10 +2158,7 @@ static HRESULT WINAPI IShellLinkW_fnSetPath(IShellLinkW * iface, LPCWSTR pszFile
         if (*pszFile == '\0')
             *buffer = '\0';
         else if (!GetFullPathNameW(pszFile, MAX_PATH, buffer, &fname))
-        {
-            heap_free(unquoted);
-            return E_FAIL;
-        }
+	    return E_FAIL;
         else if(!PathFileExistsW(buffer) &&
 		!SearchPathW(NULL, pszFile, NULL, MAX_PATH, buffer, NULL))
 	  hr = S_FALSE;

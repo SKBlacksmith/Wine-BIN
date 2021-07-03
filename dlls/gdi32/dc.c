@@ -38,6 +38,7 @@ static BOOL DC_DeleteObject( HGDIOBJ handle );
 
 static const struct gdi_obj_funcs dc_funcs =
 {
+    NULL,             /* pSelectObject */
     NULL,             /* pGetObjectA */
     NULL,             /* pGetObjectW */
     NULL,             /* pUnrealizeObject */
@@ -136,7 +137,7 @@ DC *alloc_dc_ptr( WORD magic )
 
     set_initial_dc_state( dc );
 
-    if (!(dc->hSelf = alloc_gdi_handle( &dc->obj, magic, &dc_funcs )))
+    if (!(dc->hSelf = alloc_gdi_handle( dc, magic, &dc_funcs )))
     {
         HeapFree( GetProcessHeap(), 0, dc );
         return NULL;
@@ -269,9 +270,9 @@ void DC_InitDC( DC* dc )
     physdev->funcs->pRealizeDefaultPalette( physdev );
     SetTextColor( dc->hSelf, dc->textColor );
     SetBkColor( dc->hSelf, dc->backgroundColor );
-    NtGdiSelectPen( dc->hSelf, dc->hPen );
-    NtGdiSelectBrush( dc->hSelf, dc->hBrush );
-    NtGdiSelectFont( dc->hSelf, dc->hFont );
+    SelectObject( dc->hSelf, dc->hPen );
+    SelectObject( dc->hSelf, dc->hBrush );
+    SelectObject( dc->hSelf, dc->hFont );
     update_dc_clipping( dc );
     SetVirtualResolution( dc->hSelf, 0, 0, 0, 0 );
     physdev = GET_DC_PHYSDEV( dc, pSetBoundsRect );
@@ -363,10 +364,10 @@ void DC_UpdateXforms( DC *dc )
     /* Reselect the font and pen back into the dc so that the size
        gets updated. */
     if (linear_xform_cmp( &oldworld2vport, &dc->xformWorld2Vport ) &&
-        GetObjectType( dc->hSelf ) != OBJ_METADC)
+        !GdiIsMetaFileDC(dc->hSelf))
     {
-        NtGdiSelectFont(dc->hSelf, dc->hFont);
-        NtGdiSelectPen(dc->hSelf, dc->hPen);
+        SelectObject(dc->hSelf, dc->hFont);
+        SelectObject(dc->hSelf, dc->hPen);
     }
 }
 
@@ -515,10 +516,10 @@ BOOL CDECL nulldrv_RestoreDC( PHYSDEV dev, INT level )
     DC_UpdateXforms( dc );
     update_dc_clipping( dc );
 
-    NtGdiSelectBitmap( dev->hdc, dcs->hBitmap );
-    NtGdiSelectBrush( dev->hdc, dcs->hBrush );
-    NtGdiSelectFont( dev->hdc, dcs->hFont );
-    NtGdiSelectPen( dev->hdc, dcs->hPen );
+    SelectObject( dev->hdc, dcs->hBitmap );
+    SelectObject( dev->hdc, dcs->hBrush );
+    SelectObject( dev->hdc, dcs->hFont );
+    SelectObject( dev->hdc, dcs->hPen );
     SetBkColor( dev->hdc, dcs->backgroundColor);
     SetTextColor( dev->hdc, dcs->textColor);
     GDISelectPalette( dev->hdc, dcs->hPalette, FALSE );
@@ -551,9 +552,9 @@ static BOOL reset_dc_state( HDC hdc )
     set_initial_dc_state( dc );
     SetBkColor( hdc, RGB( 255, 255, 255 ));
     SetTextColor( hdc, RGB( 0, 0, 0 ));
-    NtGdiSelectBrush( hdc, GetStockObject( WHITE_BRUSH ));
-    NtGdiSelectFont( hdc, GetStockObject( SYSTEM_FONT ));
-    NtGdiSelectPen( hdc, GetStockObject( BLACK_PEN ));
+    SelectObject( hdc, GetStockObject( WHITE_BRUSH ));
+    SelectObject( hdc, GetStockObject( SYSTEM_FONT ));
+    SelectObject( hdc, GetStockObject( BLACK_PEN ));
     SetVirtualResolution( hdc, 0, 0, 0, 0 );
     GDISelectPalette( hdc, GetStockObject( DEFAULT_PALETTE ), FALSE );
     SetBoundsRect( hdc, NULL, DCB_DISABLE );
@@ -1067,7 +1068,7 @@ INT WINAPI SetGraphicsMode( HDC hdc, INT mode )
         dc->GraphicsMode = mode;
     }
     /* font metrics depend on the graphics mode */
-    if (ret != mode) NtGdiSelectFont(dc->hSelf, dc->hFont);
+    if (ret != mode) SelectObject(dc->hSelf, dc->hFont);
     release_dc_ptr( dc );
     return ret;
 }
@@ -1921,7 +1922,17 @@ DWORD WINAPI SetLayout(HDC hdc, DWORD layout)
     if (dc)
     {
         PHYSDEV physdev = GET_DC_PHYSDEV( dc, pSetLayout );
-        oldlayout = physdev->funcs->pSetLayout( physdev, layout );
+        layout = physdev->funcs->pSetLayout( physdev, layout );
+        if (layout != GDI_ERROR)
+        {
+            oldlayout = dc->layout;
+            dc->layout = layout;
+            if (layout != oldlayout)
+            {
+                if (layout & LAYOUT_RTL) dc->MapMode = MM_ANISOTROPIC;
+                DC_UpdateXforms( dc );
+            }
+        }
         release_dc_ptr( dc );
     }
 

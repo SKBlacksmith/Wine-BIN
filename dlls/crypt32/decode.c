@@ -628,7 +628,7 @@ static BOOL CRYPT_AsnDecodeArray(const struct AsnArrayDescriptor *arrayDesc,
 
         if ((ret = CRYPT_GetLengthIndefinite(pbEncoded, cbEncoded, &dataLen)))
         {
-            DWORD bytesNeeded = arrayDesc->minArraySize, cItems = 0, capacity = 0, decoded;
+            DWORD bytesNeeded = arrayDesc->minArraySize, cItems = 0, decoded;
             BYTE lenBytes = GET_LEN_BYTES(pbEncoded[1]);
             /* There can be arbitrarily many items, but there is often only one.
              */
@@ -687,18 +687,17 @@ static BOOL CRYPT_AsnDecodeArray(const struct AsnArrayDescriptor *arrayDesc,
                                 continue;
                             }
 
-                            if (++cItems <= 1)
-                                itemSizes = &itemSize;
-                            else if (itemSizes == &itemSize)
+                            cItems++;
+                            if (itemSizes != &itemSize)
+                                itemSizes = CryptMemRealloc(itemSizes,
+                                 cItems * sizeof(struct AsnArrayItemSize));
+                            else if (cItems > 1)
                             {
-                                capacity = 1024;
-                                itemSizes = CryptMemAlloc(capacity * sizeof(struct AsnArrayItemSize));
-                                if (itemSizes) *itemSizes = itemSize;
-                            }
-                            else if (cItems > capacity)
-                            {
-                                capacity = capacity * 3 / 2;
-                                itemSizes = CryptMemRealloc(itemSizes, capacity * sizeof(struct AsnArrayItemSize));
+                                itemSizes =
+                                 CryptMemAlloc(
+                                 cItems * sizeof(struct AsnArrayItemSize));
+                                if (itemSizes)
+                                    *itemSizes = itemSize;
                             }
                             if (itemSizes)
                             {

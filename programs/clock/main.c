@@ -26,7 +26,6 @@
 #include <stdio.h>
 
 #include "windows.h"
-#include "commctrl.h"
 #include "commdlg.h"
 #include "shellapi.h"
 
@@ -389,8 +388,6 @@ int PASCAL WinMain (HINSTANCE hInstance, HINSTANCE prev, LPSTR cmdline, int show
 {
     MSG      msg;
     WNDCLASSW class;
-
-    InitCommonControls();
 
     /* Setup Globals */
     memset(&Globals.hFont, 0, sizeof (Globals.hFont));

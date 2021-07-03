@@ -441,13 +441,11 @@ static const char *test_null_hwnd_extensions[] =
 {
     "VK_KHR_surface",
     "VK_KHR_win32_surface",
-    "VK_KHR_device_group_creation",
 };
 
 static void test_null_hwnd(VkInstance vk_instance, VkPhysicalDevice vk_physical_device)
 {
     PFN_vkGetPhysicalDeviceSurfacePresentModesKHR pvkGetPhysicalDeviceSurfacePresentModesKHR;
-    PFN_vkGetPhysicalDevicePresentRectanglesKHR pvkGetPhysicalDevicePresentRectanglesKHR;
     VkDeviceGroupPresentModeFlagsKHR present_mode_flags;
     VkWin32SurfaceCreateInfoKHR surface_create_info;
     VkSurfaceCapabilitiesKHR surf_caps;
@@ -455,6 +453,7 @@ static void test_null_hwnd(VkInstance vk_instance, VkPhysicalDevice vk_physical_
     uint32_t queue_family_index;
     VkPresentModeKHR *modes;
     VkSurfaceKHR surface;
+    VkDevice vk_device;
     uint32_t count;
     VkRect2D rect;
     VkBool32 bval;
@@ -462,9 +461,6 @@ static void test_null_hwnd(VkInstance vk_instance, VkPhysicalDevice vk_physical_
 
     pvkGetPhysicalDeviceSurfacePresentModesKHR = (void *)vkGetInstanceProcAddr(vk_instance,
             "vkGetPhysicalDeviceSurfacePresentModesKHR");
-    pvkGetPhysicalDevicePresentRectanglesKHR = (void *)vkGetInstanceProcAddr(vk_instance,
-            "vkGetPhysicalDevicePresentRectanglesKHR");
-
     surface_create_info.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     surface_create_info.pNext = NULL;
     surface_create_info.flags = 0;
@@ -503,48 +499,35 @@ static void test_null_hwnd(VkInstance vk_instance, VkPhysicalDevice vk_physical_
     ok(vr == VK_SUCCESS, "Got unexpected vr %d.\n", vr);
     heap_free(modes);
 
-    if (pvkGetPhysicalDevicePresentRectanglesKHR)
+    count = 0;
+    vr = vkGetPhysicalDevicePresentRectanglesKHR(vk_physical_device, surface, &count, NULL);
+    ok(vr == VK_SUCCESS, "Got unexpected vr %d.\n", vr);
+    ok(count == 1, "Got unexpected count %u.\n", count);
+    memset(&rect, 0xcc, sizeof(rect));
+    vr = vkGetPhysicalDevicePresentRectanglesKHR(vk_physical_device, surface, &count, &rect);
+    if (vr == VK_SUCCESS) /* Fails on AMD, succeeds on Nvidia. */
     {
-        VkDevice vk_device;
-
-        count = 0;
-        vr = pvkGetPhysicalDevicePresentRectanglesKHR(vk_physical_device, surface, &count, NULL);
-        ok(vr == VK_SUCCESS, "Got unexpected vr %d.\n", vr);
         ok(count == 1, "Got unexpected count %u.\n", count);
-        memset(&rect, 0xcc, sizeof(rect));
-        vr = pvkGetPhysicalDevicePresentRectanglesKHR(vk_physical_device, surface, &count, &rect);
-        if (vr == VK_SUCCESS) /* Fails on AMD, succeeds on Nvidia. */
-        {
-            ok(count == 1, "Got unexpected count %u.\n", count);
-            ok(!rect.offset.x && !rect.offset.y && !rect.extent.width && !rect.extent.height,
-                    "Got unexpected rect %d, %d, %u, %u.\n",
-                    rect.offset.x, rect.offset.y, rect.extent.width, rect.extent.height);
-        }
-
-        if ((vr = create_device(vk_physical_device, 0, NULL, NULL, &vk_device)) < 0)
-        {
-            skip("Failed to create device, vr %d.\n", vr);
-            vkDestroySurfaceKHR(vk_instance, surface, NULL);
-            return;
-        }
-
-        if (0)
-        {
-            /* Causes access violation on Windows. */
-            vr = vkGetDeviceGroupSurfacePresentModesKHR(vk_device, surface, &present_mode_flags);
-            ok(vr == VK_SUCCESS, "Got unexpected vr %d.\n", vr);
-        }
-
-        vkDestroyDevice(vk_device, NULL);
+        ok(!rect.offset.x && !rect.offset.y && !rect.extent.width && !rect.extent.height,
+                "Got unexpected rect %d, %d, %u, %u.\n",
+                rect.offset.x, rect.offset.y, rect.extent.width, rect.extent.height);
     }
-    else
+
+    if ((vr = create_device(vk_physical_device, 0, NULL, NULL, &vk_device)) < 0)
     {
-        /* The function should be available in practice with VK_KHR_device_group_creation, but spec lists
-         * it as a part of VK_KHR_device_group device extension which we don't check, so consider the
-         * absence of the function. */
-        win_skip("pvkGetPhysicalDevicePresentRectanglesKHR is no available.\n");
+        skip("Failed to create device, vr %d.\n", vr);
+        vkDestroySurfaceKHR(vk_instance, surface, NULL);
+        return;
     }
 
+    if (0)
+    {
+        /* Causes access violation on Windows. */
+        vr = vkGetDeviceGroupSurfacePresentModesKHR(vk_device, surface, &present_mode_flags);
+        ok(vr == VK_SUCCESS, "Got unexpected vr %d.\n", vr);
+    }
+
+    vkDestroyDevice(vk_device, NULL);
     vkDestroySurfaceKHR(vk_instance, surface, NULL);
 }
 
