@@ -133,9 +133,9 @@ STYLE WS_CHILD
 FONT 8, "MS Shell Dlg"
 BEGIN
     CONTROL         "", IDC_ABT_PANEL, "STATIC", SS_OWNERDRAW, 0, 0, 260, 140
-    LTEXT           "Wine",IDC_ABT_TITLE_TEXT,105,30,55,30
+    LTEXT           "Wine Crossroads",IDC_ABT_TITLE_TEXT,105,30,55,30
     LTEXT           "",IDC_ABT_PANEL_TEXT,160,43,140,8
-    CONTROL         "#msgctxt#do not translate#<a href=\"https://www.winehq.org\">https://www.winehq.org</a>",IDC_ABT_WEB_LINK,"SysLink", LWS_TRANSPARENT, 105,53,106,8
+    CONTROL         "#msgctxt#do not translate#<a href=\"https://www.newalive.net/253-wine-crossroads.html\">https://www.newalive.net</a>",IDC_ABT_WEB_LINK,"SysLink", LWS_TRANSPARENT, 105,53,106,8
     LTEXT           "This program is free software; you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation; either version 2.1 of the License, or (at your option) any later version.",
                     IDC_ABT_LICENSE_TEXT,105,64,145,66
     GROUPBOX        "Windows registration information", IDC_STATIC, 15, 155, 230, 55
@@ -150,7 +150,7 @@ STYLE WS_CHILD | WS_DISABLED
 FONT 8, "MS Shell Dlg"
 BEGIN
     GROUPBOX        "Application settings",IDC_STATIC, 8,4,244,210
-    LTEXT           "Wine can mimic different Windows versions for each application. This tab is linked to the Libraries and Graphics tabs to allow you to change system-wide or per-application settings in those tabs as well.",
+    LTEXT           "Wine Crossroads can mimic different Windows versions for each application. This tab is linked to the Libraries and Graphics tabs to allow you to change system-wide or per-application settings in those tabs as well.",
                     IDC_STATIC,15,15,227,45
     CONTROL         "",IDC_APP_LISTVIEW,"SysListView32",WS_BORDER | WS_TABSTOP | LVS_LIST | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
                     15,60,230,110
