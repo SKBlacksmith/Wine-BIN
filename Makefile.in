@@ -91,7 +91,7 @@ XAUDIO_NATIVE_SWITCH = @XAUDIO_NATIVE_SWITCH@
 @SET_MAKE@
 
 all: wine
-	@echo "Wine build complete."
+	@echo "Wine Crossroads build complete."
 
 # Rules for re-running configure
 
