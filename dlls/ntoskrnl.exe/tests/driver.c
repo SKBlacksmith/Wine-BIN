@@ -52,6 +52,7 @@ static int kmemcmp( const void *ptr1, const void *ptr2, size_t n )
 
 static DRIVER_OBJECT *driver_obj;
 static DEVICE_OBJECT *lower_device, *upper_device;
+static LDR_DATA_TABLE_ENTRY *ldr_module;
 
 static POBJECT_TYPE *pExEventObjectType, *pIoFileObjectType, *pPsThreadType, *pIoDriverObjectType;
 static PEPROCESS *pPsInitialSystemProcess;
@@ -313,8 +314,7 @@ static WCHAR test_load_image_name[MAX_PATH];
 static void WINAPI test_load_image_notify_routine(UNICODE_STRING *image_name, HANDLE process_id,
         IMAGE_INFO *image_info)
 {
-    if (test_load_image_notify_count == -1
-            || (image_name->Buffer && wcsstr(image_name->Buffer, L".tmp")))
+    if (image_name->Buffer && wcsstr(image_name->Buffer, L".tmp"))
     {
         ++test_load_image_notify_count;
         test_image_info = *image_info;
@@ -380,7 +380,7 @@ static void test_load_driver(void)
             || !wcscmp(test_load_image_name, full_name->Name.Buffer),
             "Expected image path name %ls, got %ls.\n", full_name->Name.Buffer, test_load_image_name);
 
-    test_load_image_notify_count = -1;
+    test_load_image_notify_count = 0;
 
     ret = ZwLoadDriver(&name);
     ok(ret == STATUS_IMAGE_ALREADY_LOADED, "got %#x\n", ret);
@@ -395,7 +395,7 @@ static void test_load_driver(void)
     ret = PsRemoveLoadImageNotifyRoutine(test_load_image_notify_routine);
     ok(ret == STATUS_PROCEDURE_NOT_FOUND, "Got unexpected status %#x.\n", ret);
 
-    ok(test_load_image_notify_count == -1, "Got unexpected test_load_image_notify_count %u.\n",
+    ok(test_load_image_notify_count == 0, "Got unexpected test_load_image_notify_count %u.\n",
             test_load_image_notify_count);
     RtlFreeUnicodeString(&image_path);
 }
@@ -999,41 +999,41 @@ static void test_call_driver(DEVICE_OBJECT *device)
     irp = IoBuildAsynchronousFsdRequest(IRP_MJ_FLUSH_BUFFERS, device, NULL, 0, NULL, &iosb);
     ok(irp->UserIosb == &iosb, "unexpected UserIosb\n");
     ok(!irp->Cancel, "Cancel = %x\n", irp->Cancel);
-    ok(!irp->CancelRoutine, "CancelRoutine = %x\n", irp->CancelRoutine);
+    ok(!irp->CancelRoutine, "CancelRoutine = %p\n", irp->CancelRoutine);
     ok(!irp->UserEvent, "UserEvent = %p\n", irp->UserEvent);
     ok(irp->CurrentLocation == 2, "CurrentLocation = %u\n", irp->CurrentLocation);
     ok(irp->Tail.Overlay.Thread == (PETHREAD)KeGetCurrentThread(),
        "IRP thread is not the current thread\n");
     ok(!irp->IoStatus.Status, "got status %#x\n", irp->IoStatus.Status);
-    ok(!irp->IoStatus.Information, "got information %#x\n", irp->IoStatus.Information);
+    ok(!irp->IoStatus.Information, "got information %#I64x\n", (UINT64)irp->IoStatus.Information);
     ok(iosb.Status == 0xdeadbeef, "got status %#x\n", iosb.Status);
-    ok(iosb.Information == 0xdeadbeef, "got information %#x\n", iosb.Information);
+    ok(iosb.Information == 0xdeadbeef, "got information %#I64x\n", (UINT64)iosb.Information);
 
     irpsp = IoGetNextIrpStackLocation(irp);
     ok(irpsp->MajorFunction == IRP_MJ_FLUSH_BUFFERS, "MajorFunction = %u\n", irpsp->MajorFunction);
-    ok(!irpsp->DeviceObject, "DeviceObject = %u\n", irpsp->DeviceObject);
-    ok(!irpsp->FileObject, "FileObject = %u\n", irpsp->FileObject);
+    ok(!irpsp->DeviceObject, "DeviceObject = %p\n", irpsp->DeviceObject);
+    ok(!irpsp->FileObject, "FileObject = %p\n", irpsp->FileObject);
     ok(!irpsp->CompletionRoutine, "CompletionRoutine = %p\n", irpsp->CompletionRoutine);
 
     status = IoCallDriver(device, irp);
     ok(status == STATUS_PENDING, "IoCallDriver returned %#x\n", status);
     ok(!irp->IoStatus.Status, "got status %#x\n", irp->IoStatus.Status);
-    ok(!irp->IoStatus.Information, "got information %#x\n", irp->IoStatus.Information);
+    ok(!irp->IoStatus.Information, "got information %#I64x\n", (UINT64)irp->IoStatus.Information);
     ok(iosb.Status == 0xdeadbeef, "got status %#x\n", iosb.Status);
-    ok(iosb.Information == 0xdeadbeef, "got information %#x\n", iosb.Information);
+    ok(iosb.Information == 0xdeadbeef, "got information %#I64x\n", (UINT64)iosb.Information);
 
     irp->IoStatus.Status = STATUS_SUCCESS;
     irp->IoStatus.Information = 123;
     IoCompleteRequest(irp, IO_NO_INCREMENT);
     ok(iosb.Status == STATUS_SUCCESS, "got status %#x\n", iosb.Status);
-    ok(iosb.Information == 123, "got information %#x\n", iosb.Information);
+    ok(iosb.Information == 123, "got information %#I64x\n", (UINT64)iosb.Information);
 
     KeInitializeEvent(&event, NotificationEvent, FALSE);
 
     irp = IoBuildSynchronousFsdRequest(IRP_MJ_FLUSH_BUFFERS, device, NULL, 0, NULL, &event, &iosb);
     ok(irp->UserIosb == &iosb, "unexpected UserIosb\n");
     ok(!irp->Cancel, "Cancel = %x\n", irp->Cancel);
-    ok(!irp->CancelRoutine, "CancelRoutine = %x\n", irp->CancelRoutine);
+    ok(!irp->CancelRoutine, "CancelRoutine = %p\n", irp->CancelRoutine);
     ok(irp->UserEvent == &event, "UserEvent = %p\n", irp->UserEvent);
     ok(irp->CurrentLocation == 2, "CurrentLocation = %u\n", irp->CurrentLocation);
     ok(irp->Tail.Overlay.Thread == (PETHREAD)KeGetCurrentThread(),
@@ -1041,8 +1041,8 @@ static void test_call_driver(DEVICE_OBJECT *device)
 
     irpsp = IoGetNextIrpStackLocation(irp);
     ok(irpsp->MajorFunction == IRP_MJ_FLUSH_BUFFERS, "MajorFunction = %u\n", irpsp->MajorFunction);
-    ok(!irpsp->DeviceObject, "DeviceObject = %u\n", irpsp->DeviceObject);
-    ok(!irpsp->FileObject, "FileObject = %u\n", irpsp->FileObject);
+    ok(!irpsp->DeviceObject, "DeviceObject = %p\n", irpsp->DeviceObject);
+    ok(!irpsp->FileObject, "FileObject = %p\n", irpsp->FileObject);
     ok(!irpsp->CompletionRoutine, "CompletionRoutine = %p\n", irpsp->CompletionRoutine);
 
     status = wait_single(&event, 0);
@@ -1118,7 +1118,7 @@ static void test_cancel_irp(DEVICE_OBJECT *device)
 
     ok(irp->CurrentLocation == 1, "CurrentLocation = %u\n", irp->CurrentLocation);
     irpsp = IoGetCurrentIrpStackLocation(irp);
-    ok(irpsp->DeviceObject == device, "DeviceObject = %u\n", irpsp->DeviceObject);
+    ok(irpsp->DeviceObject == device, "DeviceObject = %p\n", irpsp->DeviceObject);
 
     IoSetCancelRoutine(irp, cancel_irp);
     cancel_cnt = 0;
@@ -1432,16 +1432,16 @@ static void check_resource_(int line, ERESOURCE *resource, ULONG exclusive_waite
     ULONG count;
 
     count = ExGetExclusiveWaiterCount(resource);
-    ok_(__FILE__, line, count == exclusive_waiters,
+    ok_(__FILE__, line)(count == exclusive_waiters,
             "expected %u exclusive waiters, got %u\n", exclusive_waiters, count);
     count = ExGetSharedWaiterCount(resource);
-    ok_(__FILE__, line, count == shared_waiters,
+    ok_(__FILE__, line)(count == shared_waiters,
             "expected %u shared waiters, got %u\n", shared_waiters, count);
     ret = ExIsResourceAcquiredExclusiveLite(resource);
-    ok_(__FILE__, line, ret == exclusive,
+    ok_(__FILE__, line)(ret == exclusive,
             "expected exclusive %u, got %u\n", exclusive, ret);
     count = ExIsResourceAcquiredSharedLite(resource);
-    ok_(__FILE__, line, count == shared_count,
+    ok_(__FILE__, line)(count == shared_count,
             "expected shared %u, got %u\n", shared_count, count);
 }
 #define check_resource(a,b,c,d,e) check_resource_(__LINE__,a,b,c,d,e)
@@ -1713,6 +1713,7 @@ static void test_resource(void)
     ok(status == STATUS_SUCCESS, "got status %#x\n", status);
 }
 
+
 static void test_lookup_thread(void)
 {
     NTSTATUS status;
@@ -1738,11 +1739,42 @@ static void test_stack_limits(void)
     ok(low < (ULONG_PTR)&low && (ULONG_PTR)&low < high, "stack variable is not in stack limits\n");
 }
 
-static unsigned int got_completion;
+static unsigned int got_completion, completion_lower_pending, completion_upper_pending;
 
 static NTSTATUS WINAPI completion_cb(DEVICE_OBJECT *device, IRP *irp, void *context)
 {
+    IO_STACK_LOCATION *stack = IoGetCurrentIrpStackLocation(irp);
     ok(device == context, "Got device %p; expected %p.\n", device, context);
+
+    if (device == upper_device)
+    {
+        ok(irp->PendingReturned == completion_lower_pending, "Got PendingReturned %u, expected %u.\n",
+                irp->PendingReturned, completion_lower_pending);
+
+        ok(irp->CurrentLocation == 2, "Got current location %u.\n", irp->CurrentLocation);
+        ok(stack->Control == (SL_INVOKE_ON_CANCEL | SL_INVOKE_ON_ERROR | SL_INVOKE_ON_SUCCESS),
+                "Got control flags %#x.\n", stack->Control);
+        stack = IoGetNextIrpStackLocation(irp);
+        ok(!stack->Control, "Got control flags %#x.\n", stack->Control);
+        stack = irp->Tail.Overlay.CurrentStackLocation + 1; /* previous location */
+        ok(!stack->Control, "Got control flags %#x.\n", stack->Control);
+
+        if (irp->PendingReturned && completion_upper_pending)
+            IoMarkIrpPending(irp);
+    }
+    else
+    {
+        ok(irp->PendingReturned == completion_upper_pending, "Got PendingReturned %u, expected %u.\n",
+                irp->PendingReturned, completion_upper_pending);
+
+        ok(irp->CurrentLocation == 3, "Got current location %u.\n", irp->CurrentLocation);
+        ok(!stack->Control, "Got control flags %#x.\n", stack->Control);
+        stack = IoGetNextIrpStackLocation(irp);
+        ok(!stack->Control, "Got control flags %#x.\n", stack->Control);
+        stack = irp->Tail.Overlay.CurrentStackLocation - 2; /* lowest location */
+        ok(!stack->Control, "Got control flags %#x.\n", stack->Control);
+    }
+
     ++got_completion;
     return STATUS_SUCCESS;
 }
@@ -1754,14 +1786,49 @@ static void test_completion(void)
     KEVENT event;
     IRP *irp;
 
+    completion_lower_pending = completion_upper_pending = FALSE;
+
     KeInitializeEvent(&event, NotificationEvent, FALSE);
 
     irp = IoBuildDeviceIoControlRequest(IOCTL_WINETEST_COMPLETION, upper_device,
             NULL, 0, NULL, 0, FALSE, &event, &io);
-
     IoSetCompletionRoutine(irp, completion_cb, NULL, TRUE, TRUE, TRUE);
     ret = IoCallDriver(upper_device, irp);
     ok(ret == STATUS_SUCCESS, "IoCallDriver returned %#x\n", ret);
+    ok(got_completion == 2, "got %u calls to completion routine\n", got_completion);
+
+    completion_lower_pending = TRUE;
+    got_completion = 0;
+
+    irp = IoBuildDeviceIoControlRequest(IOCTL_WINETEST_COMPLETION, upper_device,
+            NULL, 0, NULL, 0, FALSE, &event, &io);
+    IoSetCompletionRoutine(irp, completion_cb, NULL, TRUE, TRUE, TRUE);
+    ret = IoCallDriver(upper_device, irp);
+    ok(ret == STATUS_PENDING, "IoCallDriver returned %#x\n", ret);
+    ok(!got_completion, "got %u calls to completion routine\n", got_completion);
+
+    ok(irp->CurrentLocation == 1, "Got current location %u.\n", irp->CurrentLocation);
+    ok(!irp->PendingReturned, "Got pending flag %u.\n", irp->PendingReturned);
+
+    irp->IoStatus.Status = STATUS_SUCCESS;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+    ok(got_completion == 2, "got %u calls to completion routine\n", got_completion);
+
+    completion_upper_pending = TRUE;
+    got_completion = 0;
+
+    irp = IoBuildDeviceIoControlRequest(IOCTL_WINETEST_COMPLETION, upper_device,
+            NULL, 0, NULL, 0, FALSE, &event, &io);
+    IoSetCompletionRoutine(irp, completion_cb, NULL, TRUE, TRUE, TRUE);
+    ret = IoCallDriver(upper_device, irp);
+    ok(ret == STATUS_PENDING, "IoCallDriver returned %#x\n", ret);
+    ok(!got_completion, "got %u calls to completion routine\n", got_completion);
+
+    ok(irp->CurrentLocation == 1, "Got current location %u.\n", irp->CurrentLocation);
+    ok(!irp->PendingReturned, "Got pending flag %u.\n", irp->PendingReturned);
+
+    irp->IoStatus.Status = STATUS_SUCCESS;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
     ok(got_completion == 2, "got %u calls to completion routine\n", got_completion);
 }
 
@@ -2228,6 +2295,52 @@ static void test_permanence(void)
     ok(status == STATUS_OBJECT_NAME_NOT_FOUND, "got %#x\n", status);
 }
 
+static void test_default_modules(void)
+{
+    BOOL win32k = FALSE, dxgkrnl = FALSE, dxgmms1 = FALSE;
+    LIST_ENTRY *start, *entry;
+    ANSI_STRING name_a;
+    LDR_DATA_TABLE_ENTRY *mod;
+    NTSTATUS status;
+
+    /* Try to find start of the InLoadOrderModuleList list */
+    for (start = ldr_module->InLoadOrderLinks.Flink; ; start = start->Flink)
+    {
+        mod = CONTAINING_RECORD(start, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+
+        if (!MmIsAddressValid(&mod->DllBase) || !mod->DllBase) break;
+        if (!MmIsAddressValid(&mod->LoadCount) || !mod->LoadCount) break;
+        if (!MmIsAddressValid(&mod->SizeOfImage) || !mod->SizeOfImage) break;
+        if (!MmIsAddressValid(&mod->EntryPoint) || mod->EntryPoint < mod->DllBase ||
+            (DWORD_PTR)mod->EntryPoint > (DWORD_PTR)mod->DllBase + mod->SizeOfImage) break;
+    }
+
+    for (entry = start->Flink; entry != start; entry = entry->Flink)
+    {
+        mod = CONTAINING_RECORD(entry, LDR_DATA_TABLE_ENTRY, InLoadOrderLinks);
+
+        status = RtlUnicodeStringToAnsiString(&name_a, &mod->BaseDllName, TRUE);
+        ok(!status, "RtlUnicodeStringToAnsiString failed with %08x\n", status);
+        if (status) continue;
+
+        if (entry == start->Flink)
+        {
+            ok(!strncmp(name_a.Buffer, "ntoskrnl.exe", name_a.Length),
+               "Expected ntoskrnl.exe, got %.*s\n", name_a.Length, name_a.Buffer);
+        }
+
+        if (!strncmp(name_a.Buffer, "win32k.sys", name_a.Length)) win32k = TRUE;
+        if (!strncmp(name_a.Buffer, "dxgkrnl.sys", name_a.Length)) dxgkrnl = TRUE;
+        if (!strncmp(name_a.Buffer, "dxgmms1.sys", name_a.Length)) dxgmms1 = TRUE;
+
+        RtlFreeAnsiString(&name_a);
+    }
+
+    ok(win32k, "Failed to find win32k.sys\n");
+    ok(dxgkrnl, "Failed to find dxgkrnl.sys\n");
+    ok(dxgmms1, "Failed to find dxgmms1.sys\n");
+}
+
 static NTSTATUS main_test(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *stack)
 {
     void *buffer = irp->AssociatedIrp.SystemBuffer;
@@ -2260,6 +2373,7 @@ static NTSTATUS main_test(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *st
     test_stack_callout();
     test_lookaside_list();
     test_ob_reference();
+    test_default_modules();
     test_resource();
     test_lookup_thread();
     test_IoAttachDeviceToDeviceStack();
@@ -2330,22 +2444,64 @@ static NTSTATUS get_fscontext(IRP *irp, IO_STACK_LOCATION *stack, ULONG_PTR *inf
     return STATUS_SUCCESS;
 }
 
-static NTSTATUS return_status(IRP *irp, IO_STACK_LOCATION *stack, ULONG_PTR *info)
+static NTSTATUS return_status(IRP *irp, IO_STACK_LOCATION *stack, ULONG code)
 {
-    char *buffer = irp->AssociatedIrp.SystemBuffer;
-    NTSTATUS ret;
+    ULONG input_length = stack->Parameters.DeviceIoControl.InputBufferLength;
+    ULONG output_length = stack->Parameters.DeviceIoControl.OutputBufferLength;
+    const struct return_status_params *input_buffer;
+    struct return_status_params params;
+    void *output_buffer;
 
-    if (!buffer)
+    if (code == IOCTL_WINETEST_RETURN_STATUS_NEITHER)
+    {
+        input_buffer = stack->Parameters.DeviceIoControl.Type3InputBuffer;
+        output_buffer = irp->UserBuffer;
+    }
+    else if (code == IOCTL_WINETEST_RETURN_STATUS_DIRECT)
+    {
+        input_buffer = irp->AssociatedIrp.SystemBuffer;
+        output_buffer = MmGetSystemAddressForMdlSafe(irp->MdlAddress, NormalPagePriority);
+    }
+    else
+    {
+        input_buffer = irp->AssociatedIrp.SystemBuffer;
+        output_buffer = irp->AssociatedIrp.SystemBuffer;
+    }
+
+    if (!input_buffer || !output_buffer)
+    {
+        irp->IoStatus.Status = STATUS_ACCESS_VIOLATION;
+        IoCompleteRequest(irp, IO_NO_INCREMENT);
         return STATUS_ACCESS_VIOLATION;
+    }
 
-    if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(DWORD)
-            || stack->Parameters.DeviceIoControl.OutputBufferLength < 3)
+    if (input_length < sizeof(params) || output_length < 6)
+    {
+        irp->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
+        IoCompleteRequest(irp, IO_NO_INCREMENT);
         return STATUS_BUFFER_TOO_SMALL;
+    }
 
-    ret = *(DWORD *)irp->AssociatedIrp.SystemBuffer;
-    memcpy(buffer, "ghi", 3);
-    *info = 3;
-    return ret;
+    params = *input_buffer;
+
+    if (params.ret_status == STATUS_PENDING && !params.pending)
+    {
+        /* this causes kernel hangs under certain conditions */
+        irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
+        IoCompleteRequest(irp, IO_NO_INCREMENT);
+        return STATUS_INVALID_PARAMETER;
+    }
+
+    if (params.pending)
+        IoMarkIrpPending(irp);
+
+    /* intentionally report the wrong information (and status) */
+    memcpy(output_buffer, "ghijkl", 6);
+    irp->IoStatus.Information = 3;
+    irp->IoStatus.Status = params.iosb_status;
+    IoCompleteRequest(irp, IO_NO_INCREMENT);
+
+    return params.ret_status;
 }
 
 static NTSTATUS test_load_driver_ioctl(IRP *irp, IO_STACK_LOCATION *stack, ULONG_PTR *info)
@@ -2365,38 +2521,19 @@ static NTSTATUS test_load_driver_ioctl(IRP *irp, IO_STACK_LOCATION *stack, ULONG
         return ZwUnloadDriver(&name);
 }
 
-static NTSTATUS test_mismatched_status_ioctl(IRP *irp, IO_STACK_LOCATION *stack, ULONG_PTR *info)
-{
-    ULONG length = stack->Parameters.DeviceIoControl.OutputBufferLength;
-    char *buffer = irp->UserBuffer;
-
-    if (!buffer)
-    {
-        irp->IoStatus.Status = STATUS_ACCESS_VIOLATION;
-        IoCompleteRequest(irp, IO_NO_INCREMENT);
-        return STATUS_ACCESS_VIOLATION;
-    }
-
-    if (length < sizeof(teststr))
-    {
-        irp->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
-        IoCompleteRequest(irp, IO_NO_INCREMENT);
-        return STATUS_BUFFER_TOO_SMALL;
-    }
-
-    memcpy(buffer, teststr, sizeof(teststr));
-
-    /* This is deliberate; some broken drivers do this */
-    *info = 0;
-    irp->IoStatus.Status = STATUS_UNSUCCESSFUL;
-    IoCompleteRequest(irp, IO_NO_INCREMENT);
-    return STATUS_SUCCESS;
-}
-
-static NTSTATUS test_completion_ioctl(DEVICE_OBJECT *device, IRP *irp)
+static NTSTATUS completion_ioctl(DEVICE_OBJECT *device, IRP *irp, IO_STACK_LOCATION *stack)
 {
     if (device == upper_device)
     {
+        ok(irp->CurrentLocation == 2, "Got current location %u.\n", irp->CurrentLocation);
+        ok(!irp->PendingReturned, "Got pending flag %u.\n", irp->PendingReturned);
+        ok(stack->Control == (SL_INVOKE_ON_CANCEL | SL_INVOKE_ON_ERROR | SL_INVOKE_ON_SUCCESS),
+                "Got control flags %#x.\n", stack->Control);
+        stack = IoGetNextIrpStackLocation(irp);
+        ok(!stack->Control, "Got control flags %#x.\n", stack->Control);
+        stack = irp->Tail.Overlay.CurrentStackLocation + 1; /* previous location */
+        ok(!stack->Control, "Got control flags %#x.\n", stack->Control);
+
         IoCopyCurrentIrpStackLocationToNext(irp);
         IoSetCompletionRoutine(irp, completion_cb, upper_device, TRUE, TRUE, TRUE);
         return IoCallDriver(lower_device, irp);
@@ -2404,9 +2541,27 @@ static NTSTATUS test_completion_ioctl(DEVICE_OBJECT *device, IRP *irp)
     else
     {
         ok(device == lower_device, "Got wrong device.\n");
-        irp->IoStatus.Status = STATUS_SUCCESS;
-        IoCompleteRequest(irp, IO_NO_INCREMENT);
-        return STATUS_SUCCESS;
+        ok(irp->CurrentLocation == 1, "Got current location %u.\n", irp->CurrentLocation);
+        ok(!irp->PendingReturned, "Got pending flag %u.\n", irp->PendingReturned);
+        ok(stack->Control == (SL_INVOKE_ON_CANCEL | SL_INVOKE_ON_ERROR | SL_INVOKE_ON_SUCCESS),
+                "Got control flags %#x.\n", stack->Control);
+        stack = irp->Tail.Overlay.CurrentStackLocation + 1; /* previous location */
+        ok(stack->Control == (SL_INVOKE_ON_CANCEL | SL_INVOKE_ON_ERROR | SL_INVOKE_ON_SUCCESS),
+                "Got control flags %#x.\n", stack->Control);
+        stack = irp->Tail.Overlay.CurrentStackLocation + 2; /* top location */
+        ok(!stack->Control, "Got control flags %#x.\n", stack->Control);
+
+        if (completion_lower_pending)
+        {
+            IoMarkIrpPending(irp);
+            return STATUS_PENDING;
+        }
+        else
+        {
+            irp->IoStatus.Status = STATUS_SUCCESS;
+            IoCompleteRequest(irp, IO_NO_INCREMENT);
+            return STATUS_SUCCESS;
+        }
     }
 }
 
@@ -2472,17 +2627,16 @@ static NTSTATUS WINAPI driver_IoControl(DEVICE_OBJECT *device, IRP *irp)
         case IOCTL_WINETEST_GET_FSCONTEXT:
             status = get_fscontext(irp, stack, &irp->IoStatus.Information);
             break;
-        case IOCTL_WINETEST_RETURN_STATUS:
-            status = return_status(irp, stack, &irp->IoStatus.Information);
-            break;
+        case IOCTL_WINETEST_RETURN_STATUS_BUFFERED:
+        case IOCTL_WINETEST_RETURN_STATUS_DIRECT:
+        case IOCTL_WINETEST_RETURN_STATUS_NEITHER:
+            return return_status(irp, stack, stack->Parameters.DeviceIoControl.IoControlCode);
         case IOCTL_WINETEST_DETACH:
             IoDetachDevice(lower_device);
             status = STATUS_SUCCESS;
             break;
-        case IOCTL_WINETEST_MISMATCHED_STATUS:
-            return test_mismatched_status_ioctl(irp, stack, &irp->IoStatus.Information);
         case IOCTL_WINETEST_COMPLETION:
-            return test_completion_ioctl(device, irp);
+            return completion_ioctl(device, irp, stack);
         default:
             break;
     }
@@ -2660,6 +2814,7 @@ NTSTATUS WINAPI DriverEntry(DRIVER_OBJECT *driver, PUNICODE_STRING registry)
     DbgPrint("loading driver\n");
 
     driver_obj = driver;
+    ldr_module = (LDR_DATA_TABLE_ENTRY *)driver->DriverSection;
 
     /* Allow unloading of the driver */
     driver->DriverUnload = driver_Unload;

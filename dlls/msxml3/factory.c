@@ -35,6 +35,7 @@
 #include "ole2.h"
 #include "msxml.h"
 #include "msxml2.h"
+#include "msxml6.h"
 #include "xmlparser.h"
 
 /* undef the #define in msxml2 so that we can access the v.2 version
@@ -280,6 +281,7 @@ static HRESULT DOMClassFactory_Create(const GUID *clsid, REFIID riid, void **ppv
 
 static ClassFactory xmldoccf = { { &ClassFactoryVtbl }, XMLDocument_create };
 static ClassFactory httpreqcf = { { &ClassFactoryVtbl }, XMLHTTPRequest_create };
+static ClassFactory httpreqcf2 = { { &ClassFactoryVtbl }, XMLHTTPRequest2_create };
 static ClassFactory serverhttp = { { &ClassFactoryVtbl }, ServerXMLHTTP_create };
 static ClassFactory xsltemplatecf = { { &ClassFactoryVtbl }, XSLTemplate_create };
 static ClassFactory mxnsmanagercf = { {&ClassFactoryVtbl }, MXNamespaceManager_create };
@@ -302,7 +304,7 @@ HRESULT WINAPI DllGetClassObject( REFCLSID rclsid, REFIID riid, void **ppv )
         IsEqualCLSID( rclsid, &CLSID_DOMDocument40 )||  /* Version dep.   v 4.0 */
         IsEqualCLSID( rclsid, &CLSID_DOMDocument60 ))   /* Version dep.   v 6.0 */
     {
-        return DOMClassFactory_Create(rclsid, riid, ppv, DOMDocument_create);
+        return DOMClassFactory_Create(rclsid, riid, ppv, dom_document_create);
     }
     else if( IsEqualCLSID( rclsid, &CLSID_XMLSchemaCache )   ||
              IsEqualCLSID( rclsid, &CLSID_XMLSchemaCache26 ) ||
@@ -323,7 +325,7 @@ HRESULT WINAPI DllGetClassObject( REFCLSID rclsid, REFIID riid, void **ppv )
              IsEqualCLSID( rclsid, &CLSID_FreeThreadedDOMDocument40 ) ||
              IsEqualCLSID( rclsid, &CLSID_FreeThreadedDOMDocument60 ))
     {
-        return DOMClassFactory_Create(rclsid, riid, ppv, DOMDocument_create);
+        return DOMClassFactory_Create(rclsid, riid, ppv, dom_document_create);
     }
     else if( IsEqualCLSID( rclsid, &CLSID_SAXXMLReader) ||
              IsEqualCLSID( rclsid, &CLSID_SAXXMLReader30 ) ||
@@ -340,6 +342,10 @@ HRESULT WINAPI DllGetClassObject( REFCLSID rclsid, REFIID riid, void **ppv )
              IsEqualCLSID( rclsid, &CLSID_XMLHTTP60 ))
     {
         cf = &httpreqcf.IClassFactory_iface;
+    }
+    else if( IsEqualCLSID( rclsid, &CLSID_FreeThreadedXMLHTTP60 ))
+    {
+        cf = &httpreqcf2.IClassFactory_iface;
     }
     else if( IsEqualCLSID( rclsid, &CLSID_ServerXMLHTTP ) ||
              IsEqualCLSID( rclsid, &CLSID_ServerXMLHTTP30 ) ||

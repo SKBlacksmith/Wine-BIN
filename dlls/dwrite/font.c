@@ -1997,7 +1997,7 @@ static HRESULT WINAPI dwritefont_GetFontFamily(IDWriteFont3 *iface, IDWriteFontF
 
     TRACE("%p, %p.\n", iface, family);
 
-    *family = (IDWriteFontFamily *)font->family;
+    *family = (IDWriteFontFamily *)&font->family->IDWriteFontFamily2_iface;
     IDWriteFontFamily_AddRef(*family);
     return S_OK;
 }
@@ -2242,7 +2242,7 @@ static struct dwrite_font *unsafe_impl_from_IDWriteFont(IDWriteFont *iface)
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == (IDWriteFontVtbl*)&dwritefontvtbl);
-    return CONTAINING_RECORD(iface, struct dwrite_font, IDWriteFont3_iface);
+    return CONTAINING_RECORD((IDWriteFont3 *)iface, struct dwrite_font, IDWriteFont3_iface);
 }
 
 struct dwrite_fontface *unsafe_impl_from_IDWriteFontFace(IDWriteFontFace *iface)
@@ -2250,7 +2250,7 @@ struct dwrite_fontface *unsafe_impl_from_IDWriteFontFace(IDWriteFontFace *iface)
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == (IDWriteFontFaceVtbl*)&dwritefontfacevtbl);
-    return CONTAINING_RECORD(iface, struct dwrite_fontface, IDWriteFontFace5_iface);
+    return CONTAINING_RECORD((IDWriteFontFace5 *)iface, struct dwrite_fontface, IDWriteFontFace5_iface);
 }
 
 static struct dwrite_fontfacereference *unsafe_impl_from_IDWriteFontFaceReference(IDWriteFontFaceReference *iface)
@@ -2532,7 +2532,7 @@ static HRESULT WINAPI dwritefontfamily_GetFontCollection(IDWriteFontFamily2 *ifa
 
     TRACE("%p, %p.\n", iface, collection);
 
-    *collection = (IDWriteFontCollection *)family->collection;
+    *collection = (IDWriteFontCollection *)&family->collection->IDWriteFontCollection3_iface;
     IDWriteFontCollection_AddRef(*collection);
     return S_OK;
 }

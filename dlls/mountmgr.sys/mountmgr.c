@@ -55,14 +55,21 @@ struct mount_point
 static struct list mount_points_list = LIST_INIT(mount_points_list);
 static HKEY mount_key;
 
-void set_mount_point_id( struct mount_point *mount, const void *id, unsigned int id_len )
+void set_mount_point_id( struct mount_point *mount, const void *id, unsigned int id_len, int drive )
 {
+    WCHAR logicalW[] = {'\\','\\','.','\\','a',':',0};
     RtlFreeHeap( GetProcessHeap(), 0, mount->id );
     mount->id_len = max( MIN_ID_LEN, id_len );
     if ((mount->id = RtlAllocateHeap( GetProcessHeap(), HEAP_ZERO_MEMORY, mount->id_len )))
     {
         memcpy( mount->id, id, id_len );
-        RegSetValueExW( mount_key, mount->link.Buffer, 0, REG_BINARY, mount->id, mount->id_len );
+        if (drive < 0)
+            RegSetValueExW( mount_key, mount->link.Buffer, 0, REG_BINARY, mount->id, mount->id_len );
+        else
+        {
+            logicalW[4] = 'a' + drive;
+            RegSetValueExW( mount_key, mount->link.Buffer, 0, REG_BINARY, (BYTE*)logicalW, sizeof(logicalW) );
+        }
     }
     else mount->id_len = 0;
 }
@@ -286,32 +293,47 @@ static NTSTATUS define_unix_drive( const void *in_buff, SIZE_T insize )
 }
 
 /* implementation of IOCTL_MOUNTMGR_QUERY_DHCP_REQUEST_PARAMS */
-static NTSTATUS query_dhcp_request_params( void *buff, SIZE_T insize,
-                                           SIZE_T outsize, IO_STATUS_BLOCK *iosb )
+static void WINAPI query_dhcp_request_params( TP_CALLBACK_INSTANCE *instance, void *context )
 {
-    struct mountmgr_dhcp_request_params *query = buff;
-    ULONG i, offset;
+    IRP *irp = context;
+    struct mountmgr_dhcp_request_params *query = irp->AssociatedIrp.SystemBuffer;
+    IO_STACK_LOCATION *irpsp = IoGetCurrentIrpStackLocation( irp );
+    SIZE_T insize = irpsp->Parameters.DeviceIoControl.InputBufferLength;
+    SIZE_T outsize = irpsp->Parameters.DeviceIoControl.OutputBufferLength;
+    ULONG i, offset = 0;
 
     /* sanity checks */
-    if (FIELD_OFFSET(struct mountmgr_dhcp_request_params, params[query->count]) > insize ||
-        !memchrW( query->adapter, 0, ARRAY_SIZE(query->adapter) )) return STATUS_INVALID_PARAMETER;
+    if (FIELD_OFFSET(struct mountmgr_dhcp_request_params, params[query->count]) > insize)
+    {
+        irp->IoStatus.u.Status = STATUS_INVALID_PARAMETER;
+        goto err;
+    }
+
     for (i = 0; i < query->count; i++)
-        if (query->params[i].offset + query->params[i].size > insize) return STATUS_INVALID_PARAMETER;
+        if (query->params[i].offset + query->params[i].size > insize)
+        {
+            irp->IoStatus.u.Status = STATUS_INVALID_PARAMETER;
+            goto err;
+        }
+
 
     offset = FIELD_OFFSET(struct mountmgr_dhcp_request_params, params[query->count]);
     for (i = 0; i < query->count; i++)
     {
-        offset += get_dhcp_request_param( query->adapter, &query->params[i], buff, offset, outsize - offset );
+        offset += get_dhcp_request_param( &query->adapter, &query->params[i], (char *)query, offset, outsize - offset );
         if (offset > outsize)
         {
             if (offset >= sizeof(query->size)) query->size = offset;
-            iosb->Information = sizeof(query->size);
-            return STATUS_MORE_ENTRIES;
+            offset = sizeof(query->size);
+            irp->IoStatus.u.Status = STATUS_MORE_ENTRIES;
+            goto err;
         }
     }
+    irp->IoStatus.u.Status = STATUS_SUCCESS;
 
-    iosb->Information = offset;
-    return STATUS_SUCCESS;
+err:
+    irp->IoStatus.Information = offset;
+    IoCompleteRequest( irp, IO_NO_INCREMENT );
 }
 
 /* implementation of Wine extension to use host APIs to find symbol file by GUID */
@@ -929,10 +951,10 @@ static NTSTATUS WINAPI mountmgr_ioctl( DEVICE_OBJECT *device, IRP *irp )
             status = STATUS_INVALID_PARAMETER;
             break;
         }
-        status = query_dhcp_request_params( irp->AssociatedIrp.SystemBuffer,
-                                            irpsp->Parameters.DeviceIoControl.InputBufferLength,
-                                            irpsp->Parameters.DeviceIoControl.OutputBufferLength,
-                                            &irp->IoStatus );
+
+        if (TrySubmitThreadpoolCallback( query_dhcp_request_params, irp, NULL ))
+            return (irp->IoStatus.u.Status = STATUS_PENDING);
+        status = STATUS_NO_MEMORY;
         break;
 #ifdef __APPLE__
     case IOCTL_MOUNTMGR_QUERY_SYMBOL_FILE:

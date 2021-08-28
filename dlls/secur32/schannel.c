@@ -659,7 +659,8 @@ static int schan_find_sec_buffer_idx(const SecBufferDesc *desc, unsigned int sta
     for (i = start_idx; i < desc->cBuffers; ++i)
     {
         buffer = &desc->pBuffers[i];
-        if (buffer->BufferType == buffer_type) return i;
+        if ((buffer->BufferType | SECBUFFER_ATTRMASK) == (buffer_type | SECBUFFER_ATTRMASK))
+            return i;
     }
 
     return -1;
@@ -903,7 +904,7 @@ static SECURITY_STATUS SEC_ENTRY schan_InitializeSecurityContextW(
     dump_buffer_desc(pInput);
     dump_buffer_desc(pOutput);
 
-    if (!phContext)
+    if (!phContext || (phNewContext && !pInput))
     {
         ULONG_PTR handle;
 

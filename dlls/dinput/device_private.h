@@ -53,6 +53,8 @@ typedef struct
     UINT_PTR uAppData;
 } ActionMap;
 
+typedef HRESULT dinput_device_read_state( IDirectInputDevice8W *iface );
+
 /* Device implementation */
 typedef struct IDirectInputDeviceImpl IDirectInputDeviceImpl;
 struct IDirectInputDeviceImpl
@@ -84,6 +86,10 @@ struct IDirectInputDeviceImpl
     /* Action mapping */
     int                         num_actions; /* number of actions mapped */
     ActionMap                  *action_map;  /* array of mappings */
+
+    /* internal device file reading */
+    HANDLE                    read_event;
+    dinput_device_read_state *read_callback;
 };
 
 extern HRESULT direct_input_device_alloc( SIZE_T size, const IDirectInputDevice8WVtbl *vtbl, const GUID *guid,
@@ -131,6 +137,9 @@ extern void _dump_DIDATAFORMAT(const DIDATAFORMAT *df)  DECLSPEC_HIDDEN;
 extern const char *_dump_dinput_GUID(const GUID *guid)  DECLSPEC_HIDDEN;
 
 extern LPDIOBJECTDATAFORMAT dataformat_to_odf_by_type(LPCDIDATAFORMAT df, int n, DWORD type)   DECLSPEC_HIDDEN;
+
+extern HRESULT save_mapping_settings(IDirectInputDevice8W *iface, LPDIACTIONFORMATW lpdiaf, LPCWSTR lpszUsername) DECLSPEC_HIDDEN;
+extern BOOL load_mapping_settings(IDirectInputDeviceImpl *This, LPDIACTIONFORMATW lpdiaf, const WCHAR *username) DECLSPEC_HIDDEN;
 
 extern HRESULT _build_action_map(LPDIRECTINPUTDEVICE8W iface, LPDIACTIONFORMATW lpdiaf, LPCWSTR lpszUserName, DWORD dwFlags, DWORD devMask, LPCDIDATAFORMAT df)  DECLSPEC_HIDDEN;
 extern HRESULT _set_action_map(LPDIRECTINPUTDEVICE8W iface, LPDIACTIONFORMATW lpdiaf, LPCWSTR lpszUserName, DWORD dwFlags, LPCDIDATAFORMAT df) DECLSPEC_HIDDEN;

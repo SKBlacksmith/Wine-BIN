@@ -414,8 +414,8 @@ static HRESULT WINAPI d3d_viewport_SetViewport(IDirect3DViewport3 *iface, D3DVIE
         surface = wined3d_rendertarget_view_get_sub_resource_parent(rtv);
         wined3d_texture_get_sub_resource_desc(surface->wined3d_texture, surface->sub_resource_idx, &rt_desc);
 
-        if (vp->dwX > rt_desc.width || vp->dwWidth > rt_desc.width - vp->dwX
-            || vp->dwY > rt_desc.height || vp->dwHeight > rt_desc.height - vp->dwY)
+        if (!wined3d_bound_range(vp->dwX, vp->dwWidth, rt_desc.width)
+                || !wined3d_bound_range(vp->dwY, vp->dwHeight, rt_desc.height))
         {
             WARN("Invalid viewport, returning DDERR_INVALIDPARAMS.\n");
             wined3d_mutex_unlock();
@@ -1043,8 +1043,8 @@ static HRESULT WINAPI d3d_viewport_SetViewport2(IDirect3DViewport3 *iface, D3DVI
         surface = wined3d_rendertarget_view_get_sub_resource_parent(rtv);
         wined3d_texture_get_sub_resource_desc(surface->wined3d_texture, surface->sub_resource_idx, &rt_desc);
 
-        if (vp->dwX > rt_desc.width || vp->dwWidth > rt_desc.width - vp->dwX
-            || vp->dwY > rt_desc.height || vp->dwHeight > rt_desc.height - vp->dwY)
+        if (!wined3d_bound_range(vp->dwX, vp->dwWidth, rt_desc.width)
+                || !wined3d_bound_range(vp->dwY, vp->dwHeight, rt_desc.height))
         {
             WARN("Invalid viewport, returning DDERR_INVALIDPARAMS.\n");
             wined3d_mutex_unlock();
@@ -1217,7 +1217,7 @@ struct d3d_viewport *unsafe_impl_from_IDirect3DViewport2(IDirect3DViewport2 *ifa
     /* IDirect3DViewport and IDirect3DViewport3 use the same iface. */
     if (!iface) return NULL;
     assert(iface->lpVtbl == (IDirect3DViewport2Vtbl *)&d3d_viewport_vtbl);
-    return CONTAINING_RECORD(iface, struct d3d_viewport, IDirect3DViewport3_iface);
+    return CONTAINING_RECORD((IDirect3DViewport3 *)iface, struct d3d_viewport, IDirect3DViewport3_iface);
 }
 
 struct d3d_viewport *unsafe_impl_from_IDirect3DViewport(IDirect3DViewport *iface)
@@ -1225,7 +1225,7 @@ struct d3d_viewport *unsafe_impl_from_IDirect3DViewport(IDirect3DViewport *iface
     /* IDirect3DViewport and IDirect3DViewport3 use the same iface. */
     if (!iface) return NULL;
     assert(iface->lpVtbl == (IDirect3DViewportVtbl *)&d3d_viewport_vtbl);
-    return CONTAINING_RECORD(iface, struct d3d_viewport, IDirect3DViewport3_iface);
+    return CONTAINING_RECORD((IDirect3DViewport3 *)iface, struct d3d_viewport, IDirect3DViewport3_iface);
 }
 
 void d3d_viewport_init(struct d3d_viewport *viewport, struct ddraw *ddraw)

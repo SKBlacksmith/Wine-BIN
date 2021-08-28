@@ -3816,7 +3816,7 @@ static HRESULT WINAPI d3dx_effect_FindNextValidTechnique(ID3DXEffect *iface, D3D
         }
     }
 
-    *next_technique = get_technique_handle(&effect->techniques[0]);
+    *next_technique = NULL;
     return S_FALSE;
 }
 
@@ -4309,7 +4309,9 @@ static HRESULT WINAPI d3dx_effect_CloneEffect(ID3DXEffect *iface, IDirect3DDevic
     if (!device)
         return D3DERR_INVALIDCALL;
 
-    return E_NOTIMPL;
+    iface->lpVtbl->AddRef(iface);
+    *new_effect = iface;
+    return S_OK;
 }
 
 #if D3DX_SDK_VERSION >= 27

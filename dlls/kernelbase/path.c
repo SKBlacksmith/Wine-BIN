@@ -401,7 +401,7 @@ HRESULT WINAPI PathAllocCombine(const WCHAR *path1, const WCHAR *path2, DWORD fl
 {
     SIZE_T combined_length, length2;
     WCHAR *combined_path;
-    BOOL from_path2 = FALSE;
+    BOOL add_backslash = FALSE;
     HRESULT hr;
 
     TRACE("%s %s %#x %p\n", wine_dbgstr_w(path1), wine_dbgstr_w(path2), flags, out);
@@ -419,7 +419,8 @@ HRESULT WINAPI PathAllocCombine(const WCHAR *path1, const WCHAR *path2, DWORD fl
     {
         path1 = path2;
         path2 = NULL;
-        from_path2 = TRUE;
+        add_backslash = (is_drive_spec(path1) && !path1[2])
+                        || (is_prefixed_disk(path1) && !path1[6]);
     }
 
     length2 = path2 ? lstrlenW(path2) : 0;
@@ -435,7 +436,7 @@ HRESULT WINAPI PathAllocCombine(const WCHAR *path1, const WCHAR *path2, DWORD fl
 
     lstrcpyW(combined_path, path1);
     PathCchStripPrefix(combined_path, combined_length);
-    if (from_path2) PathCchAddBackslashEx(combined_path, combined_length, NULL, NULL);
+    if (add_backslash) PathCchAddBackslashEx(combined_path, combined_length, NULL, NULL);
 
     if (path2 && path2[0])
     {
@@ -3579,6 +3580,7 @@ HRESULT WINAPI UrlCanonicalizeW(const WCHAR *src_url, WCHAR *canonicalized, DWOR
      *         4   have //  5,3
      *         5   have 1[+] alnum  6,3
      *         6   have location (found /) save root location
+     *         7   have ./
      */
 
     wk1 = url;
@@ -3603,6 +3605,11 @@ HRESULT WINAPI UrlCanonicalizeW(const WCHAR *src_url, WCHAR *canonicalized, DWOR
     else if (url[0] == '/')
     {
         state = 5;
+        is_file_url = TRUE;
+    }
+    else if (url[0] == '.' && url[1] == '/')
+    {
+        state = 7;
         is_file_url = TRUE;
     }
 
@@ -3808,6 +3815,15 @@ HRESULT WINAPI UrlCanonicalizeW(const WCHAR *src_url, WCHAR *canonicalized, DWOR
                 }
             }
             *wk2 = '\0';
+            break;
+        case 7:
+            if (flags & URL_DONT_SIMPLIFY)
+            {
+                state = 3;
+                break;
+            }
+            wk1 += 2;
+            state = 6;
             break;
         default:
             FIXME("how did we get here - state=%d\n", state);
@@ -4929,7 +4945,10 @@ HRESULT WINAPI UrlCombineW(const WCHAR *baseW, const WCHAR *relativeW, WCHAR *co
         work = preliminary + base.cchProtocol + 1 + base.cchSuffix - 1;
         if (*work++ != '/')
             *(work++) = '/';
-        lstrcpyW(work, relative.pszSuffix);
+        if (relative.pszSuffix[0] == '.' && relative.pszSuffix[1] == 0)
+            *work = 0;
+        else
+            lstrcpyW(work, relative.pszSuffix);
         break;
 
     default:

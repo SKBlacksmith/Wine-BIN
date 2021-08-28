@@ -55,6 +55,12 @@
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
+#ifdef HAVE_SYS_IOCTL_H
+#include <sys/ioctl.h>
+#endif
+#ifdef HAVE_LINUX_IOCTL_H
+#include <linux/ioctl.h>
+#endif
 #ifdef HAVE_SYS_PRCTL_H
 # include <sys/prctl.h>
 #endif
@@ -93,6 +99,22 @@
 #include "ddk/wdm.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(server);
+
+/* just in case... */
+#undef EXT2_IOC_GETFLAGS
+#undef EXT2_IOC_SETFLAGS
+#undef EXT4_CASEFOLD_FL
+
+#ifdef __linux__
+
+/* Define the ext2 ioctls for handling extra attributes */
+#define EXT2_IOC_GETFLAGS _IOR('f', 1, long)
+#define EXT2_IOC_SETFLAGS _IOW('f', 2, long)
+
+/* Case-insensitivity attribute */
+#define EXT4_CASEFOLD_FL 0x40000000
+
+#endif
 
 #ifndef MSG_CMSG_CLOEXEC
 #define MSG_CMSG_CLOEXEC 0
@@ -286,8 +308,16 @@ unsigned int server_call_unlocked( void *req_ptr )
  */
 unsigned int CDECL wine_server_call( void *req_ptr )
 {
+    struct __server_request_info * const req = req_ptr;
     sigset_t old_set;
     unsigned int ret;
+
+    /* trigger write watches, otherwise read() might return EFAULT */
+    if (req->u.req.request_header.reply_size &&
+        !virtual_check_buffer_for_write( req->reply_data, req->u.req.request_header.reply_size ))
+    {
+        return STATUS_ACCESS_VIOLATION;
+    }
 
     pthread_sigmask( SIG_BLOCK, &server_block_set, &old_set );
     ret = server_call_unlocked( req_ptr );
@@ -379,13 +409,16 @@ static void invoke_system_apc( const apc_call_t *call, apc_result_t *result, BOO
         break;
     case APC_ASYNC_IO:
     {
-        IO_STATUS_BLOCK *iosb = wine_server_get_ptr( call->async_io.sb );
         struct async_fileio *user = wine_server_get_ptr( call->async_io.user );
+        ULONG_PTR info = 0;
 
         result->type = call->type;
-        result->async_io.status = user->callback( user, iosb, call->async_io.status );
+        result->async_io.status = user->callback( user, &info, call->async_io.status );
         if (result->async_io.status != STATUS_PENDING)
-            result->async_io.total = iosb->Information;
+        {
+            result->async_io.total = info;
+            set_async_iosb( call->async_io.sb, result->async_io.status, info );
+        }
         break;
     }
     case APC_VIRTUAL_ALLOC:
@@ -605,6 +638,7 @@ unsigned int server_select( const select_op_t *select_op, data_size_t size, UINT
     apc_call_t call;
     apc_result_t result;
     sigset_t old_set;
+    int signaled;
 
     memset( &result, 0, sizeof(result) );
 
@@ -630,6 +664,7 @@ unsigned int server_select( const select_op_t *select_op, data_size_t size, UINT
                 }
                 if (context) wine_server_set_reply( req, context, 2 * sizeof(*context) );
                 ret = server_call_unlocked( req );
+                signaled    = reply->signaled;
                 apc_handle  = reply->apc_handle;
                 call        = reply->call;
             }
@@ -648,7 +683,7 @@ unsigned int server_select( const select_op_t *select_op, data_size_t size, UINT
             mutex_unlock( mutex );
             mutex = NULL;
         }
-        if (ret != STATUS_PENDING) break;
+        if (signaled) break;
 
         ret = wait_select_reply( &cookie );
     }
@@ -1152,6 +1187,28 @@ static const char *init_server_dir( dev_t dev, ino_t ino )
 
 
 /***********************************************************************
+ *           set_case_insensitive
+ *
+ * Make the supplied directory case insensitive, if available.
+ */
+static void set_case_insensitive(const char *dir)
+{
+#if defined(EXT2_IOC_GETFLAGS) && defined(EXT2_IOC_SETFLAGS) && defined(EXT4_CASEFOLD_FL)
+    int flags, fd;
+
+    if ((fd = open(dir, O_RDONLY | O_NONBLOCK | O_LARGEFILE)) == -1)
+        return;
+    if (ioctl(fd, EXT2_IOC_GETFLAGS, &flags) != -1 && !(flags & EXT4_CASEFOLD_FL))
+    {
+        flags |= EXT4_CASEFOLD_FL;
+        ioctl(fd, EXT2_IOC_SETFLAGS, &flags);
+    }
+    close(fd);
+#endif
+}
+
+
+/***********************************************************************
  *           setup_config_dir
  *
  * Setup the wine configuration dir.
@@ -1187,6 +1244,7 @@ static int setup_config_dir(void)
     if (!mkdir( "dosdevices", 0777 ))
     {
         mkdir( "drive_c", 0777 );
+        set_case_insensitive( "drive_c" );
         symlink( "../drive_c", "dosdevices/c:" );
         symlink( "/", "dosdevices/z:" );
     }
@@ -1563,7 +1621,6 @@ size_t server_init_process(void)
 void server_init_process_done(void)
 {
     void *entry, *teb;
-    struct cpu_topology_override *cpu_override = get_cpu_topology_override();
     NTSTATUS status;
     int suspend, needs_close, unixdir;
 
@@ -1593,8 +1650,6 @@ void server_init_process_done(void)
     /* Signal the parent process to continue */
     SERVER_START_REQ( init_process_done )
     {
-        if (cpu_override)
-            wine_server_add_data( req, cpu_override, sizeof(*cpu_override) );
         req->teb      = wine_server_client_ptr( teb );
         req->peb      = NtCurrentTeb64() ? NtCurrentTeb64()->Peb : wine_server_client_ptr( peb );
 #ifdef __i386__
@@ -1665,6 +1720,8 @@ NTSTATUS WINAPI NtDuplicateObject( HANDLE source_process, HANDLE source, HANDLE 
     sigset_t sigset;
     NTSTATUS ret;
     int fd = -1;
+
+    if (dest) *dest = 0;
 
     if ((options & DUPLICATE_CLOSE_SOURCE) && source_process != NtCurrentProcess())
     {

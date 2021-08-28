@@ -15,6 +15,7 @@ SOURCES = \
 	amsi.idl \
 	amstream.idl \
 	amvideo.idl \
+	apiset.h \
 	appcompatapi.h \
 	appmgmt.h \
 	appmodel.h \
@@ -74,6 +75,7 @@ SOURCES = \
 	colinf.idl \
 	colordlg.h \
 	colrst.idl \
+	combaseapi.h \
 	comcat.idl \
 	commctrl.h \
 	commctrl.rh \
@@ -93,12 +95,15 @@ SOURCES = \
 	cryptuiapi.h \
 	ctfutb.idl \
 	ctxtcall.idl \
+	cuda.h \
 	custcntl.h \
+	cuviddec.h \
 	cvconst.h \
 	cvttyp.idl \
 	d2d1.idl \
 	d2d1_1.idl \
 	d2d1_2.idl \
+	d2d1effects.idl \
 	d2dbasetypes.h \
 	d2derr.h \
 	d3d.h \
@@ -140,8 +145,9 @@ SOURCES = \
 	d3dvec.inl \
 	d3dx10.h \
 	d3dx10async.h \
-	d3dx10core.idl \
+	d3dx10core.h \
 	d3dx10math.h \
+	d3dx10mesh.h \
 	d3dx10tex.h \
 	d3dx11.h \
 	d3dx11async.h \
@@ -179,6 +185,7 @@ SOURCES = \
 	ddk/d3dkmthk.h \
 	ddk/fltkernel.h \
 	ddk/hidclass.h \
+	ddk/hidpddi.h \
 	ddk/hidpi.h \
 	ddk/hidport.h \
 	ddk/hidsdi.h \
@@ -541,11 +548,15 @@ SOURCES = \
 	ntdef.h \
 	ntdsapi.h \
 	ntgdi.h \
+	ntifs.h \
 	ntlsa.h \
 	ntquery.h \
 	ntsecapi.h \
 	ntsecpkg.h \
 	ntstatus.h \
+	nvapi.h \
+	nvcuvid.h \
+	nvencodeapi.h \
 	oaidl.idl \
 	objbase.h \
 	objectarray.idl \
@@ -675,6 +686,7 @@ SOURCES = \
 	srrestoreptapi.h \
 	sspi.h \
 	stdole2.idl \
+	stdole32.idl \
 	stgprop.h \
 	sti.h \
 	storage.h \
@@ -757,6 +769,7 @@ SOURCES = \
 	wincrypt.h \
 	windef.h \
 	windns.h \
+	windot11.h \
 	windows.foundation.collections.idl \
 	windows.foundation.idl \
 	windows.gaming.input.forcefeedback.idl \
@@ -765,6 +778,8 @@ SOURCES = \
 	windows.h \
 	windows.media.devices.idl \
 	windows.media.speechsynthesis.idl \
+	windows.networking.connectivity.idl \
+	windows.networking.idl \
 	windows.system.idl \
 	windows.system.userprofile.idl \
 	windowscontracts.idl \

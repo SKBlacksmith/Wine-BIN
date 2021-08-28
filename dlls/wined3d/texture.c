@@ -2848,6 +2848,7 @@ static void wined3d_texture_gl_download_data(struct wined3d_context *context,
     struct wined3d_bo_gl *dst_bo;
     BOOL srgb = FALSE;
     GLenum target;
+    struct wined3d_texture_sub_resource *sub_resource;
 
     TRACE("context %p, src_texture %p, src_sub_resource_idx %u, src_location %s, src_box %s, dst_bo_addr %s, "
             "dst_format %s, dst_x %u, dst_y %u, dst_z %u, dst_row_pitch %u, dst_slice_pitch %u.\n",
@@ -2902,6 +2903,7 @@ static void wined3d_texture_gl_download_data(struct wined3d_context *context,
 
     format_gl = wined3d_format_gl(src_texture->resource.format);
     target = wined3d_texture_gl_get_sub_resource_target(src_texture_gl, src_sub_resource_idx);
+    sub_resource = &src_texture->sub_resources[src_sub_resource_idx];
 
     if ((src_texture->resource.type == WINED3D_RTYPE_TEXTURE_2D
             && (target == GL_TEXTURE_2D_ARRAY || format_gl->f.conv_byte_count
@@ -2933,6 +2935,23 @@ static void wined3d_texture_gl_download_data(struct wined3d_context *context,
 
         GL_EXTCALL(glGetCompressedTexImage(target, src_level, dst_bo_addr->addr));
         checkGLcall("glGetCompressedTexImage");
+    }
+    else if (dst_bo_addr->buffer_object && src_texture->resource.bind_flags & WINED3D_BIND_RENDER_TARGET)
+    {
+        /* PBO texture download is not accelerated on Mesa. Use glReadPixels if possible. */
+        TRACE("Downloading (glReadPixels) texture %p, %u, level %u, format %#x, type %#x, data %p.\n",
+                src_texture, src_sub_resource_idx, src_level, format_gl->format, format_gl->type, dst_bo_addr->addr);
+
+        wined3d_context_gl_apply_fbo_state_blit(context_gl, GL_READ_FRAMEBUFFER, &src_texture->resource, src_sub_resource_idx, NULL,
+                0, sub_resource->locations & (WINED3D_LOCATION_TEXTURE_RGB | WINED3D_LOCATION_TEXTURE_SRGB));
+        wined3d_context_gl_check_fbo_status(context_gl, GL_READ_FRAMEBUFFER);
+        context_invalidate_state(context, STATE_FRAMEBUFFER);
+        gl_info->gl_ops.gl.p_glReadBuffer(GL_COLOR_ATTACHMENT0);
+        checkGLcall("glReadBuffer()");
+
+        gl_info->gl_ops.gl.p_glReadPixels(0, 0, wined3d_texture_get_level_width(src_texture, src_level),
+                wined3d_texture_get_level_height(src_texture, src_level), format_gl->format, format_gl->type, dst_bo_addr->addr);
+        checkGLcall("glReadPixels");
     }
     else
     {
@@ -5244,15 +5263,31 @@ HRESULT wined3d_texture_vk_init(struct wined3d_texture_vk *texture_vk, struct wi
 void wined3d_texture_vk_barrier(struct wined3d_texture_vk *texture_vk,
         struct wined3d_context_vk *context_vk, uint32_t bind_mask)
 {
-    VkImageSubresourceRange vk_range;
+    uint32_t src_bind_mask = 0;
 
     TRACE("texture_vk %p, context_vk %p, bind_mask %s.\n",
             texture_vk, context_vk, wined3d_debug_bind_flags(bind_mask));
 
-    if (texture_vk->bind_mask && texture_vk->bind_mask != bind_mask)
+    if (bind_mask & ~WINED3D_READ_ONLY_BIND_MASK)
     {
+        src_bind_mask = texture_vk->bind_mask & WINED3D_READ_ONLY_BIND_MASK;
+        if (!src_bind_mask)
+            src_bind_mask = texture_vk->bind_mask;
+
+        texture_vk->bind_mask = bind_mask;
+    }
+    else if ((texture_vk->bind_mask & bind_mask) != bind_mask)
+    {
+        src_bind_mask = texture_vk->bind_mask & ~WINED3D_READ_ONLY_BIND_MASK;
+        texture_vk->bind_mask |= bind_mask;
+    }
+
+    if (src_bind_mask)
+    {
+        VkImageSubresourceRange vk_range;
+
         TRACE("    %s -> %s.\n",
-                wined3d_debug_bind_flags(texture_vk->bind_mask), wined3d_debug_bind_flags(bind_mask));
+                wined3d_debug_bind_flags(src_bind_mask), wined3d_debug_bind_flags(bind_mask));
 
         vk_range.aspectMask = vk_aspect_mask_from_format(texture_vk->t.resource.format);
         vk_range.baseMipLevel = 0;
@@ -5261,12 +5296,11 @@ void wined3d_texture_vk_barrier(struct wined3d_texture_vk *texture_vk,
         vk_range.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
         wined3d_context_vk_image_barrier(context_vk, wined3d_context_vk_get_command_buffer(context_vk),
-                vk_pipeline_stage_mask_from_bind_flags(texture_vk->bind_mask),
+                vk_pipeline_stage_mask_from_bind_flags(src_bind_mask),
                 vk_pipeline_stage_mask_from_bind_flags(bind_mask),
-                vk_access_mask_from_bind_flags(texture_vk->bind_mask), vk_access_mask_from_bind_flags(bind_mask),
+                vk_access_mask_from_bind_flags(src_bind_mask), vk_access_mask_from_bind_flags(bind_mask),
                 texture_vk->layout, texture_vk->layout, texture_vk->image.vk_image, &vk_range);
     }
-    texture_vk->bind_mask = bind_mask;
 }
 
 static void ffp_blitter_destroy(struct wined3d_blitter *blitter, struct wined3d_context *context)

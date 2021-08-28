@@ -479,8 +479,11 @@ static void LISTBOX_UpdatePage( LB_DESCR *descr )
 static void LISTBOX_UpdateSize( LB_DESCR *descr )
 {
     RECT rect;
+    LONG style = GetWindowLongW( descr->self, GWL_STYLE );
 
     GetClientRect( descr->self, &rect );
+    if (style & WS_HSCROLL)
+        rect.bottom += GetSystemMetrics(SM_CYHSCROLL);
     descr->width  = rect.right - rect.left;
     descr->height = rect.bottom - rect.top;
     if (!(descr->style & LBS_NOINTEGRALHEIGHT) && !(descr->style & LBS_OWNERDRAWVARIABLE))
@@ -1839,6 +1842,8 @@ static LRESULT LISTBOX_SetCount( LB_DESCR *descr, UINT count )
     if (!resize_storage(descr, count))
         return LB_ERRSPACE;
     descr->nb_items = count;
+    if (descr->style & LBS_NOREDRAW)
+        descr->style |= LBS_DISPLAYCHANGED;
 
     if (count)
     {
