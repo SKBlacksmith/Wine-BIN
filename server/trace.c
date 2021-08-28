@@ -1354,17 +1354,15 @@ static void dump_varargs_pe_image_info( const char *prefix, data_size_t size )
 
     fprintf( stderr, "%s{", prefix );
     dump_uint64( "base=", &info.base );
-    dump_uint64( ",entry_point=", &info.entry_point );
-    dump_uint64( ",map_size=", &info.map_size );
     dump_uint64( ",stack_size=", &info.stack_size );
     dump_uint64( ",stack_commit=", &info.stack_commit );
-    fprintf( stderr, ",zerobits=%08x,subsystem=%08x,subsystem_minor=%04x,subsystem_major=%04x"
+    fprintf( stderr, ",entry_point=%08x,map_size=%08x,zerobits=%08x,subsystem=%08x,subsystem_minor=%04x,subsystem_major=%04x"
              ",osversion_major=%04x,osversion_minor=%04x,image_charact=%04x,dll_charact=%04x,machine=%04x"
              ",contains_code=%u,image_flags=%02x"
              ",loader_flags=%08x,header_size=%08x,file_size=%08x,checksum=%08x}",
-             info.zerobits, info.subsystem, info.subsystem_minor, info.subsystem_major,
-             info.osversion_major, info.osversion_minor, info.image_charact, info.dll_charact,
-             info.machine, info.contains_code, info.image_flags, info.loader_flags,
+             info.entry_point, info.map_size, info.zerobits, info.subsystem, info.subsystem_minor,
+             info.subsystem_major, info.osversion_major, info.osversion_minor, info.image_charact,
+             info.dll_charact, info.machine, info.contains_code, info.image_flags, info.loader_flags,
              info.header_size, info.file_size, info.checksum );
     remove_data( min( size, sizeof(info) ));
 }
@@ -1433,24 +1431,6 @@ static void dump_varargs_poll_socket_output( const char *prefix, data_size_t siz
         if (size) fputc( ',', stderr );
     }
     fputc( '}', stderr );
-}
-
-static void dump_varargs_cpu_topology_override( const char *prefix, data_size_t size )
-{
-    const struct cpu_topology_override *cpu_topology = cur_data;
-    unsigned int i;
-
-    if (size < sizeof(*cpu_topology))
-        return;
-
-    fprintf( stderr,"%s{", prefix );
-    for (i = 0; i < cpu_topology->cpu_count; ++i)
-    {
-        if (i) fputc( ',', stderr );
-        fprintf( stderr, "%u", cpu_topology->host_cpu_id[i] );
-    }
-    fputc( '}', stderr );
-    remove_data( size );
 }
 
 typedef void (*dump_func)( const void *req );
@@ -1523,8 +1503,7 @@ static void dump_get_startup_info_reply( const struct get_startup_info_reply *re
 
 static void dump_init_process_done_request( const struct init_process_done_request *req )
 {
-    dump_varargs_cpu_topology_override( " cpu_override=", cur_size );
-    dump_uint64( ", teb=", &req->teb );
+    dump_uint64( " teb=", &req->teb );
     dump_uint64( ", peb=", &req->peb );
     dump_uint64( ", ldt_copy=", &req->ldt_copy );
 }
@@ -1822,6 +1801,7 @@ static void dump_select_reply( const struct select_reply *req )
 {
     dump_apc_call( " call=", &req->call );
     fprintf( stderr, ", apc_handle=%04x", req->apc_handle );
+    fprintf( stderr, ", signaled=%d", req->signaled );
     dump_varargs_contexts( ", contexts=", cur_size );
 }
 
@@ -2038,6 +2018,7 @@ static void dump_alloc_file_handle_reply( const struct alloc_file_handle_reply *
 static void dump_get_handle_unix_name_request( const struct get_handle_unix_name_request *req )
 {
     fprintf( stderr, " handle=%04x", req->handle );
+    fprintf( stderr, ", nofollow=%d", req->nofollow );
 }
 
 static void dump_get_handle_unix_name_reply( const struct get_handle_unix_name_reply *req )
@@ -3211,6 +3192,12 @@ static void dump_set_window_region_request( const struct set_window_region_reque
 {
     fprintf( stderr, " window=%08x", req->window );
     fprintf( stderr, ", redraw=%d", req->redraw );
+    dump_varargs_rectangles( ", region=", cur_size );
+}
+
+static void dump_set_layer_region_request( const struct set_layer_region_request *req )
+{
+    fprintf( stderr, " window=%08x", req->window );
     dump_varargs_rectangles( ", region=", cur_size );
 }
 
@@ -4833,6 +4820,7 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_surface_region_request,
     (dump_func)dump_get_window_region_request,
     (dump_func)dump_set_window_region_request,
+    (dump_func)dump_set_layer_region_request,
     (dump_func)dump_get_update_region_request,
     (dump_func)dump_update_window_zorder_request,
     (dump_func)dump_redraw_window_request,
@@ -5119,6 +5107,7 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_visible_region_reply,
     (dump_func)dump_get_surface_region_reply,
     (dump_func)dump_get_window_region_reply,
+    NULL,
     NULL,
     (dump_func)dump_get_update_region_reply,
     NULL,
@@ -5407,6 +5396,7 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "get_surface_region",
     "get_window_region",
     "set_window_region",
+    "set_layer_region",
     "get_update_region",
     "update_window_zorder",
     "redraw_window",
@@ -5658,6 +5648,7 @@ static const struct
     { "PIPE_LISTENING",              STATUS_PIPE_LISTENING },
     { "PIPE_NOT_AVAILABLE",          STATUS_PIPE_NOT_AVAILABLE },
     { "PORT_NOT_SET",                STATUS_PORT_NOT_SET },
+    { "PREDEFINED_HANDLE",           STATUS_PREDEFINED_HANDLE },
     { "PRIVILEGE_NOT_HELD",          STATUS_PRIVILEGE_NOT_HELD },
     { "PROCESS_IN_JOB",              STATUS_PROCESS_IN_JOB },
     { "PROCESS_IS_TERMINATING",      STATUS_PROCESS_IS_TERMINATING },

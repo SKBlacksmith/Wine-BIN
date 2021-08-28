@@ -68,6 +68,7 @@ static const struct {
 
 	{&CLSID_ApplicationAssociationRegistration, ApplicationAssociationRegistration_Constructor},
 	{&CLSID_ApplicationDestinations, ApplicationDestinations_Constructor},
+	{&CLSID_ApplicationDocumentLists, ApplicationDocumentLists_Constructor},
 	{&CLSID_AutoComplete,   IAutoComplete_Constructor},
 	{&CLSID_ControlPanel,	IControlPanel_Constructor},
 	{&CLSID_DragDropHelper, IDropTargetHelper_Constructor},
@@ -75,6 +76,7 @@ static const struct {
 	{&CLSID_MyComputer,	ISF_MyComputer_Constructor},
 	{&CLSID_MyDocuments,    MyDocuments_Constructor},
 	{&CLSID_NetworkPlaces,  ISF_NetworkPlaces_Constructor},
+	{&CLSID_NewMenu,        NewMenu_Constructor},
 	{&CLSID_Printers,       Printers_Constructor},
 	{&CLSID_QueryAssociations, QueryAssociations_Constructor},
 	{&CLSID_RecycleBin,     RecycleBin_Constructor},

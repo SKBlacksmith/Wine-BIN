@@ -838,6 +838,8 @@ static void poll_osx_device_state( IDirectInputDevice8W *iface )
                         TRACE("valueRef %s val %d oldVal %d newVal %d\n", debugstr_cf(valueRef), val, oldVal, newVal);
                         if (oldVal != newVal)
                         {
+                            button_idx = device->generic.button_map[button_idx];
+
                             inst_id = DIDFT_MAKEINSTANCE(button_idx) | DIDFT_PSHBUTTON;
                             queue_event(iface,inst_id,newVal,GetCurrentTime(),device->generic.base.dinput->evsequence++);
                         }
@@ -1075,6 +1077,7 @@ static HRESULT alloc_device( REFGUID rguid, IDirectInputImpl *dinput, JoystickIm
 
     if (FAILED(hr = direct_input_device_alloc( sizeof(JoystickImpl), &JoystickWvt, rguid, dinput, (void **)&newDevice )))
         return hr;
+    df = newDevice->generic.base.data_format.wine_df;
     newDevice->generic.base.crit.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": JoystickImpl*->generic.base.crit");
 
     newDevice->id = index;
@@ -1138,7 +1141,6 @@ static HRESULT alloc_device( REFGUID rguid, IDirectInputImpl *dinput, JoystickIm
     }
 
     /* Create copy of default data format */
-    if (!(df = HeapAlloc(GetProcessHeap(), 0, c_dfDIJoystick2.dwSize))) goto FAILED;
     memcpy(df, &c_dfDIJoystick2, c_dfDIJoystick2.dwSize);
 
     df->dwNumObjs = newDevice->generic.devcaps.dwAxes + newDevice->generic.devcaps.dwPOVs + newDevice->generic.devcaps.dwButtons;
@@ -1203,7 +1205,6 @@ static HRESULT alloc_device( REFGUID rguid, IDirectInputImpl *dinput, JoystickIm
         df->rgodf[idx  ].pguid = &GUID_Button;
         df->rgodf[idx++].dwType = DIDFT_MAKEINSTANCE(i) | DIDFT_PSHBUTTON;
     }
-    newDevice->generic.base.data_format.wine_df = df;
 
     /* initialize default properties */
     get_osx_device_elements_props(newDevice);

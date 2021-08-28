@@ -200,6 +200,23 @@ void WINAPI DECLSPEC_HOTPATCH OutputDebugStringA( LPCSTR str )
     __ENDTRY
     if (caught_by_dbg) return;
 
+    /* for some unknown reason Windows sends the exception a second time, if a
+     * debugger is attached, and the event wasn't handled in the first attempt */
+    if (NtCurrentTeb()->Peb->BeingDebugged)
+    {
+        __TRY
+        {
+            ULONG_PTR args[2];
+            args[0] = strlen(str) + 1;
+            args[1] = (ULONG_PTR)str;
+            RaiseException( DBG_PRINTEXCEPTION_C, 0, 2, args );
+        }
+        __EXCEPT(debug_exception_handler)
+        {
+        }
+        __ENDTRY
+    }
+
     /* send string to a system-wide monitor */
     if (!mutex_inited)
     {
@@ -510,6 +527,7 @@ static BOOL start_debugger( EXCEPTION_POINTERS *epointers, HANDLE event )
     TRACE( "Starting debugger %s\n", debugstr_w(cmdline) );
     memset( &startup, 0, sizeof(startup) );
     startup.cb = sizeof(startup);
+    startup.lpDesktop = (WCHAR*)L"WinSta0";
     startup.dwFlags = STARTF_USESHOWWINDOW;
     startup.wShowWindow = SW_SHOWNORMAL;
     ret = CreateProcessW( NULL, cmdline, NULL, NULL, TRUE, 0, env, NULL, &startup, &info );
@@ -1133,7 +1151,8 @@ DWORD WINAPI DECLSPEC_HOTPATCH GetMappedFileNameW( HANDLE process, void *addr, W
         SetLastError( ERROR_INVALID_PARAMETER );
         return 0;
     }
-    if (!set_ntstatus( NtQueryVirtualMemory( process, addr, MemorySectionName, mem, sizeof(buffer), NULL )))
+    if (!set_ntstatus( NtQueryVirtualMemory( process, addr, MemoryMappedFilenameInformation,
+                                             mem, sizeof(buffer), NULL )))
         return 0;
 
     len = mem->SectionFileName.Length / sizeof(WCHAR);
@@ -1504,7 +1523,8 @@ BOOL WINAPI /* DECLSPEC_HOTPATCH */ InitializeProcessForWsWatch( HANDLE process 
 BOOL WINAPI DECLSPEC_HOTPATCH QueryWorkingSet( HANDLE process, void *buffer, DWORD size )
 {
     TRACE( "(%p, %p, %d)\n", process, buffer, size );
-    return set_ntstatus( NtQueryVirtualMemory( process, NULL, MemoryWorkingSetList, buffer, size, NULL ));
+    return set_ntstatus( NtQueryVirtualMemory( process, NULL, MemoryWorkingSetInformation,
+                                               buffer, size, NULL ));
 }
 
 

@@ -69,6 +69,7 @@ struct thread_wait
     client_ptr_t            cookie;     /* magic cookie to return to client */
     abstime_t               when;
     struct timeout_user    *user;
+    int                     status;     /* status to return (unless STATUS_PENDING) */
     struct wait_queue_entry queues[1];
 };
 
@@ -128,6 +129,11 @@ struct context
 #define CTX_NATIVE  0  /* context for native machine */
 #define CTX_WOW     1  /* context if thread is inside WoW */
 #define CTX_PENDING 2  /* pending native context when we don't know whether thread is inside WoW */
+
+/* flags for registers that always need to be set from the server side */
+static const unsigned int system_flags = SERVER_CTX_DEBUG_REGISTERS;
+/* flags for registers that are set from the native context even in WoW mode */
+static const unsigned int always_native_flags = SERVER_CTX_DEBUG_REGISTERS | SERVER_CTX_FLOATING_POINT | SERVER_CTX_YMM_REGISTERS;
 
 static void dump_context( struct object *obj, int verbose );
 static int context_signaled( struct object *obj, struct wait_queue_entry *entry );
@@ -257,6 +263,7 @@ static inline void init_thread_structure( struct thread *thread )
     thread->token           = NULL;
     thread->desc            = NULL;
     thread->desc_len        = 0;
+    thread->exit_poll       = NULL;
 
     thread->creation_time = current_time;
     thread->exit_time     = 0;
@@ -472,6 +479,7 @@ static void destroy_thread( struct object *obj )
     list_remove( &thread->entry );
     cleanup_thread( thread );
     release_object( thread->process );
+    if (thread->exit_poll) remove_timeout_user( thread->exit_poll );
     if (thread->id) free_ptid( thread->id );
     if (thread->token) release_object( thread->token );
 
@@ -492,7 +500,7 @@ static void dump_thread( struct object *obj, int verbose )
 static int thread_signaled( struct object *obj, struct wait_queue_entry *entry )
 {
     struct thread *mythread = (struct thread *)obj;
-    return (mythread->state == TERMINATED);
+    return mythread->state == TERMINATED && !mythread->exit_poll;
 }
 
 static int thread_get_esync_fd( struct object *obj, enum esync_type *type )
@@ -617,19 +625,8 @@ int set_thread_affinity( struct thread *thread, affinity_t affinity )
 
         CPU_ZERO( &set );
         for (i = 0, mask = 1; mask; i++, mask <<= 1)
-            if (affinity & mask)
-            {
-                if (thread->process->cpu_override.cpu_count)
-                {
-                    if (i >= thread->process->cpu_override.cpu_count)
-                        break;
-                    CPU_SET( thread->process->cpu_override.host_cpu_id[i], &set );
-                }
-                else
-                {
-                    CPU_SET( i, &set );
-                }
-            }
+            if (affinity & mask) CPU_SET( i, &set );
+
         ret = sched_setaffinity( thread->unix_tid, sizeof(set), &set );
     }
 #endif
@@ -674,7 +671,10 @@ static void set_thread_info( struct thread *thread,
         if ((req->priority >= min && req->priority <= max) ||
             req->priority == THREAD_PRIORITY_IDLE ||
             req->priority == THREAD_PRIORITY_TIME_CRITICAL)
+        {
             thread->priority = req->priority;
+            set_scheduler_priority( thread );
+        }
         else
             set_error( STATUS_INVALID_PARAMETER );
     }
@@ -786,6 +786,11 @@ void make_wait_abandoned( struct wait_queue_entry *entry )
     entry->wait->abandoned = 1;
 }
 
+void set_wait_status( struct wait_queue_entry *entry, int status )
+{
+    entry->wait->status = status;
+}
+
 /* finish waiting */
 static unsigned int end_wait( struct thread *thread, unsigned int status )
 {
@@ -798,6 +803,7 @@ static unsigned int end_wait( struct thread *thread, unsigned int status )
 
     if (status < wait->count)  /* wait satisfied, tell it to the objects */
     {
+        wait->status = status;
         if (wait->select == SELECT_WAIT_ALL)
         {
             for (i = 0, entry = wait->queues; i < wait->count; i++, entry++)
@@ -808,6 +814,7 @@ static unsigned int end_wait( struct thread *thread, unsigned int status )
             entry = wait->queues + status;
             entry->obj->ops->satisfied( entry->obj, entry );
         }
+        status = wait->status;
         if (wait->abandoned) status += STATUS_ABANDONED_WAIT_0;
     }
     for (i = 0, entry = wait->queues; i < wait->count; i++, entry++)
@@ -1020,8 +1027,8 @@ static int signal_object( obj_handle_t handle )
 }
 
 /* select on a list of handles */
-static void select_on( const select_op_t *select_op, data_size_t op_size, client_ptr_t cookie,
-                            int flags, abstime_t when )
+static int select_on( const select_op_t *select_op, data_size_t op_size, client_ptr_t cookie,
+                      int flags, abstime_t when )
 {
     int ret;
     unsigned int count;
@@ -1030,7 +1037,7 @@ static void select_on( const select_op_t *select_op, data_size_t op_size, client
     switch (select_op->op)
     {
     case SELECT_NONE:
-        if (!wait_on( select_op, 0, NULL, flags, when )) return;
+        if (!wait_on( select_op, 0, NULL, flags, when )) return 1;
         break;
 
     case SELECT_WAIT:
@@ -1039,24 +1046,24 @@ static void select_on( const select_op_t *select_op, data_size_t op_size, client
         if (op_size < offsetof( select_op_t, wait.handles ) || count > MAXIMUM_WAIT_OBJECTS)
         {
             set_error( STATUS_INVALID_PARAMETER );
-            return;
+            return 1;
         }
         if (!wait_on_handles( select_op, count, select_op->wait.handles, flags, when ))
-            return;
+            return 1;
         break;
 
     case SELECT_SIGNAL_AND_WAIT:
         if (!wait_on_handles( select_op, 1, &select_op->signal_and_wait.wait, flags, when ))
-            return;
+            return 1;
         if (select_op->signal_and_wait.signal)
         {
             if (!signal_object( select_op->signal_and_wait.signal ))
             {
                 end_wait( current, get_error() );
-                return;
+                return 1;
             }
             /* check if we woke ourselves up */
-            if (!current->wait) return;
+            if (!current->wait) return 1;
         }
         break;
 
@@ -1064,23 +1071,23 @@ static void select_on( const select_op_t *select_op, data_size_t op_size, client
     case SELECT_KEYED_EVENT_RELEASE:
         object = (struct object *)get_keyed_event_obj( current->process, select_op->keyed_event.handle,
                          select_op->op == SELECT_KEYED_EVENT_WAIT ? KEYEDEVENT_WAIT : KEYEDEVENT_WAKE );
-        if (!object) return;
+        if (!object) return 1;
         ret = wait_on( select_op, 1, &object, flags, when );
         release_object( object );
-        if (!ret) return;
+        if (!ret) return 1;
         current->wait->key = select_op->keyed_event.key;
         break;
 
     default:
         set_error( STATUS_INVALID_PARAMETER );
-        return;
+        return 1;
     }
 
     if ((ret = check_wait( current )) != -1)
     {
         /* condition is already satisfied */
         set_error( end_wait( current, ret ));
-        return;
+        return 1;
     }
 
     /* now we need to wait */
@@ -1090,12 +1097,12 @@ static void select_on( const select_op_t *select_op, data_size_t op_size, client
                                                       thread_timeout, current->wait )))
         {
             end_wait( current, get_error() );
-            return;
+            return 1;
         }
     }
     current->wait->cookie = cookie;
     set_error( STATUS_PENDING );
-    return;
+    return 0;
 }
 
 /* attempt to wake threads sleeping on the object wait queue */
@@ -1332,6 +1339,26 @@ int thread_get_inflight_fd( struct thread *thread, int client )
     return -1;
 }
 
+static void check_terminated( void *arg )
+{
+    struct thread *thread = arg;
+    assert( thread->obj.ops == &thread_ops );
+    assert( thread->state == TERMINATED );
+
+    /* don't wake up until the thread is really dead, to avoid race conditions */
+    if (thread->unix_tid != -1 && !kill( thread->unix_tid, 0 ))
+    {
+        thread->exit_poll = add_timeout_user( -TICKS_PER_SEC / 1000, check_terminated, thread );
+        return;
+    }
+
+    /* grab reference since object can be destroyed while trying to wake up */
+    grab_object( &thread->obj );
+    thread->exit_poll = NULL;
+    wake_up( &thread->obj, 0 );
+    release_object( &thread->obj );
+}
+
 /* kill a thread on the spot */
 void kill_thread( struct thread *thread, int violent_death )
 {
@@ -1355,8 +1382,12 @@ void kill_thread( struct thread *thread, int violent_death )
         fsync_abandon_mutexes( thread );
     if (do_esync())
         esync_abandon_mutexes( thread );
-    wake_up( &thread->obj, 0 );
-    if (violent_death) send_thread_signal( thread, SIGQUIT );
+    if (violent_death)
+    {
+        send_thread_signal( thread, SIGQUIT );
+        check_terminated( thread );
+    }
+    else wake_up( &thread->obj, 0 );
     cleanup_thread( thread );
     remove_process_thread( thread->process, thread );
     release_object( thread );
@@ -1373,20 +1404,6 @@ static void copy_context( context_t *to, const context_t *from, unsigned int fla
     if (flags & SERVER_CTX_DEBUG_REGISTERS) to->debug = from->debug;
     if (flags & SERVER_CTX_EXTENDED_REGISTERS) to->ext = from->ext;
     if (flags & SERVER_CTX_YMM_REGISTERS) to->ymm = from->ymm;
-}
-
-/* return the context flags that correspond to system regs */
-/* (system regs are the ones we can't access on the client side) */
-static unsigned int get_context_system_regs( unsigned short machine )
-{
-    switch (machine)
-    {
-    case IMAGE_FILE_MACHINE_I386:  return SERVER_CTX_DEBUG_REGISTERS;
-    case IMAGE_FILE_MACHINE_AMD64: return SERVER_CTX_DEBUG_REGISTERS;
-    case IMAGE_FILE_MACHINE_ARMNT: return SERVER_CTX_DEBUG_REGISTERS;
-    case IMAGE_FILE_MACHINE_ARM64: return SERVER_CTX_DEBUG_REGISTERS;
-    }
-    return 0;
 }
 
 /* gets the current impersonation token */
@@ -1495,7 +1512,7 @@ DECL_HANDLER(init_first_thread)
 
     if (!process->parent_id)
         process->affinity = current->affinity = get_thread_affinity( current );
-    else if (!process->cpu_override.cpu_count)
+    else
         set_thread_affinity( current, current->affinity );
 
     debug_level = max( debug_level, req->debug_level );
@@ -1524,12 +1541,10 @@ DECL_HANDLER(init_thread)
     current->unix_tid = req->unix_tid;
     current->teb      = req->teb;
     current->entry_point = req->entry;
-    struct process *process = current->process;
 
     init_thread_context( current );
     generate_debug_event( current, DbgCreateThreadStateChange, &req->entry );
-    if (!process->cpu_override.cpu_count)
-        set_thread_affinity( current, current->affinity );
+    set_thread_affinity( current, current->affinity );
 
     reply->suspend = (current->suspend || current->process->suspend || current->context != NULL);
 }
@@ -1670,7 +1685,6 @@ DECL_HANDLER(select)
     {
         const context_t *native_context = (const context_t *)((const char *)(result + 1) + req->size);
         const context_t *wow_context = (ctx_count > 1) ? native_context + 1 : NULL;
-        unsigned int system_flags = get_context_system_regs( native_machine );
 
         if (current->context && current->context->status != STATUS_PENDING) goto invalid_param;
 
@@ -1737,7 +1751,7 @@ DECL_HANDLER(select)
         release_object( apc );
     }
 
-    select_on( &select_op, op_size, req->cookie, req->flags, req->timeout );
+    reply->signaled = select_on( &select_op, op_size, req->cookie, req->flags, req->timeout );
 
     if (get_error() == STATUS_USER_APC)
     {
@@ -1757,15 +1771,15 @@ DECL_HANDLER(select)
         }
         release_object( apc );
     }
-    else if (get_error() != STATUS_PENDING && get_reply_max_size() >= sizeof(context_t) &&
+    else if (reply->signaled && get_reply_max_size() >= sizeof(context_t) &&
              current->context && current->suspend_cookie == req->cookie)
     {
         ctx = current->context;
         if (ctx->regs[CTX_NATIVE].flags || ctx->regs[CTX_WOW].flags)
         {
             data_size_t size = (ctx->regs[CTX_WOW].flags ? 2 : 1) * sizeof(context_t);
-            unsigned int system_flags = get_context_system_regs( native_machine ) & ctx->regs[CTX_NATIVE].flags;
-            if (system_flags) set_thread_context( current, &ctx->regs[CTX_NATIVE], system_flags );
+            unsigned int flags = system_flags & ctx->regs[CTX_NATIVE].flags;
+            if (flags) set_thread_context( current, &ctx->regs[CTX_NATIVE], flags );
             set_reply_data( ctx->regs, min( size, get_reply_max_size() ));
         }
         release_object( ctx );
@@ -1919,7 +1933,6 @@ DECL_HANDLER(get_thread_context)
             set_error( STATUS_UNSUCCESSFUL );
         else
         {
-            unsigned int system_flags = get_context_system_regs( native_machine );
             reply->self = (thread == current);
             if (thread != current) stop_thread( thread );
             if (thread->context)
@@ -1943,13 +1956,12 @@ DECL_HANDLER(get_thread_context)
 
     if (!thread_context->status)
     {
-        unsigned int system_flags = get_context_system_regs( native_machine );
         unsigned int native_flags = req->flags, wow_flags = 0;
 
         if (req->machine == thread_context->regs[CTX_WOW].machine)
         {
-            native_flags = req->flags & system_flags;
-            wow_flags = req->flags & ~system_flags;
+            native_flags = req->flags & always_native_flags;
+            wow_flags = req->flags & ~always_native_flags;
         }
         if ((context = set_reply_data_size( (!!native_flags + !!wow_flags) * sizeof(context_t) )))
         {
@@ -2001,12 +2013,13 @@ DECL_HANDLER(set_thread_context)
         set_error( STATUS_INVALID_PARAMETER );
     else if (thread->state != TERMINATED)
     {
-        unsigned int flags, ctx = CTX_NATIVE;
+        unsigned int ctx = CTX_NATIVE;
         const context_t *context = &contexts[CTX_NATIVE];
-        unsigned int system_flags = get_context_system_regs( native_machine ) & context->flags;
+        unsigned int flags = system_flags & context->flags;
+        unsigned int native_flags = always_native_flags & context->flags;
 
         if (thread != current) stop_thread( thread );
-        else if (system_flags) set_thread_context( thread, context, system_flags );
+        else if (flags) set_thread_context( thread, context, flags );
         if (thread->context && !get_error())
         {
             if (ctx_count == 2)
@@ -2022,11 +2035,11 @@ DECL_HANDLER(set_thread_context)
                 else ctx = CTX_PENDING;
             }
             flags = context->flags;
-            if (system_flags && ctx != CTX_NATIVE) /* system regs are always set from the native context */
+            if (native_flags && ctx != CTX_NATIVE) /* some regs are always set from the native context */
             {
-                copy_context( &thread->context->regs[CTX_NATIVE], &contexts[CTX_NATIVE], system_flags );
-                thread->context->regs[CTX_NATIVE].flags |= system_flags;
-                flags &= ~system_flags;
+                copy_context( &thread->context->regs[CTX_NATIVE], &contexts[CTX_NATIVE], native_flags );
+                thread->context->regs[CTX_NATIVE].flags |= native_flags;
+                flags &= ~native_flags;
             }
             copy_context( &thread->context->regs[ctx], context, flags );
             thread->context->regs[ctx].flags |= flags;

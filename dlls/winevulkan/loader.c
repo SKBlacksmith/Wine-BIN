@@ -18,6 +18,7 @@
  */
 
 #include <stdarg.h>
+#include <stdlib.h>
 
 #include "windef.h"
 #include "winbase.h"
@@ -116,6 +117,9 @@ PFN_vkVoidFunction WINAPI vkGetInstanceProcAddr(VkInstance instance, const char 
         return NULL;
     }
 
+    if (!unix_funcs->p_is_available_instance_function(instance, name))
+        return NULL;
+
     func = wine_vk_get_instance_proc_addr(name);
     if (func) return func;
 
@@ -144,9 +148,12 @@ PFN_vkVoidFunction WINAPI vkGetDeviceProcAddr(VkDevice device, const char *name)
      * vkCommandBuffer or vkQueue.
      * Loader takes care of filtering of extensions which are enabled or not.
      */
-    func = wine_vk_get_device_proc_addr(name);
-    if (func)
-        return func;
+    if (unix_funcs->p_is_available_device_function(device, name))
+    {
+        func = wine_vk_get_device_proc_addr(name);
+        if (func)
+            return func;
+    }
 
     /* vkGetDeviceProcAddr was intended for loading device and subdevice functions.
      * idTech 6 titles such as Doom and Wolfenstein II, however use it also for
@@ -174,6 +181,9 @@ PFN_vkVoidFunction WINAPI vkGetDeviceProcAddr(VkDevice device, const char *name)
 void * WINAPI vk_icdGetPhysicalDeviceProcAddr(VkInstance instance, const char *name)
 {
     TRACE("%p, %s\n", instance, debugstr_a(name));
+
+    if (!unix_funcs->p_is_available_instance_function(instance, name))
+        return NULL;
 
     return wine_vk_get_phys_dev_proc_addr(name);
 }
@@ -343,6 +353,26 @@ static void fill_luid_property(VkPhysicalDeviceProperties2 *properties2)
             id->deviceNodeMask);
 }
 
+void WINAPI vkGetPhysicalDeviceProperties(VkPhysicalDevice phys_dev,
+        VkPhysicalDeviceProperties *properties)
+{
+    TRACE("%p, %p\n", phys_dev, properties);
+
+    unix_funcs->p_vkGetPhysicalDeviceProperties(phys_dev, properties);
+
+    {
+        const char *sgi = getenv("WINE_HIDE_NVIDIA_GPU");
+        if (sgi && *sgi != '0')
+        {
+            if (properties->vendorID == 0x10de /* NVIDIA */)
+            {
+                properties->vendorID = 0x1002; /* AMD */
+                properties->deviceID = 0x67df; /* RX 480 */
+            }
+        }
+    }
+}
+
 void WINAPI vkGetPhysicalDeviceProperties2(VkPhysicalDevice phys_dev,
         VkPhysicalDeviceProperties2 *properties2)
 {
@@ -350,6 +380,18 @@ void WINAPI vkGetPhysicalDeviceProperties2(VkPhysicalDevice phys_dev,
 
     unix_funcs->p_vkGetPhysicalDeviceProperties2(phys_dev, properties2);
     fill_luid_property(properties2);
+
+    {
+        const char *sgi = getenv("WINE_HIDE_NVIDIA_GPU");
+        if (sgi && *sgi != '0')
+        {
+            if (properties2->properties.vendorID == 0x10de /* NVIDIA */)
+            {
+                properties2->properties.vendorID = 0x1002; /* AMD */
+                properties2->properties.deviceID = 0x67df; /* RX 480 */
+            }
+        }
+    }
 }
 
 void WINAPI vkGetPhysicalDeviceProperties2KHR(VkPhysicalDevice phys_dev,
@@ -359,6 +401,18 @@ void WINAPI vkGetPhysicalDeviceProperties2KHR(VkPhysicalDevice phys_dev,
 
     unix_funcs->p_vkGetPhysicalDeviceProperties2KHR(phys_dev, properties2);
     fill_luid_property(properties2);
+
+    {
+        const char *sgi = getenv("WINE_HIDE_NVIDIA_GPU");
+        if (sgi && *sgi != '0')
+        {
+            if (properties2->properties.vendorID == 0x10de /* NVIDIA */)
+            {
+                properties2->properties.vendorID = 0x1002; /* AMD */
+                properties2->properties.deviceID = 0x67df; /* RX 480 */
+            }
+        }
+    }
 }
 
 BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, void *reserved)

@@ -193,7 +193,7 @@ BOOL Str_SetPtrAtoW (LPWSTR *lppDest, LPCSTR lpSrc) DECLSPEC_HIDDEN;
 BOOL Str_SetPtrWtoA (LPSTR *lppDest, LPCWSTR lpSrc) DECLSPEC_HIDDEN;
 BOOL imagelist_has_alpha(HIMAGELIST, UINT) DECLSPEC_HIDDEN;
 
-#define COMCTL32_VERSION_MINOR 81
+#define COMCTL32_VERSION_MINOR 0
 
 /* Our internal stack structure of the window procedures to subclass */
 typedef struct _SUBCLASSPROCS {
@@ -279,9 +279,5 @@ extern void UPDOWN_Unregister(void) DECLSPEC_HIDDEN;
 int MONTHCAL_MonthLength(int month, int year) DECLSPEC_HIDDEN;
 int MONTHCAL_CalculateDayOfWeek(SYSTEMTIME *date, BOOL inplace) DECLSPEC_HIDDEN;
 LONG MONTHCAL_CompareSystemTime(const SYSTEMTIME *first, const SYSTEMTIME *second) DECLSPEC_HIDDEN;
-
-extern void THEMING_Initialize(void) DECLSPEC_HIDDEN;
-extern void THEMING_Uninitialize(void) DECLSPEC_HIDDEN;
-extern LRESULT THEMING_CallOriginalClass(HWND, UINT, WPARAM, LPARAM) DECLSPEC_HIDDEN;
 
 #endif  /* __WINE_COMCTL32_H */

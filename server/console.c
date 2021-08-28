@@ -141,20 +141,20 @@ struct console_server
     int                   busy;        /* flag if server processing an ioctl */
     int                   term_fd;     /* UNIX terminal fd */
     struct termios        termios;     /* original termios */
-    int                   esync_fd;    /* esync file descriptor */
+    int                   esync_fd;
     unsigned int          fsync_idx;
 };
 
 static void console_server_dump( struct object *obj, int verbose );
 static void console_server_destroy( struct object *obj );
 static int console_server_signaled( struct object *obj, struct wait_queue_entry *entry );
+static int console_server_get_esync_fd( struct object *obj, enum esync_type *type );
+static unsigned int console_server_get_fsync_idx( struct object *obj, enum fsync_type *type );
 static struct fd *console_server_get_fd( struct object *obj );
 static struct object *console_server_lookup_name( struct object *obj, struct unicode_str *name,
                                                 unsigned int attr, struct object *root );
 static struct object *console_server_open_file( struct object *obj, unsigned int access,
                                                 unsigned int sharing, unsigned int options );
-static int console_server_get_esync_fd( struct object *obj, enum esync_type *type );
-static unsigned int console_server_get_fsync_idx( struct object *obj, enum fsync_type *type );
 
 static const struct object_ops console_server_ops =
 {
@@ -932,7 +932,6 @@ static struct object *create_console_server( void )
     list_init( &server->queue );
     list_init( &server->read_queue );
     server->fd = alloc_pseudo_fd( &console_server_fd_ops, &server->obj, FILE_SYNCHRONOUS_IO_NONALERT );
-    server->esync_fd = -1;
     if (!server->fd)
     {
         release_object( server );

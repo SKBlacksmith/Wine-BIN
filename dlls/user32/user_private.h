@@ -110,6 +110,8 @@ typedef struct tagUSER_DRIVER {
     void   (CDECL *pWindowPosChanged)(HWND,HWND,UINT,const RECT *,const RECT *,const RECT *,const RECT *,struct window_surface*);
     /* system parameters */
     BOOL   (CDECL *pSystemParametersInfo)(UINT,UINT,void*,UINT);
+    /* candidate pos functions */
+    void   (CDECL *pUpdateCandidatePos)(HWND,const RECT *);
     /* thread management */
     void   (CDECL *pThreadDetach)(void);
 } USER_DRIVER;
@@ -208,6 +210,7 @@ C_ASSERT( sizeof(struct user_thread_info) <= sizeof(((TEB *)0)->Win32ClientInfo)
 extern INT global_key_state_counter DECLSPEC_HIDDEN;
 extern BOOL (WINAPI *imm_register_window)(HWND) DECLSPEC_HIDDEN;
 extern void (WINAPI *imm_unregister_window)(HWND) DECLSPEC_HIDDEN;
+extern void (WINAPI *imm_activate_window)(HWND) DECLSPEC_HIDDEN;
 
 struct user_key_state_info
 {
@@ -234,6 +237,7 @@ static inline BOOL is_broadcast( HWND hwnd )
 }
 
 extern HMODULE user32_module DECLSPEC_HIDDEN;
+extern BOOL enable_mouse_in_pointer DECLSPEC_HIDDEN;
 
 struct dce;
 struct tagWND;
@@ -380,10 +384,20 @@ struct png_funcs
     BITMAPINFO * (CDECL *load_png)(const char *png_data, DWORD *size);
 };
 
+/* May be NULL if libpng cannot be loaded. */
+extern const struct png_funcs *png_funcs DECLSPEC_HIDDEN;
+
 /* Mingw's assert() imports MessageBoxA and gets confused by user32 exporting it */
 #ifdef __MINGW32__
 #undef assert
 #define assert(expr) ((void)0)
 #endif
+
+extern struct user_api_hook *user_api DECLSPEC_HIDDEN;
+LRESULT WINAPI USER_DefDlgProc(HWND, UINT, WPARAM, LPARAM, BOOL) DECLSPEC_HIDDEN;
+LRESULT WINAPI USER_ScrollBarProc(HWND, UINT, WPARAM, LPARAM, BOOL) DECLSPEC_HIDDEN;
+void WINAPI USER_ScrollBarDraw(HWND, HDC, INT, enum SCROLL_HITTEST,
+                               const struct SCROLL_TRACKING_INFO *, BOOL, BOOL, RECT *, INT, INT,
+                               INT, BOOL) DECLSPEC_HIDDEN;
 
 #endif /* __WINE_USER_PRIVATE_H */

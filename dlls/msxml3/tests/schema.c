@@ -32,10 +32,36 @@
 #include "dispex.h"
 #include "cguid.h"
 
+DEFINE_GUID(CLSID_FreeThreadedDOMDocument60, 0x88d96a06, 0xf192, 0x11d4, 0xa6,0x5f, 0x00,0x40,0x96,0x32,0x51,0xe5);
+DEFINE_GUID(CLSID_FreeThreadedXMLHTTP60, 0x88d96a09, 0xf192, 0x11d4, 0xa6,0x5f, 0x00,0x40,0x96,0x32,0x51,0xe5);
+DEFINE_GUID(CLSID_MXXMLWriter60, 0x88d96a0f, 0xf192, 0x11d4, 0xa6,0x5f, 0x00,0x40,0x96,0x32,0x51,0xe5);
+DEFINE_GUID(CLSID_SAXAttributes60, 0x88d96a0e, 0xf192, 0x11d4, 0xa6,0x5f, 0x00,0x40,0x96,0x32,0x51,0xe5);
+DEFINE_GUID(CLSID_SAXXMLReader60, 0x88d96a0c, 0xf192, 0x11d4, 0xa6,0x5f, 0x00,0x40,0x96,0x32,0x51,0xe5);
+DEFINE_GUID(CLSID_XMLSchemaCache60, 0x88d96a07, 0xf192, 0x11d4, 0xa6,0x5f, 0x00,0x40,0x96,0x32,0x51,0xe5);
+DEFINE_GUID(IID_IXMLHTTPRequest2, 0xe5d37dc0, 0x552a, 0x4d52, 0x9c,0xc0, 0xa1,0x4d,0x54,0x6f,0xbd,0x04);
+DEFINE_GUID(IID_IXMLHTTPRequest3, 0xa1c9feee, 0x0617, 0x4f23, 0x9d,0x58, 0x89,0x61,0xea,0x43,0x56,0x7c);
+DEFINE_GUID(IID_IXMLHTTPRequest2Callback, 0xa44a9299, 0xe321, 0x40de, 0x88,0x66, 0x34,0x1b,0x41,0x66,0x91,0x62);
+DEFINE_GUID(IID_IXMLHTTPRequest3Callback, 0xb9e57830, 0x8c6c, 0x4a6f, 0x9c,0x13, 0x47,0x77,0x2b,0xb0,0x47,0xbb);
+
 #include "wine/test.h"
 
 #define EXPECT_HR(hr,hr_exp) \
     ok(hr == hr_exp, "got 0x%08x, expected 0x%08x\n", hr, hr_exp)
+
+#define check_interface(a, b, c) check_interface_(__LINE__, a, b, c)
+static void check_interface_(unsigned int line, void *iface_ptr, REFIID iid, BOOL supported)
+{
+    IUnknown *iface = iface_ptr;
+    HRESULT hr, expected_hr;
+    IUnknown *unk;
+
+    expected_hr = supported ? S_OK : E_NOINTERFACE;
+
+    hr = IUnknown_QueryInterface(iface, iid, (void **)&unk);
+    ok_(__FILE__, line)(hr == expected_hr, "Got hr %#x, expected %#x.\n", hr, expected_hr);
+    if (SUCCEEDED(hr))
+        IUnknown_Release(unk);
+}
 
 static const CHAR xdr_schema1_uri[] = "x-schema:test1.xdr";
 static const CHAR xdr_schema1_xml[] =
@@ -1115,7 +1141,9 @@ static void test_regex(void)
         { L"\\~", L"~", TRUE },
         { L"\\uCAFE", L"\xCAFE", TRUE },
         /* non-BMP character in surrogate pairs: */
-        { L"\\uD83D\\uDE00", L"\xD83D\xDE00", TRUE }
+        { L"\\uD83D\\uDE00", L"\xD83D\xDE00", TRUE },
+        /* "x{,2}" is non-standard and only works on libxml2 <= v2.9.10 */
+        { L"x{0,2}", L"x", FALSE }
     };
 
     int i;
@@ -1806,8 +1834,13 @@ static void test_ifaces(void)
     hr = IXMLDOMSchemaCollection2_QueryInterface(cache, &CLSID_XMLSchemaCache60, (void**)&unk);
     ok (hr == S_OK, "Could not get CLSID_XMLSchemaCache60 iface: %08x\n", hr);
     ok (unk == (IUnknown*)cache, "unk != cache\n");
-
     IUnknown_Release(unk);
+
+    check_interface(cache, &IID_IXMLDOMSchemaCollection, TRUE);
+    check_interface(cache, &IID_IXMLDOMSchemaCollection2, TRUE);
+    check_interface(cache, &IID_IDispatch, TRUE);
+    check_interface(cache, &IID_IDispatchEx, TRUE);
+
     IXMLDOMSchemaCollection2_Release(cache);
 }
 

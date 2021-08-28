@@ -8992,15 +8992,48 @@ static void test_EM_SELECTIONTYPE(void)
     DestroyWindow(hwnd);
 }
 
+static void test_window_classes(void)
+{
+    static const struct
+    {
+        const char *class;
+        BOOL success;
+    } test[] =
+    {
+        { "RichEdit", FALSE },
+        { "RichEdit20A", TRUE },
+        { "RichEdit20W", TRUE },
+        { "RichEdit50A", FALSE },
+        { "RichEdit50W", FALSE }
+    };
+    int i;
+    HWND hwnd;
+
+    for (i = 0; i < sizeof(test)/sizeof(test[0]); i++)
+    {
+        SetLastError(0xdeadbeef);
+        hwnd = CreateWindowExA(0, test[i].class, NULL, WS_POPUP, 0, 0, 0, 0, 0, 0, 0, NULL);
+todo_wine_if(!strcmp(test[i].class, "RichEdit50A") || !strcmp(test[i].class, "RichEdit50W"))
+        ok(!hwnd == !test[i].success, "CreateWindow(%s) should %s\n",
+           test[i].class, test[i].success ? "succeed" : "fail");
+        if (!hwnd)
+todo_wine
+            ok(GetLastError() == ERROR_CANNOT_FIND_WND_CLASS, "got %d\n", GetLastError());
+        else
+            DestroyWindow(hwnd);
+    }
+}
+
 START_TEST( editor )
 {
   BOOL ret;
-  /* Must explicitly LoadLibrary(). The test has no references to functions in
-   * RICHED20.DLL, so the linker doesn't actually link to it. */
+  /* Must explicitly LoadLibrary(). The test has no reference to functions in
+   * RICHED20.DLL, so the linker does not actually link to it. */
   hmoduleRichEdit = LoadLibraryA("riched20.dll");
   ok(hmoduleRichEdit != NULL, "error: %d\n", (int) GetLastError());
   is_lang_japanese = (PRIMARYLANGID(GetSystemDefaultLangID()) == LANG_JAPANESE);
 
+  test_window_classes();
   test_WM_CHAR();
   test_EM_FINDTEXT(FALSE);
   test_EM_FINDTEXT(TRUE);

@@ -170,8 +170,6 @@ static struct device *add_device(HDEVINFO set, SP_DEVICE_INTERFACE_DATA *iface)
 
 static void find_devices(void)
 {
-    static ULONGLONG last_check;
-
     SP_DEVICE_INTERFACE_DATA iface = { sizeof(iface) };
     struct device *device;
     HIDD_ATTRIBUTES attr;
@@ -179,10 +177,6 @@ static void find_devices(void)
     GUID hid_guid;
     HDEVINFO set;
     DWORD idx;
-
-    if (GetTickCount64() - last_check < 2000)
-        return;
-    last_check = GetTickCount64();
 
     HidD_GetHidGuid(&hid_guid);
 
@@ -322,9 +316,15 @@ BOOL rawinput_from_hardware_message(RAWINPUT *rawinput, const struct hardware_ms
         rawinput->header.hDevice = WINE_MOUSE_HANDLE;
         rawinput->header.wParam  = 0;
 
-        rawinput->data.mouse.usFlags           = MOUSE_MOVE_RELATIVE;
+        if (msg_data->flags & MOUSEEVENTF_ABSOLUTE)
+            rawinput->data.mouse.usFlags = MOUSE_MOVE_ABSOLUTE;
+        else
+            rawinput->data.mouse.usFlags = MOUSE_MOVE_RELATIVE;
+        if (msg_data->flags & MOUSEEVENTF_VIRTUALDESK)
+            rawinput->data.mouse.usFlags |= MOUSE_VIRTUAL_DESKTOP;
         rawinput->data.mouse.usButtonFlags = 0;
         rawinput->data.mouse.usButtonData  = 0;
+
         for (i = 1; i < ARRAY_SIZE(button_flags); ++i)
         {
             if (msg_data->flags & (1 << i))
@@ -757,7 +757,7 @@ UINT WINAPI GetRawInputDeviceInfoW(HANDLE handle, UINT command, void *data, UINT
         break;
 
     case RIDI_PREPARSEDDATA:
-        len = device->data ? ((WINE_HIDP_PREPARSED_DATA*)device->data)->dwSize : 0;
+        len = device->data ? ((struct hid_preparsed_data *)device->data)->size : 0;
         if (device->data && len <= data_len && data)
             memcpy(data, device->data, len);
         *data_size = len;

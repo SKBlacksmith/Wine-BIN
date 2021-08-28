@@ -498,7 +498,7 @@
 @ stdcall LoadImageA(long str long long long long)
 @ stdcall LoadImageW(long wstr long long long long)
 @ stdcall LoadKeyboardLayoutA(str long)
-# @ stub LoadKeyboardLayoutEx
+@ stdcall LoadKeyboardLayoutEx(long wstr long)
 @ stdcall LoadKeyboardLayoutW(wstr long)
 @ stdcall LoadLocalFonts()
 @ stdcall LoadMenuA(long str)
@@ -612,7 +612,7 @@
 @ stdcall RegisterTasklist (long)
 @ stdcall RegisterTouchHitTestingWindow(long long)
 @ stdcall RegisterTouchWindow(long long)
-# @ stub RegisterUserApiHook
+@ stdcall RegisterUserApiHook(ptr ptr)
 @ stdcall RegisterWindowMessageA(str)
 @ stdcall RegisterWindowMessageW(wstr)
 @ stdcall ReleaseCapture()
@@ -784,7 +784,7 @@
 # @ stub UnregisterMessagePumpHook
 @ stdcall UnregisterPowerSettingNotification(ptr)
 @ stdcall UnregisterTouchWindow(long)
-# @ stub UnregisterUserApiHook
+@ stdcall UnregisterUserApiHook()
 @ stdcall UpdateLayeredWindow(long long ptr ptr long ptr long ptr long)
 @ stdcall UpdateLayeredWindowIndirect(long ptr)
 @ stub UpdatePerUserSystemParameters

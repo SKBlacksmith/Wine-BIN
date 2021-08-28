@@ -103,6 +103,7 @@ HRESULT WINAPI RecycleBin_Constructor(IUnknown * pUnkOuter, REFIID riif, LPVOID 
 HRESULT WINAPI QueryAssociations_Constructor(IUnknown *pUnkOuter, REFIID riid, LPVOID *ppOutput) DECLSPEC_HIDDEN;
 HRESULT WINAPI ExplorerBrowser_Constructor(IUnknown *pUnkOuter, REFIID riid, LPVOID *ppv) DECLSPEC_HIDDEN;
 HRESULT WINAPI KnownFolderManager_Constructor(IUnknown *pUnkOuter, REFIID riid, LPVOID *ppv) DECLSPEC_HIDDEN;
+HRESULT WINAPI NewMenu_Constructor(IUnknown *outer, REFIID riid, LPVOID *ppv) DECLSPEC_HIDDEN;
 HRESULT WINAPI IFileOperation_Constructor(IUnknown *outer, REFIID riid, void **out) DECLSPEC_HIDDEN;
 extern HRESULT CPanel_GetIconLocationW(LPCITEMIDLIST, LPWSTR, UINT, int*) DECLSPEC_HIDDEN;
 HRESULT WINAPI CPanel_ExtractIconA(LPITEMIDLIST pidl, LPCSTR pszFile, UINT nIconIndex, HICON *phiconLarge, HICON *phiconSmall, UINT nIconSize) DECLSPEC_HIDDEN;
@@ -112,6 +113,7 @@ HRESULT WINAPI IAutoComplete_Constructor(IUnknown * pUnkOuter, REFIID riid, LPVO
 HRESULT WINAPI ApplicationAssociationRegistration_Constructor(IUnknown *outer, REFIID riid, LPVOID *ppv) DECLSPEC_HIDDEN;
 
 HRESULT WINAPI ApplicationDestinations_Constructor(IUnknown *outer, REFIID riid, LPVOID *ppv) DECLSPEC_HIDDEN;
+HRESULT WINAPI ApplicationDocumentLists_Constructor(IUnknown *outer, REFIID riid, LPVOID *ppv) DECLSPEC_HIDDEN;
 
 HRESULT IShellLink_ConstructFromFile(IUnknown * pUnkOuter, REFIID riid, LPCITEMIDLIST pidl, IUnknown **ppv) DECLSPEC_HIDDEN;
 
@@ -140,6 +142,8 @@ HGLOBAL RenderHDROP(LPITEMIDLIST pidlRoot, LPITEMIDLIST * apidl, UINT cidl) DECL
 HGLOBAL RenderSHELLIDLIST (LPITEMIDLIST pidlRoot, LPITEMIDLIST * apidl, UINT cidl) DECLSPEC_HIDDEN;
 HGLOBAL RenderFILENAMEA (LPITEMIDLIST pidlRoot, LPITEMIDLIST * apidl, UINT cidl) DECLSPEC_HIDDEN;
 HGLOBAL RenderFILENAMEW (LPITEMIDLIST pidlRoot, LPITEMIDLIST * apidl, UINT cidl) DECLSPEC_HIDDEN;
+HGLOBAL RenderPREFERREDDROPEFFECT (DWORD value);
+HRESULT GetPREFERREDDROPEFFECT (STGMEDIUM *pmedium, DWORD *value);
 
 /* Change Notification */
 void InitChangeNotifications(void) DECLSPEC_HIDDEN;

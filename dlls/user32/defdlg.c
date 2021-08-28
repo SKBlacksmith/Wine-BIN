@@ -209,6 +209,25 @@ static BOOL DEFDLG_SetDefButton( HWND hwndDlg, DIALOGINFO *dlgInfo, HWND hwndNew
 }
 
 
+static HWND root_dialog(HWND hwnd)
+{
+    while ((GetWindowLongA(hwnd, GWL_EXSTYLE) & WS_EX_CONTROLPARENT) &&
+           (GetWindowLongA(hwnd, GWL_STYLE) & (WS_CHILD|WS_POPUP)) == WS_CHILD)
+    {
+        HWND parent = GetParent(hwnd);
+
+        if (!DIALOG_get_info(parent, FALSE))
+            break;
+
+        hwnd = parent;
+
+        if (!(GetWindowLongA(hwnd, GWL_STYLE) & DS_CONTROL))
+            break;
+    }
+
+    return hwnd;
+}
+
 /***********************************************************************
  *           DEFDLG_Proc
  *
@@ -264,11 +283,17 @@ static LRESULT DEFDLG_Proc( HWND hwnd, UINT msg, WPARAM wParam,
             return 0;
 
         case DM_SETDEFID:
+            hwnd = root_dialog( hwnd );
+            dlgInfo = DIALOG_get_info( hwnd, FALSE );
+
             if (dlgInfo && !(dlgInfo->flags & DF_END))
                 DEFDLG_SetDefId( hwnd, dlgInfo, wParam );
             return 1;
 
         case DM_GETDEFID:
+            hwnd = root_dialog( hwnd );
+            dlgInfo = DIALOG_get_info( hwnd, FALSE );
+
             if (dlgInfo && !(dlgInfo->flags & DF_END))
             {
                 HWND hwndDefId;
@@ -354,17 +379,14 @@ out:
     return dlgInfo;
 }
 
-/***********************************************************************
- *              DefDlgProcA (USER32.@)
- */
-LRESULT WINAPI DefDlgProcA( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
+static LRESULT USER_DefDlgProcA( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
 {
     DIALOGINFO *dlgInfo;
     DLGPROC dlgproc;
     LRESULT result = 0;
 
     /* Perform DIALOGINFO initialization if not done */
-    if(!(dlgInfo = DIALOG_get_info( hwnd, TRUE ))) return 0;
+    if (!(dlgInfo = DIALOG_get_info( hwnd, msg == WM_NCCREATE ))) return 0;
 
     SetWindowLongPtrW( hwnd, DWLP_MSGRESULT, 0 );
 
@@ -411,18 +433,14 @@ LRESULT WINAPI DefDlgProcA( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
     return GetWindowLongPtrW( hwnd, DWLP_MSGRESULT );
 }
 
-
-/***********************************************************************
- *              DefDlgProcW (USER32.@)
- */
-LRESULT WINAPI DefDlgProcW( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
+static LRESULT USER_DefDlgProcW( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
 {
     DIALOGINFO *dlgInfo;
     DLGPROC dlgproc;
     LRESULT result = 0;
 
     /* Perform DIALOGINFO initialization if not done */
-    if(!(dlgInfo = DIALOG_get_info( hwnd, TRUE ))) return 0;
+    if (!(dlgInfo = DIALOG_get_info( hwnd, msg == WM_NCCREATE ))) return 0;
 
     SetWindowLongPtrW( hwnd, DWLP_MSGRESULT, 0 );
 
@@ -467,4 +485,28 @@ LRESULT WINAPI DefDlgProcW( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
         return result;
 
     return GetWindowLongPtrW( hwnd, DWLP_MSGRESULT );
+}
+
+LRESULT WINAPI USER_DefDlgProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, BOOL unicode )
+{
+    if (unicode)
+        return USER_DefDlgProcW( hwnd, msg, wParam, lParam );
+    else
+        return USER_DefDlgProcA( hwnd, msg, wParam, lParam );
+}
+
+/***********************************************************************
+ *              DefDlgProcA (USER32.@)
+ */
+LRESULT WINAPI DefDlgProcA( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
+{
+    return user_api->pDefDlgProc( hwnd, msg, wParam, lParam, FALSE );
+}
+
+/***********************************************************************
+ *              DefDlgProcW (USER32.@)
+ */
+LRESULT WINAPI DefDlgProcW( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam )
+{
+    return user_api->pDefDlgProc( hwnd, msg, wParam, lParam, TRUE );
 }

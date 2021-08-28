@@ -396,7 +396,7 @@
 @ stub IoGetBootDiskInformation
 @ stdcall IoGetConfigurationInformation()
 @ stdcall IoGetCurrentProcess()
-@ stub IoGetDeviceAttachmentBaseRef
+@ stdcall IoGetDeviceAttachmentBaseRef(ptr)
 @ stub IoGetDeviceInterfaceAlias
 @ stdcall IoGetDeviceInterfaces(ptr ptr long ptr)
 @ stdcall IoGetDeviceObjectPointer(ptr long ptr ptr)
@@ -702,7 +702,7 @@
 @ stub MmFreeMappingAddress
 @ stdcall MmFreeNonCachedMemory(ptr long)
 @ stub MmFreePagesFromMdl
-@ stub MmGetPhysicalAddress
+@ stdcall MmGetPhysicalAddress(ptr)
 @ stub MmGetPhysicalMemoryRanges
 @ stdcall MmGetSystemRoutineAddress(ptr)
 @ stub MmGetVirtualForPhysical
@@ -718,7 +718,7 @@
 @ stub MmLockPagableImageSection
 @ stdcall MmLockPagableSectionByHandle(ptr)
 @ stdcall MmMapIoSpace(int64 long long)
-@ stub MmMapLockedPages
+@ stdcall MmMapLockedPages(ptr long)
 @ stdcall MmMapLockedPagesSpecifyCache(ptr long long ptr long long)
 @ stub MmMapLockedPagesWithReservedMapping
 @ stub MmMapMemoryDumpMdl
@@ -818,6 +818,7 @@
 @ stdcall NtSetSecurityObject(long long ptr)
 @ stdcall NtSetVolumeInformationFile(long ptr ptr long long)
 @ stdcall NtShutdownSystem(long)
+@ stdcall NtTraceControl(long ptr long ptr long long)
 @ stub NtTraceEvent
 @ stdcall NtUnlockFile(long ptr ptr ptr ptr)
 @ stub NtVdmControl
@@ -887,7 +888,7 @@
 @ stub PsGetContextThread
 @ stdcall PsGetCurrentProcess() IoGetCurrentProcess
 @ stdcall PsGetCurrentProcessId()
-@ stub PsGetCurrentProcessSessionId
+@ stdcall PsGetCurrentProcessSessionId()
 @ stdcall PsGetCurrentThread() KeGetCurrentThread
 @ stdcall PsGetCurrentThreadId()
 @ stub PsGetCurrentThreadPreviousMode
@@ -1514,6 +1515,7 @@
 @ stdcall -private ZwSetVolumeInformationFile(long ptr ptr long long) NtSetVolumeInformationFile
 @ stdcall -private ZwTerminateJobObject(long long) NtTerminateJobObject
 @ stdcall -private ZwTerminateProcess(long long) NtTerminateProcess
+@ stdcall -private ZwTraceControl(long ptr long ptr long long) NtTraceControl
 @ stub ZwTranslateFilePath
 @ stdcall ZwUnloadDriver(ptr)
 @ stdcall -private ZwUnloadKey(ptr) NtUnloadKey

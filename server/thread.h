@@ -94,6 +94,7 @@ struct thread
     struct list            kernel_object; /* list of kernel object pointers */
     data_size_t            desc_len;      /* thread description length in bytes */
     WCHAR                 *desc;          /* thread description string */
+    struct timeout_user   *exit_poll;     /* poll if the thread/process has exited already */
 };
 
 extern struct thread *current;
@@ -110,6 +111,7 @@ extern struct thread *get_wait_queue_thread( struct wait_queue_entry *entry );
 extern enum select_op get_wait_queue_select_op( struct wait_queue_entry *entry );
 extern client_ptr_t get_wait_queue_key( struct wait_queue_entry *entry );
 extern void make_wait_abandoned( struct wait_queue_entry *entry );
+extern void set_wait_status( struct wait_queue_entry *entry, int status );
 extern void stop_thread( struct thread *thread );
 extern int wake_thread( struct thread *thread );
 extern int wake_thread_queue_entry( struct wait_queue_entry *entry );
@@ -144,5 +146,10 @@ static inline void clear_error(void)             { set_error(0); }
 static inline void set_win32_error( unsigned int err ) { set_error( 0xc0010000 | err ); }
 
 static inline thread_id_t get_thread_id( struct thread *thread ) { return thread->id; }
+
+/* scheduler functions */
+
+extern void init_scheduler( void );
+extern void set_scheduler_priority( struct thread *thread );
 
 #endif  /* __WINE_SERVER_THREAD_H */

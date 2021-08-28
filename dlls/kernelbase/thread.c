@@ -525,12 +525,25 @@ DWORD WINAPI DECLSPEC_HOTPATCH SetThreadIdealProcessor( HANDLE thread, DWORD pro
 /***********************************************************************
  *           SetThreadIdealProcessorEx   (kernelbase.@)
  */
-BOOL WINAPI DECLSPEC_HOTPATCH SetThreadIdealProcessorEx( HANDLE thread, PROCESSOR_NUMBER *ideal,
+BOOL WINAPI DECLSPEC_HOTPATCH SetThreadIdealProcessorEx( HANDLE thread, PROCESSOR_NUMBER *processor,
                                                          PROCESSOR_NUMBER *previous )
 {
-    FIXME( "(%p %p %p): stub\n", thread, ideal, previous );
-    SetLastError( ERROR_CALL_NOT_IMPLEMENTED );
-    return FALSE;
+    FIXME("(%p, %p, %p): stub\n", thread, processor, previous);
+
+    if (!processor || processor->Group > 0 || processor->Number > MAXIMUM_PROCESSORS)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    if (previous)
+    {
+        previous->Group = 0;
+        previous->Number = 0;
+        previous->Reserved = 0;
+    }
+
+    return TRUE;
 }
 
 
@@ -989,6 +1002,12 @@ LPVOID WINAPI DECLSPEC_HOTPATCH ConvertThreadToFiber( LPVOID param )
 LPVOID WINAPI DECLSPEC_HOTPATCH ConvertThreadToFiberEx( LPVOID param, DWORD flags )
 {
     struct fiber_data *fiber;
+
+    if (NtCurrentTeb()->Tib.u.FiberData)
+    {
+        SetLastError( ERROR_ALREADY_FIBER );
+        return NULL;
+    }
 
     if (!(fiber = HeapAlloc( GetProcessHeap(), 0, sizeof(*fiber) )))
     {
