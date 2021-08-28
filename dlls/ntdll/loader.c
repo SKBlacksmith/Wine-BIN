@@ -4034,11 +4034,11 @@ void WINAPI LdrInitializeThunk( CONTEXT *context, ULONG_PTR unknown2, ULONG_PTR 
     InitializeObjectAttributes( &staging_event_attr, &staging_event_string, OBJ_OPENIF, NULL, NULL );
     if (NtCreateEvent( &staging_event, EVENT_ALL_ACCESS, &staging_event_attr, NotificationEvent, FALSE ) == STATUS_SUCCESS)
     {
-        FIXME_(winediag)("Wine TkG (staging) %s is a testing version containing experimental patches.\n", wine_get_version());
-        FIXME_(winediag)("Please don't report bugs about it on winehq.org and use https://github.com/Frogging-Family/wine-tkg-git/issues instead.\n");
+        FIXME_(winediag)("Wine Crossroads %s is a heavily modified version of Wine containing experimental patches.\n", wine_get_version());
+        FIXME_(winediag)("Please don't report bugs about it on winehq.org and use https://www.newalive.net/253-wine-crossroads.html instead.\n");
     }
     else
-        WARN_(winediag)("Wine TkG (staging) %s is a testing version containing experimental patches.\n", wine_get_version());
+        WARN_(winediag)("Wine Crossroads %s is a heavily modified version of Wine containing experimental patches.\n", wine_get_version());
 
     RtlAcquirePebLock();
     InsertHeadList( &tls_links, &NtCurrentTeb()->TlsLinks );

@@ -6,7 +6,7 @@ m4_define(WINE_VERSION,regexp(m4_include(VERSION),[version \([-.0-9A-Za-z]+\)],[
 
 dnl autoconf versions before 2.62 don't handle source dir symlinks correctly
 AC_PREREQ(2.62)
-AC_INIT([Wine],[WINE_VERSION],[wine-devel@winehq.org],[wine],[https://www.winehq.org])
+AC_INIT([Wine Crossroads],[WINE_VERSION],[alice@newalive.org],[wine],[https://www.newalive.net/253-wine-crossroads.html])
 AC_CONFIG_SRCDIR(server/atom.c)
 AC_CONFIG_HEADERS(include/config.h)
 AC_CONFIG_AUX_DIR(tools)
@@ -23,8 +23,8 @@ m4_ifdef([AS_VAR_IF],,[AC_DEFUN([AS_VAR_IF],
    AS_IF([test "x$as_val" = x""$2], [$3], [$4])])])])dnl
 dnl autoconf versions before 2.64 don't have AC_PACKAGE_URL
 m4_ifdef([AC_PACKAGE_URL],,
-  [AC_DEFINE([PACKAGE_URL], ["https://www.winehq.org"], [Define to the home page for this package.])
-   AC_SUBST([PACKAGE_URL], ["https://www.winehq.org"])])dnl
+  [AC_DEFINE([PACKAGE_URL], ["https://www.newalive.net/253-wine-crossroads.html"], [Define to the home page for this package.])
+   AC_SUBST([PACKAGE_URL], ["https://www.newalive.net/253-wine-crossroads.html"])])dnl
 
 dnl **** Command-line arguments ****
 
@@ -165,7 +165,7 @@ case $host in
         AC_CACHE_CHECK([whether $CC supports __builtin_ms_va_list],wine_cv_builtin_ms_va_list,
             [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <stdarg.h>]], [[void func(__builtin_ms_va_list *args);]])],
                           [wine_cv_builtin_ms_va_list=yes],[wine_cv_builtin_ms_va_list=no])])
-        test $wine_cv_builtin_ms_va_list != no || AC_MSG_ERROR([You need gcc >= 4.4 or clang >= 3.8 to build Wine as 64-bit.])
+        test $wine_cv_builtin_ms_va_list != no || AC_MSG_ERROR([You need gcc >= 4.4 or clang >= 3.8 to build Wine Crossroads as 64-bit.])
       fi
       CC="$CC -m64"
       CXX="$CXX -m64"
@@ -218,7 +218,7 @@ case $host in
     AC_CACHE_CHECK([whether $CC supports __builtin_ms_va_list],wine_cv_builtin_ms_va_list,
         [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <stdarg.h>]], [[void func(__builtin_ms_va_list *args);]])],
                       [wine_cv_builtin_ms_va_list=yes],[wine_cv_builtin_ms_va_list=no])])
-    test $wine_cv_builtin_ms_va_list != no || AC_MSG_ERROR([You need clang >= 5.0 to build Wine for arm64.])
+    test $wine_cv_builtin_ms_va_list != no || AC_MSG_ERROR([You need clang >= 5.0 to build Wine Crossroads for arm64.])
     enable_wow64=${enable_wow64:-yes}
     enable_wow64win=${enable_wow64win:-yes}
     ;;
