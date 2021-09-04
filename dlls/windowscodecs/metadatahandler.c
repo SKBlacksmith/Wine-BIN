@@ -716,7 +716,7 @@ static int tag_to_vt(SHORT tag)
 static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
                               MetadataItem *item, BOOL native_byte_order)
 {
-    ULONG count, value, i;
+    ULONG count, value, i, bytesread;
     SHORT type;
     LARGE_INTEGER pos;
     HRESULT hr;
@@ -750,7 +750,7 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             {
                 item->value.vt |= VT_VECTOR;
                 item->value.caub.cElems = count;
-                item->value.caub.pElems = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count);
+                item->value.caub.pElems = HeapAlloc(GetProcessHeap(), 0, count);
                 memcpy(item->value.caub.pElems, data, count);
             }
             break;
@@ -758,7 +758,7 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
 
         item->value.vt |= VT_VECTOR;
         item->value.caub.cElems = count;
-        item->value.caub.pElems = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count);
+        item->value.caub.pElems = HeapAlloc(GetProcessHeap(), 0, count);
         if (!item->value.caub.pElems) return E_OUTOFMEMORY;
 
         pos.QuadPart = value;
@@ -768,8 +768,9 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             HeapFree(GetProcessHeap(), 0, item->value.caub.pElems);
             return hr;
         }
-        hr = IStream_Read(input, item->value.caub.pElems, count, NULL);
-        if (FAILED(hr))
+        hr = IStream_Read(input, item->value.caub.pElems, count, &bytesread);
+        if (bytesread != count) hr = E_FAIL;
+        if (hr != S_OK)
         {
             HeapFree(GetProcessHeap(), 0, item->value.caub.pElems);
             return hr;
@@ -792,7 +793,7 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             {
                 item->value.vt |= VT_VECTOR;
                 item->value.caui.cElems = count;
-                item->value.caui.pElems = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count * 2);
+                item->value.caui.pElems = HeapAlloc(GetProcessHeap(), 0, count * 2);
                 memcpy(item->value.caui.pElems, data, count * 2);
                 for (i = 0; i < count; i++)
                     SWAP_USHORT(item->value.caui.pElems[i]);
@@ -802,7 +803,7 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
 
         item->value.vt |= VT_VECTOR;
         item->value.caui.cElems = count;
-        item->value.caui.pElems = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count * 2);
+        item->value.caui.pElems = HeapAlloc(GetProcessHeap(), 0, count * 2);
         if (!item->value.caui.pElems) return E_OUTOFMEMORY;
 
         pos.QuadPart = value;
@@ -812,8 +813,9 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             HeapFree(GetProcessHeap(), 0, item->value.caui.pElems);
             return hr;
         }
-        hr = IStream_Read(input, item->value.caui.pElems, count * 2, NULL);
-        if (FAILED(hr))
+        hr = IStream_Read(input, item->value.caui.pElems, count * 2, &bytesread);
+        if (bytesread != count * 2) hr = E_FAIL;
+        if (hr != S_OK)
         {
             HeapFree(GetProcessHeap(), 0, item->value.caui.pElems);
             return hr;
@@ -834,7 +836,7 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
 
         item->value.vt |= VT_VECTOR;
         item->value.caul.cElems = count;
-        item->value.caul.pElems = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count * 4);
+        item->value.caul.pElems = HeapAlloc(GetProcessHeap(), 0, count * 4);
         if (!item->value.caul.pElems) return E_OUTOFMEMORY;
 
         pos.QuadPart = value;
@@ -844,8 +846,9 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             HeapFree(GetProcessHeap(), 0, item->value.caul.pElems);
             return hr;
         }
-        hr = IStream_Read(input, item->value.caul.pElems, count * 4, NULL);
-        if (FAILED(hr))
+        hr = IStream_Read(input, item->value.caul.pElems, count * 4, &bytesread);
+        if (bytesread != count * 4) hr = E_FAIL;
+        if (hr != S_OK)
         {
             HeapFree(GetProcessHeap(), 0, item->value.caul.pElems);
             return hr;
@@ -871,7 +874,8 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             hr = IStream_Seek(input, pos, SEEK_SET, NULL);
             if (FAILED(hr)) return hr;
 
-            hr = IStream_Read(input, &ull, sizeof(ull), NULL);
+            hr = IStream_Read(input, &ull, sizeof(ull), &bytesread);
+            if (bytesread != sizeof(ull)) hr = E_FAIL;
             if (hr != S_OK) return hr;
 
             item->value.uhVal.QuadPart = ull;
@@ -889,7 +893,7 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
         {
             item->value.vt |= VT_VECTOR;
             item->value.cauh.cElems = count;
-            item->value.cauh.pElems = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count * 8);
+            item->value.cauh.pElems = HeapAlloc(GetProcessHeap(), 0, count * 8);
             if (!item->value.cauh.pElems) return E_OUTOFMEMORY;
 
             pos.QuadPart = value;
@@ -899,8 +903,9 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
                 HeapFree(GetProcessHeap(), 0, item->value.cauh.pElems);
                 return hr;
             }
-            hr = IStream_Read(input, item->value.cauh.pElems, count * 8, NULL);
-            if (FAILED(hr))
+            hr = IStream_Read(input, item->value.cauh.pElems, count * 8, &bytesread);
+            if (bytesread != count * 8) hr = E_FAIL;
+            if (hr != S_OK)
             {
                 HeapFree(GetProcessHeap(), 0, item->value.cauh.pElems);
                 return hr;
@@ -918,7 +923,7 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
         }
         break;
     case IFD_ASCII:
-        item->value.pszVal = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count + 1);
+        item->value.pszVal = HeapAlloc(GetProcessHeap(), 0, count + 1);
         if (!item->value.pszVal) return E_OUTOFMEMORY;
 
         if (count <= 4)
@@ -936,8 +941,9 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             HeapFree(GetProcessHeap(), 0, item->value.pszVal);
             return hr;
         }
-        hr = IStream_Read(input, item->value.pszVal, count, NULL);
-        if (FAILED(hr))
+        hr = IStream_Read(input, item->value.pszVal, count, &bytesread);
+        if (bytesread != count) hr = E_FAIL;
+        if (hr != S_OK)
         {
             HeapFree(GetProcessHeap(), 0, item->value.pszVal);
             return hr;
@@ -952,7 +958,7 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             break;
         }
 
-        item->value.blob.pBlobData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, count);
+        item->value.blob.pBlobData = HeapAlloc(GetProcessHeap(), 0, count);
         if (!item->value.blob.pBlobData) return E_OUTOFMEMORY;
 
         item->value.blob.cbSize = count;
@@ -971,8 +977,9 @@ static HRESULT load_IFD_entry(IStream *input, const struct IFD_entry *entry,
             HeapFree(GetProcessHeap(), 0, item->value.blob.pBlobData);
             return hr;
         }
-        hr = IStream_Read(input, item->value.blob.pBlobData, count, NULL);
-        if (FAILED(hr))
+        hr = IStream_Read(input, item->value.blob.pBlobData, count, &bytesread);
+        if (bytesread != count) hr = E_FAIL;
+        if (hr != S_OK)
         {
             HeapFree(GetProcessHeap(), 0, item->value.blob.pBlobData);
             return hr;

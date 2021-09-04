@@ -1149,8 +1149,9 @@ BOOLEAN WINAPI RtlFirstFreeAce(
 			return FALSE;
 		ace = (PACE_HEADER)(((BYTE*)ace)+ace->AceSize);
 	}
-	if ((BYTE *)ace <= (BYTE *)acl + acl->AclSize)
-		*x = ace;
+	if ((BYTE *)ace >= (BYTE *)acl + acl->AclSize)
+		return FALSE;
+	*x = ace;
 	return TRUE;
 }
 
@@ -1171,8 +1172,6 @@ NTSTATUS WINAPI RtlAddAce(
 		return STATUS_INVALID_PARAMETER;
 	if (!RtlFirstFreeAce(acl,&targetace))
 		return STATUS_INVALID_PARAMETER;
-	if (!targetace)
-		return STATUS_ALLOTTED_SPACE_EXCEEDED;
 	nrofaces=0;ace=acestart;
 	while (((BYTE *)ace - (BYTE *)acestart) < acelen) {
 		nrofaces++;

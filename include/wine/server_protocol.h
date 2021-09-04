@@ -815,6 +815,12 @@ typedef struct
     lparam_t info;
 } cursor_pos_t;
 
+struct cpu_topology_override
+{
+    unsigned int cpu_count;
+    unsigned char host_cpu_id[64];
+};
+
 
 
 
@@ -903,6 +909,7 @@ struct get_startup_info_reply
 struct init_process_done_request
 {
     struct request_header __header;
+    /* VARARG(cpu_override,cpu_topology_override); */
     char __pad_12[4];
     client_ptr_t teb;
     client_ptr_t peb;
@@ -1597,8 +1604,6 @@ struct get_handle_unix_name_request
 {
     struct request_header __header;
     obj_handle_t   handle;
-    int            nofollow;
-    char __pad_20[4];
 };
 struct get_handle_unix_name_reply
 {
@@ -1627,7 +1632,6 @@ enum server_fd_type
 {
     FD_TYPE_INVALID,
     FD_TYPE_FILE,
-    FD_TYPE_SYMLINK,
     FD_TYPE_DIR,
     FD_TYPE_SOCKET,
     FD_TYPE_SERIAL,
@@ -2705,7 +2709,6 @@ struct send_hardware_message_reply
     char __pad_28[4];
 };
 #define SEND_HWMSG_INJECTED    0x01
-#define SEND_HWMSG_RAWINPUT    0x02
 
 
 
@@ -3384,19 +3387,6 @@ struct set_window_region_request
     char __pad_20[4];
 };
 struct set_window_region_reply
-{
-    struct reply_header __header;
-};
-
-
-
-struct set_layer_region_request
-{
-    struct request_header __header;
-    user_handle_t  window;
-    /* VARARG(region,rectangles); */
-};
-struct set_layer_region_reply
 {
     struct reply_header __header;
 };
@@ -5411,6 +5401,7 @@ struct resume_process_reply
 };
 
 
+
 struct get_next_thread_request
 {
     struct request_header __header;
@@ -5750,7 +5741,6 @@ enum request
     REQ_get_surface_region,
     REQ_get_window_region,
     REQ_set_window_region,
-    REQ_set_layer_region,
     REQ_get_update_region,
     REQ_update_window_zorder,
     REQ_redraw_window,
@@ -6042,7 +6032,6 @@ union generic_request
     struct get_surface_region_request get_surface_region_request;
     struct get_window_region_request get_window_region_request;
     struct set_window_region_request set_window_region_request;
-    struct set_layer_region_request set_layer_region_request;
     struct get_update_region_request get_update_region_request;
     struct update_window_zorder_request update_window_zorder_request;
     struct redraw_window_request redraw_window_request;
@@ -6332,7 +6321,6 @@ union generic_reply
     struct get_surface_region_reply get_surface_region_reply;
     struct get_window_region_reply get_window_region_reply;
     struct set_window_region_reply set_window_region_reply;
-    struct set_layer_region_reply set_layer_region_reply;
     struct get_update_region_reply get_update_region_reply;
     struct update_window_zorder_reply update_window_zorder_reply;
     struct redraw_window_reply redraw_window_reply;
@@ -6472,7 +6460,7 @@ union generic_reply
 
 /* ### protocol_version begin ### */
 
-#define SERVER_PROTOCOL_VERSION 728
+#define SERVER_PROTOCOL_VERSION 727
 
 /* ### protocol_version end ### */
 

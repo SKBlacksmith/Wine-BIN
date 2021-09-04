@@ -31,9 +31,6 @@
 /* Define to 1 if you have the <asm/user.h> header file. */
 #undef HAVE_ASM_USER_H
 
-/* Define to 1 if you have the <attr/xattr.h> header file. */
-#undef HAVE_ATTR_XATTR_H
-
 /* Define to 1 if you have the <capi20.h> header file. */
 #undef HAVE_CAPI20_H
 
@@ -138,9 +135,6 @@
 /* Define to 1 if you have the `futimesat' function. */
 #undef HAVE_FUTIMESAT
 
-/* Define to 1 if you have the <gcrypt.h> header file. */
-#undef HAVE_GCRYPT_H
-
 /* Define to 1 if you have the `getaddrinfo' function. */
 #undef HAVE_GETADDRINFO
 
@@ -170,9 +164,6 @@
 
 /* Define to 1 if you have the <gettext-po.h> header file. */
 #undef HAVE_GETTEXT_PO_H
-
-/* Define to 1 if you have the <gmp.h> header file. */
-#undef HAVE_GMP_H
 
 /* Define to 1 if you have the `gnutls_cipher_init' function. */
 #undef HAVE_GNUTLS_CIPHER_INIT
@@ -372,9 +363,6 @@
 /* Define to 1 if you have the <linux/rtnetlink.h> header file. */
 #undef HAVE_LINUX_RTNETLINK_H
 
-/* Define to 1 if you have the <linux/seccomp.h> header file. */
-#undef HAVE_LINUX_SECCOMP_H
-
 /* Define to 1 if you have the <linux/serial.h> header file. */
 #undef HAVE_LINUX_SERIAL_H
 
@@ -560,12 +548,6 @@
 
 /* Define to 1 if you have the `readlink' function. */
 #undef HAVE_READLINK
-
-/* Define to 1 if you have the `renameat' function. */
-#undef HAVE_RENAMEAT
-
-/* Define to 1 if you have the `renameat2' function. */
-#undef HAVE_RENAMEAT2
 
 /* Define to 1 if the system has the type `request_sense'. */
 #undef HAVE_REQUEST_SENSE
@@ -797,9 +779,6 @@
 /* Define to 1 if you have the <sys/event.h> header file. */
 #undef HAVE_SYS_EVENT_H
 
-/* Define to 1 if you have the <sys/extattr.h> header file. */
-#undef HAVE_SYS_EXTATTR_H
-
 /* Define to 1 if you have the <sys/filio.h> header file. */
 #undef HAVE_SYS_FILIO_H
 
@@ -935,9 +914,6 @@
 /* Define to 1 if you have the <sys/wait.h> header file. */
 #undef HAVE_SYS_WAIT_H
 
-/* Define to 1 if you have the <sys/xattr.h> header file. */
-#undef HAVE_SYS_XATTR_H
-
 /* Define to 1 if you have the `tcdrain' function. */
 #undef HAVE_TCDRAIN
 
@@ -955,9 +931,6 @@
 
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
-
-/* Define to 1 if you have the `utimensat' function. */
-#undef HAVE_UTIMENSAT
 
 /* Define to 1 if you have the <utime.h> header file. */
 #undef HAVE_UTIME_H
@@ -991,6 +964,9 @@
 
 /* Define to 1 if you have the <X11/extensions/XInput.h> header file. */
 #undef HAVE_X11_EXTENSIONS_XINPUT_H
+
+/* Define to 1 if you have the <X11/extensions/Xpresent.h> header file. */
+#undef HAVE_X11_EXTENSIONS_XPRESENT_H
 
 /* Define to 1 if you have the <X11/extensions/Xrandr.h> header file. */
 #undef HAVE_X11_EXTENSIONS_XRANDR_H
@@ -1112,17 +1088,11 @@
 /* Define to the soname of the libfreetype library. */
 #undef SONAME_LIBFREETYPE
 
-/* Define to the soname of the libgcrypt library. */
-#undef SONAME_LIBGCRYPT
-
 /* Define to the soname of the libGL library. */
 #undef SONAME_LIBGL
 
 /* Define to the soname of the libGLESv2 library. */
 #undef SONAME_LIBGLESV2
-
-/* Define to the soname of the libgmp library. */
-#undef SONAME_LIBGMP
 
 /* Define to the soname of the libgnutls library. */
 #undef SONAME_LIBGNUTLS
@@ -1205,6 +1175,9 @@
 /* Define to the soname of the libXinerama library. */
 #undef SONAME_LIBXINERAMA
 
+/* Define to the soname of the libXpresent library. */
+#undef SONAME_LIBXPRESENT
+
 /* Define to the soname of the libXrandr library. */
 #undef SONAME_LIBXRANDR
 
@@ -1224,9 +1197,6 @@
    required in a freestanding environment). This macro is provided for
    backward compatibility; new code need not use it. */
 #undef STDC_HEADERS
-
-/* Define if xattr functions take additional arguments (Mac OS X) */
-#undef XATTR_ADDITIONAL_OPTIONS
 
 /* Define to 1 if the X Window System is missing or not being used. */
 #undef X_DISPLAY_MISSING
