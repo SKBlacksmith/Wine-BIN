@@ -121,26 +121,26 @@ HRESULT resource_init(struct wined3d_resource *resource, struct wined3d_device *
         if (base_type == WINED3D_GL_RES_TYPE_COUNT)
             base_type = gl_type;
 
-        if (type != WINED3D_RTYPE_BUFFER)
+        if (type == WINED3D_RTYPE_BUFFER)
+            break;
+
+        if ((bind_flags & WINED3D_BIND_RENDER_TARGET)
+                && !(format->flags[gl_type] & WINED3DFMT_FLAG_RENDERTARGET))
         {
-            if ((bind_flags & WINED3D_BIND_RENDER_TARGET)
-                    && !(format->flags[gl_type] & WINED3DFMT_FLAG_RENDERTARGET))
-            {
-                WARN("Format %s cannot be used for render targets.\n", debug_d3dformat(format->id));
-                continue;
-            }
-            if ((bind_flags & WINED3D_BIND_DEPTH_STENCIL)
-                    && !(format->flags[gl_type] & WINED3DFMT_FLAG_DEPTH_STENCIL))
-            {
-                WARN("Format %s cannot be used for depth/stencil buffers.\n", debug_d3dformat(format->id));
-                continue;
-            }
-            if ((bind_flags & WINED3D_BIND_SHADER_RESOURCE)
-                    && !(format->flags[gl_type] & WINED3DFMT_FLAG_TEXTURE))
-            {
-                WARN("Format %s cannot be used for texturing.\n", debug_d3dformat(format->id));
-                continue;
-            }
+            WARN("Format %s cannot be used for render targets.\n", debug_d3dformat(format->id));
+            continue;
+        }
+        if ((bind_flags & WINED3D_BIND_DEPTH_STENCIL)
+                && !(format->flags[gl_type] & WINED3DFMT_FLAG_DEPTH_STENCIL))
+        {
+            WARN("Format %s cannot be used for depth/stencil buffers.\n", debug_d3dformat(format->id));
+            continue;
+        }
+        if ((bind_flags & WINED3D_BIND_SHADER_RESOURCE)
+                && !(format->flags[gl_type] & WINED3DFMT_FLAG_TEXTURE))
+        {
+            WARN("Format %s cannot be used for texturing.\n", debug_d3dformat(format->id));
+            continue;
         }
         if (((width & (width - 1)) || (height & (height - 1)))
                 && !d3d_info->texture_npot
@@ -235,7 +235,6 @@ static void wined3d_resource_destroy_object(void *object)
 
     TRACE("resource %p.\n", resource);
 
-    heap_free(resource->sub_resource_bind_counts_device);
     wined3d_resource_free_sysmem(resource);
     context_resource_released(resource->device, resource);
     wined3d_resource_release(resource);
@@ -314,76 +313,20 @@ void CDECL wined3d_resource_get_desc(const struct wined3d_resource *resource, st
     desc->size = resource->size;
 }
 
-static DWORD wined3d_resource_sanitise_map_flags(const struct wined3d_resource *resource, DWORD flags)
-{
-    /* Not all flags make sense together, but Windows never returns an error.
-     * Catch the cases that could cause issues. */
-    if (flags & WINED3D_MAP_READ)
-    {
-        if (flags & WINED3D_MAP_DISCARD)
-        {
-            WARN("WINED3D_MAP_READ combined with WINED3D_MAP_DISCARD, ignoring flags.\n");
-            return flags & (WINED3D_MAP_READ | WINED3D_MAP_WRITE);
-        }
-        if (flags & WINED3D_MAP_NOOVERWRITE)
-        {
-            WARN("WINED3D_MAP_READ combined with WINED3D_MAP_NOOVERWRITE, ignoring flags.\n");
-            return flags & (WINED3D_MAP_READ | WINED3D_MAP_WRITE);
-        }
-    }
-    else if (flags & (WINED3D_MAP_DISCARD | WINED3D_MAP_NOOVERWRITE))
-    {
-        if (!(resource->usage & WINED3DUSAGE_DYNAMIC))
-        {
-            WARN("DISCARD or NOOVERWRITE map on non-dynamic buffer, ignoring.\n");
-            return flags & (WINED3D_MAP_READ | WINED3D_MAP_WRITE);
-        }
-        if ((flags & (WINED3D_MAP_DISCARD | WINED3D_MAP_NOOVERWRITE))
-                == (WINED3D_MAP_DISCARD | WINED3D_MAP_NOOVERWRITE))
-        {
-            WARN("WINED3D_MAP_NOOVERWRITE used with WINED3D_MAP_DISCARD, ignoring WINED3D_MAP_DISCARD.\n");
-            flags &= ~WINED3D_MAP_DISCARD;
-        }
-    }
-
-    return flags;
-}
-
 HRESULT CDECL wined3d_resource_map(struct wined3d_resource *resource, unsigned int sub_resource_idx,
         struct wined3d_map_desc *map_desc, const struct wined3d_box *box, DWORD flags)
 {
     TRACE("resource %p, sub_resource_idx %u, map_desc %p, box %s, flags %#x.\n",
             resource, sub_resource_idx, map_desc, debug_box(box), flags);
 
-    if (!(flags & (WINED3D_MAP_READ | WINED3D_MAP_WRITE)))
-    {
-        WARN("No read/write flags specified.\n");
-        return E_INVALIDARG;
-    }
-
-    if ((flags & WINED3D_MAP_READ) && !(resource->access & WINED3D_RESOURCE_ACCESS_MAP_R))
-    {
-        WARN("Resource does not have MAP_R access.\n");
-        return E_INVALIDARG;
-    }
-
-    if ((flags & WINED3D_MAP_WRITE) && !(resource->access & WINED3D_RESOURCE_ACCESS_MAP_W))
-    {
-        WARN("Resource does not have MAP_W access.\n");
-        return E_INVALIDARG;
-    }
-
-    flags = wined3d_resource_sanitise_map_flags(resource, flags);
-    wined3d_resource_wait_idle(resource);
-
-    return wined3d_cs_map(resource->device->cs, resource, sub_resource_idx, map_desc, box, flags);
+    return wined3d_device_context_map(&resource->device->cs->c, resource, sub_resource_idx, map_desc, box, flags);
 }
 
 HRESULT CDECL wined3d_resource_unmap(struct wined3d_resource *resource, unsigned int sub_resource_idx)
 {
     TRACE("resource %p, sub_resource_idx %u.\n", resource, sub_resource_idx);
 
-    return wined3d_cs_unmap(resource->device->cs, resource, sub_resource_idx);
+    return wined3d_device_context_unmap(&resource->device->cs->c, resource, sub_resource_idx);
 }
 
 void CDECL wined3d_resource_preload(struct wined3d_resource *resource)
@@ -556,6 +499,44 @@ unsigned int wined3d_resource_get_sample_count(const struct wined3d_resource *re
     }
 
     return resource->multisample_type;
+}
+
+HRESULT wined3d_resource_check_box_dimensions(struct wined3d_resource *resource,
+        unsigned int sub_resource_idx, const struct wined3d_box *box)
+{
+    const struct wined3d_format *format = resource->format;
+    struct wined3d_sub_resource_desc desc;
+    unsigned int width_mask, height_mask;
+
+    wined3d_resource_get_sub_resource_desc(resource, sub_resource_idx, &desc);
+
+    if (box->left >= box->right || box->right > desc.width
+            || box->top >= box->bottom || box->bottom > desc.height
+            || box->front >= box->back || box->back > desc.depth)
+    {
+        WARN("Box %s is invalid.\n", debug_box(box));
+        return WINEDDERR_INVALIDRECT;
+    }
+
+    if (resource->format_flags & WINED3DFMT_FLAG_BLOCKS)
+    {
+        /* This assumes power of two block sizes, but NPOT block sizes would
+         * be silly anyway.
+         *
+         * This also assumes that the format's block depth is 1. */
+        width_mask = format->block_width - 1;
+        height_mask = format->block_height - 1;
+
+        if ((box->left & width_mask) || (box->top & height_mask)
+                || (box->right & width_mask && box->right != desc.width)
+                || (box->bottom & height_mask && box->bottom != desc.height))
+        {
+            WARN("Box %s is misaligned for %ux%u blocks.\n", debug_box(box), format->block_width, format->block_height);
+            return WINED3DERR_INVALIDCALL;
+        }
+    }
+
+    return WINED3D_OK;
 }
 
 VkAccessFlags vk_access_mask_from_bind_flags(uint32_t bind_flags)

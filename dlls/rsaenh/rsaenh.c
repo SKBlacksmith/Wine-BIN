@@ -38,8 +38,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(crypt);
 
-static HINSTANCE instance;
-
 /******************************************************************************
  * CRYPTHASH - hash objects
  */
@@ -360,7 +358,6 @@ BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD fdwReason, PVOID reserved)
     switch (fdwReason)
     {
         case DLL_PROCESS_ATTACH:
-            instance = hInstance;
             DisableThreadLibraryCalls(hInstance);
             init_handle_table(&handle_table);
             break;
@@ -2698,7 +2695,7 @@ BOOL WINAPI RSAENH_CPDecrypt(HCRYPTPROV hProv, HCRYPTKEY hKey, HCRYPTHASH hHash,
              pbData[*pdwDataLen-1] <= *pdwDataLen) {
                 BOOL padOkay = TRUE;
 
-                /* check that every bad byte has the same value */
+                /* check that every pad byte has the same value */
                 for (i = 1; padOkay && i < pbData[*pdwDataLen-1]; i++)
                     if (pbData[*pdwDataLen - i - 1] != pbData[*pdwDataLen - 1])
                         padOkay = FALSE;
@@ -4933,20 +4930,4 @@ cleanup:
     HeapFree(GetProcessHeap(), 0, pbConstructed);
     HeapFree(GetProcessHeap(), 0, pbDecrypted);
     return res;
-}
-
-/******************************************************************************
- * DllRegisterServer (RSAENH.@)
- */
-HRESULT WINAPI DllRegisterServer(void)
-{
-    return __wine_register_resources( instance );
-}
-
-/******************************************************************************
- * DllUnregisterServer (RSAENH.@)
- */
-HRESULT WINAPI DllUnregisterServer(void)
-{
-    return __wine_unregister_resources( instance );
 }

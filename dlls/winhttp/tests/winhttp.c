@@ -3480,7 +3480,7 @@ static void test_bad_header( int port )
     req = WinHttpOpenRequest( con, NULL, NULL, NULL, NULL, NULL, 0 );
     ok( req != NULL, "failed to open a request %u\n", GetLastError() );
 
-    ret = WinHttpAddRequestHeaders( req, L"Content-Type: text/html\n\r", ~0u, WINHTTP_ADDREQ_FLAG_ADD );
+    ret = WinHttpAddRequestHeaders( req, L"Content-Type: text/html\n\rContent-Length:6\rCookie:111", ~0u, WINHTTP_ADDREQ_FLAG_ADD );
     ok( ret, "failed to add header %u\n", GetLastError() );
 
     index = 0;
@@ -3490,6 +3490,15 @@ static void test_bad_header( int port )
                                L"Content-Type", buffer, &len, &index );
     ok( ret, "failed to query headers %u\n", GetLastError() );
     ok( !lstrcmpW( buffer, L"text/html" ), "got %s\n", wine_dbgstr_w(buffer) );
+    ok( index == 1, "index = %u\n", index );
+
+    index = 0;
+    buffer[0] = 0;
+    len = sizeof(buffer);
+    ret = WinHttpQueryHeaders( req, WINHTTP_QUERY_CUSTOM|WINHTTP_QUERY_FLAG_REQUEST_HEADERS,
+                               L"Cookie", buffer, &len, &index );
+    ok( ret, "failed to query headers %u\n", GetLastError() );
+    ok( !lstrcmpW( buffer, L"111" ), "got %s\n", wine_dbgstr_w(buffer) );
     ok( index == 1, "index = %u\n", index );
 
     WinHttpCloseHandle( req );
@@ -4974,6 +4983,9 @@ static void test_WinHttpGetProxyForUrl(void)
         trace("Proxy.ProxyBypass=%s\n", wine_dbgstr_w(info.lpszProxyBypass));
         GlobalFree( info.lpszProxy );
         GlobalFree( info.lpszProxyBypass );
+
+        ret = WinHttpGetProxyForUrl( session, L"http:", &options, &info );
+        ok( !ret, "expected failure\n" );
     }
 
     options.dwFlags = WINHTTP_AUTOPROXY_CONFIG_URL;
@@ -4990,6 +5002,13 @@ static void test_WinHttpGetProxyForUrl(void)
         GlobalFree( info.lpszProxy );
         GlobalFree( info.lpszProxyBypass );
     }
+
+    options.dwFlags = WINHTTP_AUTOPROXY_AUTO_DETECT;
+    options.dwAutoDetectFlags = WINHTTP_AUTO_DETECT_TYPE_DHCP|WINHTTP_AUTO_DETECT_TYPE_DNS_A;
+
+    ret = WinHttpGetProxyForUrl( session, L"http:", &options, &info );
+    ok( !ret, "expected failure\n" );
+
     WinHttpCloseHandle( session );
 }
 

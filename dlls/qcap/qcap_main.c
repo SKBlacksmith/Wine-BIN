@@ -25,11 +25,9 @@
 #include "qcap_private.h"
 #include "rpcproxy.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(qcap);
+WINE_DEFAULT_DEBUG_CHANNEL(quartz);
 
 HINSTANCE qcap_instance;
-
-static LONG objects_ref = 0;
 
 struct class_factory
 {
@@ -91,11 +89,6 @@ static HRESULT WINAPI class_factory_CreateInstance(IClassFactory *iface, IUnknow
 static HRESULT WINAPI class_factory_LockServer(IClassFactory *iface, BOOL lock)
 {
     TRACE("iface %p, lock %d.\n", iface, lock);
-
-    if (lock)
-        InterlockedIncrement(&objects_ref);
-    else
-        InterlockedDecrement(&objects_ref);
     return S_OK;
 }
 
@@ -234,7 +227,7 @@ HRESULT WINAPI DllRegisterServer(void)
     IFilterMapper2 *mapper;
     HRESULT hr;
 
-    if (FAILED(hr = __wine_register_resources( qcap_instance )))
+    if (FAILED(hr = __wine_register_resources()))
         return hr;
 
     if (FAILED(hr = CoCreateInstance(&CLSID_FilterMapper2, NULL, CLSCTX_INPROC_SERVER,
@@ -260,7 +253,7 @@ HRESULT WINAPI DllUnregisterServer(void)
     IFilterMapper2 *mapper;
     HRESULT hr;
 
-    if (FAILED(hr = __wine_unregister_resources( qcap_instance )))
+    if (FAILED(hr = __wine_unregister_resources()))
         return hr;
 
     if (FAILED(hr = CoCreateInstance(&CLSID_FilterMapper2, NULL, CLSCTX_INPROC_SERVER,
@@ -273,21 +266,4 @@ HRESULT WINAPI DllUnregisterServer(void)
 
     IFilterMapper2_Release(mapper);
     return S_OK;
-}
-
-/***********************************************************************
- *    DllCanUnloadNow (QCAP.@)
- */
-HRESULT WINAPI DllCanUnloadNow(void)
-{
-    TRACE(".\n");
-
-    return objects_ref ? S_FALSE : S_OK;
-}
-
-DWORD ObjectRefCount(BOOL increment)
-{
-    if (increment)
-        return InterlockedIncrement(&objects_ref);
-    return InterlockedDecrement(&objects_ref);
 }

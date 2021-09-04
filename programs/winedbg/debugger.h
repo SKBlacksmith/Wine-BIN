@@ -39,7 +39,7 @@
 #include "oaidl.h"
 #include <wine/list.h>
 
-#define ADDRSIZE        (dbg_curr_process->be_cpu->pointer_size)
+#define ADDRSIZE        (dbg_curr_process ? dbg_curr_process->be_cpu->pointer_size : (int)sizeof(void*))
 #define ADDRWIDTH       (ADDRSIZE * 2)
 
 /* the debugger uses these exceptions for its internal use */
@@ -250,7 +250,6 @@ extern	DWORD_PTR	        dbg_curr_tid;
 extern  dbg_ctx_t               dbg_context;
 extern  BOOL                    dbg_interactiveP;
 extern  HANDLE                  dbg_houtput;
-extern  HANDLE                  dbg_crash_report_file;
 
 struct dbg_internal_var
 {
@@ -420,6 +419,7 @@ extern enum dbg_start   dbg_active_auto(int argc, char* argv[]);
 extern enum dbg_start   dbg_active_minidump(int argc, char* argv[]);
 extern void             dbg_active_wait_for_first_exception(void);
 extern BOOL             dbg_attach_debuggee(DWORD pid);
+extern void             fetch_module_name(void* name_addr, void* mod_addr, WCHAR* buffer, size_t bufsz);
 
   /* tgt_minidump.c */
 extern void             minidump_write(const char*, const EXCEPTION_RECORD*);
@@ -464,7 +464,6 @@ extern struct dbg_thread* dbg_get_thread(struct dbg_process* p, DWORD tid);
 extern void             dbg_del_thread(struct dbg_thread* t);
 extern BOOL             dbg_init(HANDLE hProc, const WCHAR* in, BOOL invade);
 extern BOOL             dbg_load_module(HANDLE hProc, HANDLE hFile, const WCHAR* name, DWORD_PTR base, DWORD size);
-extern BOOL             dbg_get_debuggee_info(HANDLE hProcess, IMAGEHLP_MODULE64* imh_mod);
 extern void             dbg_set_option(const char*, const char*);
 extern void             dbg_start_interactive(HANDLE hFile);
 extern void             dbg_init_console(void);

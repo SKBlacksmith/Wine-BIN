@@ -44,36 +44,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(mfplat);
 
-static HINSTANCE mfinstance;
-
-BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
-{
-    switch (reason)
-    {
-        case DLL_PROCESS_ATTACH:
-            mfinstance = instance;
-            DisableThreadLibraryCalls(instance);
-            break;
-    }
-
-    return TRUE;
-}
-
-HRESULT WINAPI DllCanUnloadNow(void)
-{
-    return S_FALSE;
-}
-
-HRESULT WINAPI DllRegisterServer(void)
-{
-    return __wine_register_resources( mfinstance );
-}
-
-HRESULT WINAPI DllUnregisterServer(void)
-{
-    return __wine_unregister_resources( mfinstance );
-}
-
 struct stream_response
 {
     struct list entry;
@@ -2051,19 +2021,9 @@ static HRESULT source_reader_flush_async(struct source_reader *reader, unsigned 
 static HRESULT WINAPI src_reader_Flush(IMFSourceReader *iface, DWORD index)
 {
     struct source_reader *reader = impl_from_IMFSourceReader(iface);
-    const char *sgi;
     HRESULT hr;
 
     TRACE("%p, %#x.\n", iface, index);
-
-    sgi = getenv("SteamGameId");
-    if (sgi && strcmp(sgi, "1293160") == 0)
-    {
-        /* In The Medium flushes sometimes lead to the callback
-           calling objects that have already been destroyed. */
-        WARN("ignoring flush\n");
-        return S_OK;
-    }
 
     EnterCriticalSection(&reader->cs);
 

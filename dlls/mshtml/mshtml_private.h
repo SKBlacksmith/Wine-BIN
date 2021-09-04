@@ -40,6 +40,10 @@
 
 #include "nsiface.h"
 
+#include "mshtml_private_iface.h"
+
+#include <assert.h>
+
 #define NS_ERROR_GENERATE_FAILURE(module,code) \
     ((nsresult) (((UINT32)(1u<<31)) | ((UINT32)(module+0x45)<<16) | ((UINT32)(code))))
 #define NS_ERROR_GENERATE_SUCCESS(module,code) \
@@ -188,6 +192,7 @@ typedef struct EventTarget EventTarget;
     XIID(IHTMLElement3) \
     XIID(IHTMLElement4) \
     XIID(IHTMLElement6) \
+    XIID(IHTMLElement7) \
     XIID(IHTMLElementCollection) \
     XIID(IHTMLEmbedElement) \
     XIID(IHTMLEventObj) \
@@ -235,7 +240,9 @@ typedef struct EventTarget EventTarget;
     XIID(IHTMLStyle5) \
     XIID(IHTMLStyle6) \
     XIID(IHTMLStyleElement) \
+    XIID(IHTMLStyleElement2) \
     XIID(IHTMLStyleSheet) \
+    XIID(IHTMLStyleSheet4) \
     XIID(IHTMLStyleSheetRule) \
     XIID(IHTMLStyleSheetRulesCollection) \
     XIID(IHTMLStyleSheetsCollection) \
@@ -265,10 +272,18 @@ typedef struct EventTarget EventTarget;
     XIID(ISVGTSpanElement) \
     XIID(ISVGTextContentElement)
 
+#define PRIVATE_TID_LIST \
+    XIID(IWineDOMTokenList) \
+    XIID(IWineHTMLElementPrivate) \
+    XIID(IWineHTMLWindowPrivate) \
+    XIID(IWineMSHTMLConsole)
+
 typedef enum {
 #define XIID(iface) iface ## _tid,
 #define XDIID(iface) iface ## _tid,
 TID_LIST
+    LAST_public_tid,
+PRIVATE_TID_LIST
 #undef XIID
 #undef XDIID
     LAST_tid
@@ -364,7 +379,7 @@ extern void (__cdecl *ccp_init)(ExternalCycleCollectionParticipant*,const CCObjC
 extern void (__cdecl *describe_cc_node)(nsCycleCollectingAutoRefCnt*,const char*,nsCycleCollectionTraversalCallback*) DECLSPEC_HIDDEN;
 extern void (__cdecl *note_cc_edge)(nsISupports*,const char*,nsCycleCollectionTraversalCallback*) DECLSPEC_HIDDEN;
 
-void init_dispex_with_compat_mode(DispatchEx*,IUnknown*,dispex_static_data_t*,compat_mode_t) DECLSPEC_HIDDEN;
+void init_dispatch(DispatchEx*,IUnknown*,dispex_static_data_t*,compat_mode_t) DECLSPEC_HIDDEN;
 void release_dispex(DispatchEx*) DECLSPEC_HIDDEN;
 BOOL dispex_query_interface(DispatchEx*,REFIID,void**) DECLSPEC_HIDDEN;
 HRESULT dispex_get_dprop_ref(DispatchEx*,const WCHAR*,BOOL,VARIANT**) DECLSPEC_HIDDEN;
@@ -378,11 +393,6 @@ HRESULT get_class_typeinfo(const CLSID*,ITypeInfo**) DECLSPEC_HIDDEN;
 const void *dispex_get_vtbl(DispatchEx*) DECLSPEC_HIDDEN;
 void dispex_info_add_interface(dispex_data_t*,tid_t,const dispex_hook_t*) DECLSPEC_HIDDEN;
 compat_mode_t dispex_compat_mode(DispatchEx*) DECLSPEC_HIDDEN;
-
-static inline void init_dispex(DispatchEx *dispex, IUnknown *outer, dispex_static_data_t *desc)
-{
-    init_dispex_with_compat_mode(dispex, outer, desc, COMPAT_MODE_NONE);
-}
 
 typedef enum {
     DISPEXPROP_CUSTOM,
@@ -483,6 +493,9 @@ struct HTMLWindow {
     ITravelLogClient   ITravelLogClient_iface;
     IObjectIdentity    IObjectIdentity_iface;
     IProvideMultipleClassInfo IProvideMultipleClassInfo_iface;
+    IWineHTMLWindowPrivate IWineHTMLWindowPrivate_iface;
+
+    IWineMSHTMLConsole *console;
 
     LONG ref;
 
@@ -534,6 +547,7 @@ struct HTMLInnerWindow {
     HTMLXMLHttpRequestFactory *xhr_factory;
     IHTMLScreen *screen;
     OmHistory *history;
+    IOmNavigator *navigator;
     IHTMLStorage *session_storage;
     IHTMLStorage *local_storage;
 
@@ -811,10 +825,12 @@ typedef struct {
     IHTMLElement3 IHTMLElement3_iface;
     IHTMLElement4 IHTMLElement4_iface;
     IHTMLElement6 IHTMLElement6_iface;
+    IHTMLElement7 IHTMLElement7_iface;
     IHTMLUniqueName IHTMLUniqueName_iface;
     IElementSelector IElementSelector_iface;
     IElementTraversal IElementTraversal_iface;
     IProvideMultipleClassInfo IProvideMultipleClassInfo_iface;
+    IWineHTMLElementPrivate IWineHTMLElementPrivate_iface;
 
     nsIDOMElement *dom_element;       /* NULL for legacy comments represented as HTML elements */
     nsIDOMHTMLElement *html_element;  /* NULL for non-HTML elements (like SVG elements) */
@@ -899,7 +915,6 @@ HRESULT MHTMLDocument_Create(IUnknown*,REFIID,void**) DECLSPEC_HIDDEN;
 HRESULT HTMLLoadOptions_Create(IUnknown*,REFIID,void**) DECLSPEC_HIDDEN;
 HRESULT create_document_node(nsIDOMHTMLDocument*,GeckoBrowser*,HTMLInnerWindow*,
                              compat_mode_t,HTMLDocumentNode**) DECLSPEC_HIDDEN;
-HRESULT create_marshaled_doc(HWND,REFIID,void**) DECLSPEC_HIDDEN;
 
 HRESULT create_outer_window(GeckoBrowser*,mozIDOMWindowProxy*,HTMLOuterWindow*,HTMLOuterWindow**) DECLSPEC_HIDDEN;
 HRESULT update_window_doc(HTMLInnerWindow*) DECLSPEC_HIDDEN;
@@ -909,15 +924,15 @@ HRESULT HTMLOptionElementFactory_Create(HTMLInnerWindow*,HTMLOptionElementFactor
 HRESULT HTMLImageElementFactory_Create(HTMLInnerWindow*,HTMLImageElementFactory**) DECLSPEC_HIDDEN;
 HRESULT HTMLXMLHttpRequestFactory_Create(HTMLInnerWindow*,HTMLXMLHttpRequestFactory**) DECLSPEC_HIDDEN;
 HRESULT HTMLLocation_Create(HTMLInnerWindow*,HTMLLocation**) DECLSPEC_HIDDEN;
-IOmNavigator *OmNavigator_Create(void) DECLSPEC_HIDDEN;
-HRESULT HTMLScreen_Create(IHTMLScreen**) DECLSPEC_HIDDEN;
-HRESULT create_performance(IHTMLPerformance**) DECLSPEC_HIDDEN;
+HRESULT create_navigator(compat_mode_t,IOmNavigator**) DECLSPEC_HIDDEN;
+HRESULT create_html_screen(compat_mode_t,IHTMLScreen**) DECLSPEC_HIDDEN;
+HRESULT create_performance(compat_mode_t,IHTMLPerformance**) DECLSPEC_HIDDEN;
 HRESULT create_history(HTMLInnerWindow*,OmHistory**) DECLSPEC_HIDDEN;
-HRESULT create_namespace_collection(IHTMLNamespaceCollection**) DECLSPEC_HIDDEN;
+HRESULT create_namespace_collection(compat_mode_t,IHTMLNamespaceCollection**) DECLSPEC_HIDDEN;
 HRESULT create_dom_implementation(HTMLDocumentNode*,IHTMLDOMImplementation**) DECLSPEC_HIDDEN;
 void detach_dom_implementation(IHTMLDOMImplementation*) DECLSPEC_HIDDEN;
 
-HRESULT create_storage(IHTMLStorage**) DECLSPEC_HIDDEN;
+HRESULT create_html_storage(compat_mode_t,IHTMLStorage**) DECLSPEC_HIDDEN;
 
 void HTMLDocument_Persist_Init(HTMLDocument*) DECLSPEC_HIDDEN;
 void HTMLDocument_OleCmd_Init(HTMLDocument*) DECLSPEC_HIDDEN;
@@ -1017,9 +1032,10 @@ HRESULT get_readystate_string(READYSTATE,BSTR*) DECLSPEC_HIDDEN;
 
 HRESULT HTMLSelectionObject_Create(HTMLDocumentNode*,nsISelection*,IHTMLSelectionObject**) DECLSPEC_HIDDEN;
 HRESULT HTMLTxtRange_Create(HTMLDocumentNode*,nsIDOMRange*,IHTMLTxtRange**) DECLSPEC_HIDDEN;
-IHTMLStyleSheet *HTMLStyleSheet_Create(nsIDOMStyleSheet*) DECLSPEC_HIDDEN;
-IHTMLStyleSheetsCollection *HTMLStyleSheetsCollection_Create(nsIDOMStyleSheetList*) DECLSPEC_HIDDEN;
-HRESULT HTMLDOMRange_Create(nsIDOMRange*,IHTMLDOMRange**) DECLSPEC_HIDDEN;
+HRESULT create_style_sheet(nsIDOMStyleSheet*,compat_mode_t,IHTMLStyleSheet**) DECLSPEC_HIDDEN;
+HRESULT create_style_sheet_collection(nsIDOMStyleSheetList*,compat_mode_t,
+                                      IHTMLStyleSheetsCollection**) DECLSPEC_HIDDEN;
+HRESULT create_dom_range(nsIDOMRange*,compat_mode_t,IHTMLDOMRange**) DECLSPEC_HIDDEN;
 HRESULT create_markup_pointer(IMarkupPointer**) DECLSPEC_HIDDEN;
 
 void detach_document_node(HTMLDocumentNode*) DECLSPEC_HIDDEN;
@@ -1140,7 +1156,7 @@ HRESULT wrap_iface(IUnknown*,IUnknown*,IUnknown**) DECLSPEC_HIDDEN;
 IHTMLElementCollection *create_all_collection(HTMLDOMNode*,BOOL) DECLSPEC_HIDDEN;
 IHTMLElementCollection *create_collection_from_nodelist(nsIDOMNodeList*,compat_mode_t) DECLSPEC_HIDDEN;
 IHTMLElementCollection *create_collection_from_htmlcol(nsIDOMHTMLCollection*,compat_mode_t) DECLSPEC_HIDDEN;
-IHTMLDOMChildrenCollection *create_child_collection(nsIDOMNodeList*) DECLSPEC_HIDDEN;
+HRESULT create_child_collection(nsIDOMNodeList*,compat_mode_t,IHTMLDOMChildrenCollection**) DECLSPEC_HIDDEN;
 
 HRESULT attr_value_to_string(VARIANT*) DECLSPEC_HIDDEN;
 HRESULT get_elem_attr_value_by_dispid(HTMLElement*,DISPID,VARIANT*) DECLSPEC_HIDDEN;
@@ -1212,8 +1228,15 @@ HWND get_thread_hwnd(void) DECLSPEC_HIDDEN;
 LONG get_task_target_magic(void) DECLSPEC_HIDDEN;
 HRESULT push_task(task_t*,task_proc_t,task_proc_t,LONG) DECLSPEC_HIDDEN;
 void remove_target_tasks(LONG) DECLSPEC_HIDDEN;
+ULONGLONG get_time_stamp(void) DECLSPEC_HIDDEN;
 
-HRESULT set_task_timer(HTMLInnerWindow*,LONG,BOOL,IDispatch*,LONG*) DECLSPEC_HIDDEN;
+enum timer_type {
+    TIMER_TIMEOUT,
+    TIMER_INTERVAL,
+    TIMER_ANIMATION_FRAME,
+};
+
+HRESULT set_task_timer(HTMLInnerWindow*,LONG,enum timer_type,IDispatch*,LONG*) DECLSPEC_HIDDEN;
 HRESULT clear_task_timer(HTMLInnerWindow*,DWORD) DECLSPEC_HIDDEN;
 
 BOOL parse_compat_version(const WCHAR*,compat_mode_t*) DECLSPEC_HIDDEN;
@@ -1390,3 +1413,4 @@ void set_statustext(HTMLDocumentObj*,INT,LPCWSTR) DECLSPEC_HIDDEN;
 IInternetSecurityManager *get_security_manager(void) DECLSPEC_HIDDEN;
 
 extern HINSTANCE hInst DECLSPEC_HIDDEN;
+void create_console(compat_mode_t compat_mode, IWineMSHTMLConsole **ret) DECLSPEC_HIDDEN;

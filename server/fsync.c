@@ -63,6 +63,13 @@ static inline int futex_wait_multiple( const struct futex_wait_block *futexes,
     return syscall( __NR_futex, futexes, 31, count, timeout, 0, 0 );
 }
 
+/* futex2 experimental interface */
+
+static long nr_futex2_wake;
+
+#define FUTEX_32 2
+#define FUTEX_SHARED_FLAG 8
+
 int do_fsync(void)
 {
 #ifdef __linux__
@@ -70,9 +77,29 @@ int do_fsync(void)
 
     if (do_fsync_cached == -1)
     {
-        static const struct timespec zero;
-        futex_wait_multiple( NULL, 0, &zero );
-        do_fsync_cached = getenv("WINEFSYNC") && atoi(getenv("WINEFSYNC")) && errno != ENOSYS;
+        int use_futex2 = 1;
+        FILE *f;
+
+        if (getenv( "WINEFSYNC_FUTEX2" ))
+            use_futex2 = atoi( getenv( "WINEFSYNC_FUTEX2" ) );
+
+        if (use_futex2 && (f = fopen( "/sys/kernel/futex2/wake", "r" )))
+        {
+            char buffer[13];
+
+            fgets( buffer, sizeof(buffer), f );
+            nr_futex2_wake = atoi( buffer );
+            fclose(f);
+
+            do_fsync_cached = 1;
+        }
+        else
+        {
+            static const struct timespec zero;
+            futex_wait_multiple( NULL, 0, &zero );
+            do_fsync_cached = (errno != ENOSYS);
+        }
+        do_fsync_cached = getenv("WINEFSYNC") && atoi(getenv("WINEFSYNC")) && do_fsync_cached;
     }
 
     return do_fsync_cached;
@@ -127,7 +154,10 @@ void fsync_init(void)
 
     is_fsync_initialized = 1;
 
-    fprintf( stderr, "fsync: up and running.\n" );
+    if (nr_futex2_wake)
+        fprintf( stderr, "futex2: up and running.\n" );
+    else
+        fprintf( stderr, "fsync: up and running.\n" );
 
     atexit( shm_cleanup );
 }
@@ -163,7 +193,7 @@ const struct object_ops fsync_ops =
     fsync_map_access,          /* map_access */
     default_get_sd,            /* get_sd */
     default_set_sd,            /* set_sd */
-    default_get_full_name,     /* get_full_name */
+    no_get_full_name,          /* get_full_name */
     no_lookup_name,            /* lookup_name */
     directory_link_name,       /* link_name */
     default_unlink_name,       /* unlink_name */
@@ -328,9 +358,11 @@ struct fsync *create_fsync( struct object *root, const struct unicode_str *name,
 #endif
 }
 
-static inline int futex_wake( int *addr, int val )
+static inline int futex_wake( int *addr, int count )
 {
-    return syscall( __NR_futex, addr, 1, val, NULL, 0, 0 );
+    if (nr_futex2_wake)
+        return syscall( nr_futex2_wake, addr, count, FUTEX_32 | FUTEX_SHARED_FLAG );
+    return syscall( __NR_futex, addr, 1, count, NULL, 0, 0 );
 }
 
 /* shm layout for events or event-like objects. */

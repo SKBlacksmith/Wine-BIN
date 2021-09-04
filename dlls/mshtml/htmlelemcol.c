@@ -17,7 +17,6 @@
  */
 
 #include <stdarg.h>
-#include <assert.h>
 
 #define COBJMACROS
 
@@ -833,8 +832,8 @@ static IHTMLElementCollection *HTMLElementCollection_Create(HTMLElement **elems,
     ret->elems = elems;
     ret->len = len;
 
-    init_dispex_with_compat_mode(&ret->dispex, (IUnknown*)&ret->IHTMLElementCollection_iface,
-                                 &HTMLElementCollection_dispex, compat_mode);
+    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLElementCollection_iface,
+                  &HTMLElementCollection_dispex, compat_mode);
 
     TRACE("ret=%p len=%d\n", ret, len);
 

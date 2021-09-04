@@ -19,36 +19,48 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#if 0
+#pragma makedep unix
+#endif
+
 #include "config.h"
 #include "wine/port.h"
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <assert.h>
+#include <errno.h>
 #ifdef SONAME_LIBGNUTLS
 #include <gnutls/gnutls.h>
 #include <gnutls/crypto.h>
 #include <gnutls/abstract.h>
 #endif
 
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
 #include "windef.h"
 #include "winbase.h"
 #include "sspi.h"
 #include "schannel.h"
-#include "lmcons.h"
 #include "winreg.h"
 #include "secur32_priv.h"
 
 #include "wine/debug.h"
 #include "wine/unicode.h"
 
-#if defined(SONAME_LIBGNUTLS) && !defined(HAVE_SECURITY_SECURITY_H)
+#if defined(SONAME_LIBGNUTLS)
 
 WINE_DEFAULT_DEBUG_CHANNEL(secur32);
 WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
+static const struct schan_callbacks *callbacks;
+
 /* Not present in gnutls version < 2.9.10. */
 static int (*pgnutls_cipher_get_block_size)(gnutls_cipher_algorithm_t);
+
+/* Not present in gnutls version < 3.0. */
+static void (*pgnutls_transport_set_pull_timeout_function)(gnutls_session_t,
+                                                           int (*)(gnutls_transport_ptr_t, unsigned int));
+static void (*pgnutls_dtls_set_mtu)(gnutls_session_t, unsigned int);
 
 /* Not present in gnutls version < 3.2.0. */
 static int (*pgnutls_alpn_get_selected_protocol)(gnutls_session_t, gnutls_datum_t *);
@@ -147,6 +159,12 @@ static int compat_cipher_get_block_size(gnutls_cipher_algorithm_t cipher)
     }
 }
 
+static void compat_gnutls_transport_set_pull_timeout_function(gnutls_session_t session,
+                                                              int (*func)(gnutls_transport_ptr_t, unsigned int))
+{
+    FIXME("\n");
+}
+
 static int compat_gnutls_privkey_export_x509(gnutls_privkey_t privkey, gnutls_x509_privkey_t *key)
 {
     FIXME("\n");
@@ -176,32 +194,45 @@ static int compat_gnutls_alpn_set_protocols(gnutls_session_t session, const gnut
     return GNUTLS_E_INVALID_REQUEST;
 }
 
-static ssize_t schan_pull_adapter(gnutls_transport_ptr_t transport,
-                                      void *buff, size_t buff_len)
+static void compat_gnutls_dtls_set_mtu(gnutls_session_t session, unsigned int mtu)
+{
+    FIXME("\n");
+}
+
+static ssize_t pull_adapter(gnutls_transport_ptr_t transport, void *buff, size_t buff_len)
 {
     struct schan_transport *t = (struct schan_transport*)transport;
-    gnutls_session_t s = (gnutls_session_t)schan_session_for_transport(t);
+    gnutls_session_t s = (gnutls_session_t)callbacks->get_session_for_transport(t);
 
-    int ret = schan_pull(transport, buff, &buff_len);
-    if (ret)
+    int ret = callbacks->pull(transport, buff, &buff_len);
+    if (ret == -1)
     {
-        pgnutls_transport_set_errno(s, ret);
+        pgnutls_transport_set_errno(s, EAGAIN);
+        return -1;
+    }
+    if (ret < 0)
+    {
+        FIXME("unhandled error from pull callback %d\n", ret);
         return -1;
     }
 
     return buff_len;
 }
 
-static ssize_t schan_push_adapter(gnutls_transport_ptr_t transport,
-                                      const void *buff, size_t buff_len)
+static ssize_t push_adapter(gnutls_transport_ptr_t transport, const void *buff, size_t buff_len)
 {
     struct schan_transport *t = (struct schan_transport*)transport;
-    gnutls_session_t s = (gnutls_session_t)schan_session_for_transport(t);
+    gnutls_session_t s = (gnutls_session_t)callbacks->get_session_for_transport(t);
 
-    int ret = schan_push(transport, buff, &buff_len);
-    if (ret)
+    int ret = callbacks->push(transport, buff, &buff_len);
+    if (ret == -1)
     {
-        pgnutls_transport_set_errno(s, ret);
+        pgnutls_transport_set_errno(s, EAGAIN);
+        return -1;
+    }
+    if (ret < 0)
+    {
+        FIXME("unhandled error from push callback %d\n", ret);
         return -1;
     }
 
@@ -212,6 +243,8 @@ static const struct {
     DWORD enable_flag;
     const char *gnutls_flag;
 } protocol_priority_flags[] = {
+    {SP_PROT_DTLS1_2_CLIENT, "VERS-DTLS1.2"},
+    {SP_PROT_DTLS1_0_CLIENT, "VERS-DTLS1.0"},
     {SP_PROT_TLS1_3_CLIENT, "VERS-TLS1.3"},
     {SP_PROT_TLS1_2_CLIENT, "VERS-TLS1.2"},
     {SP_PROT_TLS1_1_CLIENT, "VERS-TLS1.1"},
@@ -252,19 +285,38 @@ static void check_supported_protocols(void)
     pgnutls_deinit(session);
 }
 
-DWORD schan_imp_enabled_protocols(void)
+static DWORD CDECL schan_get_enabled_protocols(void)
 {
     return supported_protocols;
 }
 
-BOOL schan_imp_create_session(schan_imp_session *session, schan_credentials *cred)
+static int pull_timeout(gnutls_transport_ptr_t transport, unsigned int timeout)
+{
+    struct schan_transport *t = (struct schan_transport*)transport;
+    gnutls_session_t s = (gnutls_session_t)callbacks->get_session_for_transport(t);
+    SIZE_T count = 0;
+
+    TRACE("\n");
+
+    if (callbacks->get_buffer(t, &t->in, &count)) return 1;
+    pgnutls_transport_set_errno(s, EAGAIN);
+    return -1;
+}
+
+static BOOL CDECL schan_create_session(schan_session *session, schan_credentials *cred)
 {
     gnutls_session_t *s = (gnutls_session_t*)session;
     char priority[128] = "NORMAL:%LATEST_RECORD_VERSION", *p;
     BOOL using_vers_all = FALSE, disabled;
-    unsigned i;
+    unsigned int i, flags = (cred->credential_use == SECPKG_CRED_INBOUND) ? GNUTLS_SERVER : GNUTLS_CLIENT;
+    int err;
 
-    int err = pgnutls_init(s, cred->credential_use == SECPKG_CRED_INBOUND ? GNUTLS_SERVER : GNUTLS_CLIENT);
+    if (cred->enabled_protocols & (SP_PROT_DTLS1_0_CLIENT | SP_PROT_DTLS1_2_CLIENT))
+    {
+        flags |= GNUTLS_DATAGRAM;
+    }
+
+    err = pgnutls_init(s, flags);
     if (err != GNUTLS_E_SUCCESS)
     {
         pgnutls_perror(err);
@@ -314,33 +366,32 @@ BOOL schan_imp_create_session(schan_imp_session *session, schan_credentials *cre
         return FALSE;
     }
 
-    pgnutls_transport_set_pull_function(*s, schan_pull_adapter);
-    pgnutls_transport_set_push_function(*s, schan_push_adapter);
+    pgnutls_transport_set_pull_function(*s, pull_adapter);
+    if (flags & GNUTLS_DATAGRAM) pgnutls_transport_set_pull_timeout_function(*s, pull_timeout);
+    pgnutls_transport_set_push_function(*s, push_adapter);
 
     return TRUE;
 }
 
-void schan_imp_dispose_session(schan_imp_session session)
+static void CDECL schan_dispose_session(schan_session session)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     pgnutls_deinit(s);
 }
 
-void schan_imp_set_session_transport(schan_imp_session session,
-                                     struct schan_transport *t)
+static void CDECL schan_set_session_transport(schan_session session, struct schan_transport *t)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     pgnutls_transport_set_ptr(s, (gnutls_transport_ptr_t)t);
 }
 
-void schan_imp_set_session_target(schan_imp_session session, const char *target)
+static void CDECL schan_set_session_target(schan_session session, const char *target)
 {
     gnutls_session_t s = (gnutls_session_t)session;
-
     pgnutls_server_name_set( s, GNUTLS_NAME_DNS, target, strlen(target) );
 }
 
-SECURITY_STATUS schan_imp_handshake(schan_imp_session session)
+static SECURITY_STATUS CDECL schan_handshake(schan_session session)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     int err;
@@ -388,7 +439,7 @@ SECURITY_STATUS schan_imp_handshake(schan_imp_session session)
     return SEC_E_OK;
 }
 
-static DWORD schannel_get_protocol(gnutls_protocol_t proto)
+static DWORD get_protocol(gnutls_protocol_t proto)
 {
     /* FIXME: currently schannel only implements client connections, but
      * there's no reason it couldn't be used for servers as well.  The
@@ -400,13 +451,15 @@ static DWORD schannel_get_protocol(gnutls_protocol_t proto)
     case GNUTLS_TLS1_0: return SP_PROT_TLS1_0_CLIENT;
     case GNUTLS_TLS1_1: return SP_PROT_TLS1_1_CLIENT;
     case GNUTLS_TLS1_2: return SP_PROT_TLS1_2_CLIENT;
+    case GNUTLS_DTLS1_0: return SP_PROT_DTLS1_0_CLIENT;
+    case GNUTLS_DTLS1_2: return SP_PROT_DTLS1_2_CLIENT;
     default:
         FIXME("unknown protocol %d\n", proto);
         return 0;
     }
 }
 
-static ALG_ID schannel_get_cipher_algid(gnutls_cipher_algorithm_t cipher)
+static ALG_ID get_cipher_algid(gnutls_cipher_algorithm_t cipher)
 {
     switch (cipher)
     {
@@ -428,7 +481,7 @@ static ALG_ID schannel_get_cipher_algid(gnutls_cipher_algorithm_t cipher)
     }
 }
 
-static ALG_ID schannel_get_mac_algid(gnutls_mac_algorithm_t mac, gnutls_cipher_algorithm_t cipher)
+static ALG_ID get_mac_algid(gnutls_mac_algorithm_t mac, gnutls_cipher_algorithm_t cipher)
 {
     switch (mac)
     {
@@ -457,7 +510,7 @@ static ALG_ID schannel_get_mac_algid(gnutls_mac_algorithm_t mac, gnutls_cipher_a
     }
 }
 
-static ALG_ID schannel_get_kx_algid(int kx)
+static ALG_ID get_kx_algid(int kx)
 {
     switch (kx)
     {
@@ -477,19 +530,18 @@ static ALG_ID schannel_get_kx_algid(int kx)
     }
 }
 
-unsigned int schan_imp_get_session_cipher_block_size(schan_imp_session session)
+static unsigned int CDECL schan_get_session_cipher_block_size(schan_session session)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     return pgnutls_cipher_get_block_size(pgnutls_cipher_get(s));
 }
 
-unsigned int schan_imp_get_max_message_size(schan_imp_session session)
+static unsigned int CDECL schan_get_max_message_size(schan_session session)
 {
     return pgnutls_record_get_max_size((gnutls_session_t)session);
 }
 
-SECURITY_STATUS schan_imp_get_connection_info(schan_imp_session session,
-                                              SecPkgContext_ConnectionInfo *info)
+static SECURITY_STATUS CDECL schan_get_connection_info(schan_session session, SecPkgContext_ConnectionInfo *info)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     gnutls_protocol_t proto = pgnutls_protocol_get_version(s);
@@ -497,19 +549,18 @@ SECURITY_STATUS schan_imp_get_connection_info(schan_imp_session session,
     gnutls_mac_algorithm_t mac = pgnutls_mac_get(s);
     gnutls_kx_algorithm_t kx = pgnutls_kx_get(s);
 
-    info->dwProtocol = schannel_get_protocol(proto);
-    info->aiCipher = schannel_get_cipher_algid(alg);
+    info->dwProtocol = get_protocol(proto);
+    info->aiCipher = get_cipher_algid(alg);
     info->dwCipherStrength = pgnutls_cipher_get_key_size(alg) * 8;
-    info->aiHash = schannel_get_mac_algid(mac, alg);
+    info->aiHash = get_mac_algid(mac, alg);
     info->dwHashStrength = pgnutls_mac_get_key_size(mac) * 8;
-    info->aiExch = schannel_get_kx_algid(kx);
+    info->aiExch = get_kx_algid(kx);
     /* FIXME: info->dwExchStrength? */
     info->dwExchStrength = 0;
     return SEC_E_OK;
 }
 
-SECURITY_STATUS schan_imp_get_unique_channel_binding(schan_imp_session session,
-                                                     SecPkgContext_Bindings *bindings)
+static SECURITY_STATUS CDECL schan_get_unique_channel_binding(schan_session session, SecPkgContext_Bindings *bindings)
 {
     static const char prefix[] = "tls-unique:";
     gnutls_datum_t datum;
@@ -526,7 +577,7 @@ SECURITY_STATUS schan_imp_get_unique_channel_binding(schan_imp_session session,
     }
 
     bindings->BindingsLength = sizeof(SEC_CHANNEL_BINDINGS) + sizeof(prefix)-1 + datum.size;
-    bindings->Bindings = heap_alloc_zero(bindings->BindingsLength);
+    bindings->Bindings = RtlAllocateHeap(GetProcessHeap(), HEAP_ZERO_MEMORY, bindings->BindingsLength);
     if (!bindings->Bindings)
         ret = SEC_E_INSUFFICIENT_MEMORY;
     else
@@ -543,7 +594,7 @@ SECURITY_STATUS schan_imp_get_unique_channel_binding(schan_imp_session session,
     return ret;
 }
 
-ALG_ID schan_imp_get_key_signature_algorithm(schan_imp_session session)
+static ALG_ID CDECL schan_get_key_signature_algorithm(schan_session session)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     gnutls_kx_algorithm_t kx = pgnutls_kx_get(s);
@@ -564,35 +615,32 @@ ALG_ID schan_imp_get_key_signature_algorithm(schan_imp_session session)
     }
 }
 
-SECURITY_STATUS schan_imp_get_session_peer_certificate(schan_imp_session session, HCERTSTORE store,
-                                                       PCCERT_CONTEXT *ret)
+static SECURITY_STATUS CDECL schan_get_session_peer_certificate(schan_session session, struct schan_cert_list *list)
 {
     gnutls_session_t s = (gnutls_session_t)session;
-    PCCERT_CONTEXT cert = NULL;
     const gnutls_datum_t *datum;
-    unsigned list_size, i;
-    BOOL res;
+    unsigned int i, size;
+    BYTE *ptr;
 
-    datum = pgnutls_certificate_get_peers(s, &list_size);
-    if(!datum)
-        return SEC_E_INTERNAL_ERROR;
+    if (!(datum = pgnutls_certificate_get_peers(s, &list->count))) return SEC_E_INTERNAL_ERROR;
 
-    for(i = 0; i < list_size; i++) {
-        res = CertAddEncodedCertificateToStore(store, X509_ASN_ENCODING, datum[i].data, datum[i].size,
-                CERT_STORE_ADD_REPLACE_EXISTING, i ? NULL : &cert);
-        if(!res) {
-            if(i)
-                CertFreeCertificateContext(cert);
-            return GetLastError();
-        }
+    size = list->count * sizeof(list->certs[0]);
+    for (i = 0; i < list->count; i++) size += datum[i].size;
+    if (!(list->certs = RtlAllocateHeap(GetProcessHeap(), 0, size))) return SEC_E_INSUFFICIENT_MEMORY;
+
+    ptr = (BYTE *)&list->certs[list->count];
+    for (i = 0; i < list->count; i++)
+    {
+        list->certs[i].cbData = datum[i].size;
+        list->certs[i].pbData = ptr;
+        memcpy(list->certs[i].pbData, datum[i].data, datum[i].size);
+        ptr += datum[i].size;
     }
 
-    *ret = cert;
     return SEC_E_OK;
 }
 
-SECURITY_STATUS schan_imp_send(schan_imp_session session, const void *buffer,
-                               SIZE_T *length)
+static SECURITY_STATUS CDECL schan_send(schan_session session, const void *buffer, SIZE_T *length)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     SSIZE_T ret, total = 0;
@@ -611,7 +659,7 @@ SECURITY_STATUS schan_imp_send(schan_imp_session session, const void *buffer,
             struct schan_transport *t = (struct schan_transport *)pgnutls_transport_get_ptr(s);
             SIZE_T count = 0;
 
-            if (schan_get_buffer(t, &t->out, &count)) continue;
+            if (callbacks->get_buffer(t, &t->out, &count)) continue;
             return SEC_I_CONTINUE_NEEDED;
         }
         else
@@ -622,8 +670,7 @@ SECURITY_STATUS schan_imp_send(schan_imp_session session, const void *buffer,
     }
 }
 
-SECURITY_STATUS schan_imp_recv(schan_imp_session session, void *buffer,
-                               SIZE_T *length)
+static SECURITY_STATUS CDECL schan_recv(schan_session session, void *buffer, SIZE_T *length)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     ssize_t ret;
@@ -638,7 +685,7 @@ again:
         struct schan_transport *t = (struct schan_transport *)pgnutls_transport_get_ptr(s);
         SIZE_T count = 0;
 
-        if (schan_get_buffer(t, &t->in, &count))
+        if (callbacks->get_buffer(t, &t->in, &count))
             goto again;
 
         return SEC_I_CONTINUE_NEEDED;
@@ -679,7 +726,7 @@ static unsigned int parse_alpn_protocol_list(unsigned char *buffer, unsigned int
     return count;
 }
 
-void schan_imp_set_application_protocols(schan_imp_session session, unsigned char *buffer, unsigned int buflen)
+static void CDECL schan_set_application_protocols(schan_session session, unsigned char *buffer, unsigned int buflen)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     unsigned int extension_len, extension, count = 0, offset = 0;
@@ -706,7 +753,7 @@ void schan_imp_set_application_protocols(schan_imp_session session, unsigned cha
 
     if (offset + list_len > buflen) return;
     count = parse_alpn_protocol_list(&buffer[offset], list_len, NULL);
-    if (!count || !(protocols = heap_alloc(count * sizeof(*protocols)))) return;
+    if (!count || !(protocols = RtlAllocateHeap(GetProcessHeap(), 0, count * sizeof(*protocols)))) return;
 
     parse_alpn_protocol_list(&buffer[offset], list_len, protocols);
     if ((ret = pgnutls_alpn_set_protocols(s, protocols, count, GNUTLS_ALPN_SERVER_PRECEDENCE) < 0))
@@ -714,11 +761,11 @@ void schan_imp_set_application_protocols(schan_imp_session session, unsigned cha
         pgnutls_perror(ret);
     }
 
-    heap_free(protocols);
+    RtlFreeHeap(GetProcessHeap(), 0, protocols);
 }
 
-SECURITY_STATUS schan_imp_get_application_protocol(schan_imp_session session,
-                                                   SecPkgContext_ApplicationProtocol *protocol)
+static SECURITY_STATUS CDECL schan_get_application_protocol(schan_session session,
+                                                            SecPkgContext_ApplicationProtocol *protocol)
 {
     gnutls_session_t s = (gnutls_session_t)session;
     gnutls_datum_t selected;
@@ -732,117 +779,18 @@ SECURITY_STATUS schan_imp_get_application_protocol(schan_imp_session session,
         protocol->ProtoNegoExt    = SecApplicationProtocolNegotiationExt_ALPN;
         protocol->ProtocolIdSize  = selected.size;
         memcpy(protocol->ProtocolId, selected.data, selected.size);
-        TRACE("returning %s\n", debugstr_an((const char *)selected.data, selected.size));
+        TRACE("returning %s\n", wine_dbgstr_an((const char *)selected.data, selected.size));
     }
     return SEC_E_OK;
 }
 
-static WCHAR *get_key_container_path(const CERT_CONTEXT *ctx)
+static SECURITY_STATUS CDECL schan_set_dtls_mtu(schan_session session, unsigned int mtu)
 {
-    static const WCHAR rsabaseW[] =
-        {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\','C','r','y','p','t','o','\\','R','S','A','\\',0};
-    CERT_KEY_CONTEXT keyctx;
-    DWORD size = sizeof(keyctx), prov_size = 0;
-    CRYPT_KEY_PROV_INFO *prov;
-    WCHAR username[UNLEN + 1], *ret = NULL;
-    DWORD len = ARRAY_SIZE(username);
+    gnutls_session_t s = (gnutls_session_t)session;
 
-    if (CertGetCertificateContextProperty(ctx, CERT_KEY_CONTEXT_PROP_ID, &keyctx, &size))
-    {
-        char *str;
-        if (!CryptGetProvParam(keyctx.hCryptProv, PP_CONTAINER, NULL, &size, 0)) return NULL;
-        if (!(str = heap_alloc(size))) return NULL;
-        if (!CryptGetProvParam(keyctx.hCryptProv, PP_CONTAINER, (BYTE *)str, &size, 0)) return NULL;
-
-        len = MultiByteToWideChar(CP_ACP, 0, str, -1, NULL, 0);
-        if (!(ret = heap_alloc(sizeof(rsabaseW) + len * sizeof(WCHAR))))
-        {
-            heap_free(str);
-            return NULL;
-        }
-        strcpyW(ret, rsabaseW);
-        MultiByteToWideChar(CP_ACP, 0, str, -1, ret + strlenW(ret), len);
-        heap_free(str);
-    }
-    else if (CertGetCertificateContextProperty(ctx, CERT_KEY_PROV_INFO_PROP_ID, NULL, &prov_size))
-    {
-        if (!(prov = heap_alloc(prov_size))) return NULL;
-        if (!CertGetCertificateContextProperty(ctx, CERT_KEY_PROV_INFO_PROP_ID, prov, &prov_size))
-        {
-            heap_free(prov);
-            return NULL;
-        }
-        if (!(ret = heap_alloc(sizeof(rsabaseW) + strlenW(prov->pwszContainerName) * sizeof(WCHAR))))
-        {
-            heap_free(prov);
-            return NULL;
-        }
-        strcpyW(ret, rsabaseW);
-        strcatW(ret, prov->pwszContainerName);
-        heap_free(prov);
-    }
-
-    if (!ret && GetUserNameW(username, &len) && (ret = heap_alloc(sizeof(rsabaseW) + len * sizeof(WCHAR))))
-    {
-        strcpyW(ret, rsabaseW);
-        strcatW(ret, username);
-    }
-
-    return ret;
-}
-
-#define MAX_LEAD_BYTES 8
-static BYTE *get_key_blob(const CERT_CONTEXT *ctx, ULONG *size)
-{
-    static const WCHAR keyexchangeW[] =
-        {'K','e','y','E','x','c','h','a','n','g','e','K','e','y','P','a','i','r',0};
-    static const WCHAR signatureW[] =
-        {'S','i','g','n','a','t','u','r','e','K','e','y','P','a','i','r',0};
-    BYTE *buf, *ret = NULL;
-    DATA_BLOB blob_in, blob_out;
-    DWORD spec = 0, type, len;
-    WCHAR *path;
-    HKEY hkey;
-
-    if (!(path = get_key_container_path(ctx))) return NULL;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, path, 0, KEY_READ, &hkey))
-    {
-        heap_free(path);
-        return NULL;
-    }
-    heap_free(path);
-
-    if (!RegQueryValueExW(hkey, keyexchangeW, 0, &type, NULL, &len)) spec = AT_KEYEXCHANGE;
-    else if (!RegQueryValueExW(hkey, signatureW, 0, &type, NULL, &len)) spec = AT_SIGNATURE;
-    else
-    {
-        RegCloseKey(hkey);
-        return NULL;
-    }
-
-    if (!(buf = heap_alloc(len + MAX_LEAD_BYTES)))
-    {
-        RegCloseKey(hkey);
-        return NULL;
-    }
-
-    if (!RegQueryValueExW(hkey, (spec == AT_KEYEXCHANGE) ? keyexchangeW : signatureW, 0, &type, buf, &len))
-    {
-        blob_in.pbData = buf;
-        blob_in.cbData = len;
-        if (CryptUnprotectData(&blob_in, NULL, NULL, NULL, NULL, 0, &blob_out))
-        {
-            assert(blob_in.cbData >= blob_out.cbData);
-            memcpy(buf, blob_out.pbData, blob_out.cbData);
-            LocalFree(blob_out.pbData);
-            *size = blob_out.cbData + MAX_LEAD_BYTES;
-            ret = buf;
-        }
-    }
-    else heap_free(buf);
-
-    RegCloseKey(hkey);
-    return ret;
+    pgnutls_dtls_set_mtu(s, mtu);
+    TRACE("MTU set to %u\n", mtu);
+    return SEC_E_OK;
 }
 
 static inline void reverse_bytes(BYTE *buf, ULONG len)
@@ -872,20 +820,19 @@ static ULONG set_component(gnutls_datum_t *comp, BYTE *data, ULONG len, ULONG *b
     return comp->size;
 }
 
-static gnutls_x509_privkey_t get_x509_key(const CERT_CONTEXT *ctx)
+static gnutls_x509_privkey_t get_x509_key(const DATA_BLOB *key_blob)
 {
     gnutls_privkey_t key = NULL;
     gnutls_x509_privkey_t x509key = NULL;
     gnutls_datum_t m, e, d, p, q, u, e1, e2;
-    BYTE *ptr, *buffer;
+    BYTE *ptr;
     RSAPUBKEY *rsakey;
-    DWORD size;
+    DWORD size = key_blob->cbData;
     int ret;
 
-    if (!(buffer = get_key_blob(ctx, &size))) return NULL;
-    if (size < sizeof(BLOBHEADER)) goto done;
+    if (size < sizeof(BLOBHEADER)) return NULL;
 
-    rsakey = (RSAPUBKEY *)(buffer + sizeof(BLOBHEADER));
+    rsakey = (RSAPUBKEY *)(key_blob->pbData + sizeof(BLOBHEADER));
     TRACE("RSA key bitlen %u pubexp %u\n", rsakey->bitlen, rsakey->pubexp);
 
     size -= sizeof(BLOBHEADER) + FIELD_OFFSET(RSAPUBKEY, pubexp);
@@ -903,23 +850,17 @@ static gnutls_x509_privkey_t get_x509_key(const CERT_CONTEXT *ctx)
     if ((ret = pgnutls_privkey_init(&key)) < 0)
     {
         pgnutls_perror(ret);
-        goto done;
+        return NULL;
     }
 
-    if ((ret = pgnutls_privkey_import_rsa_raw(key, &m, &e, &d, &p, &q, &u, &e1, &e2)) < 0)
+    if (((ret = pgnutls_privkey_import_rsa_raw(key, &m, &e, &d, &p, &q, &u, &e1, &e2)) < 0) ||
+         (ret = pgnutls_privkey_export_x509(key, &x509key)) < 0)
     {
         pgnutls_perror(ret);
-        goto done;
+        pgnutls_privkey_deinit(key);
+        return NULL;
     }
 
-    if ((ret = pgnutls_privkey_export_x509(key, &x509key)) < 0)
-    {
-        pgnutls_perror(ret);
-    }
-
-done:
-    heap_free(buffer);
-    pgnutls_privkey_deinit(key);
     return x509key;
 }
 
@@ -954,7 +895,8 @@ static gnutls_x509_crt_t get_x509_crt(const CERT_CONTEXT *ctx)
     return crt;
 }
 
-BOOL schan_imp_allocate_certificate_credentials(schan_credentials *c, const CERT_CONTEXT *ctx)
+static BOOL CDECL schan_allocate_certificate_credentials(schan_credentials *c, const CERT_CONTEXT *ctx,
+                                                         const DATA_BLOB *key_blob )
 {
     gnutls_certificate_credentials_t creds;
     gnutls_x509_crt_t crt;
@@ -980,7 +922,7 @@ BOOL schan_imp_allocate_certificate_credentials(schan_credentials *c, const CERT
         return FALSE;
     }
 
-    if (!(key = get_x509_key(ctx)))
+    if (!(key = get_x509_key(key_blob)))
     {
         pgnutls_x509_crt_deinit(crt);
         pgnutls_certificate_free_credentials(creds);
@@ -1001,17 +943,17 @@ BOOL schan_imp_allocate_certificate_credentials(schan_credentials *c, const CERT
     return TRUE;
 }
 
-void schan_imp_free_certificate_credentials(schan_credentials *c)
+static void CDECL schan_free_certificate_credentials(schan_credentials *c)
 {
     pgnutls_certificate_free_credentials(c->credentials);
 }
 
-static void schan_gnutls_log(int level, const char *msg)
+static void gnutls_log(int level, const char *msg)
 {
     TRACE("<%d> %s", level, msg);
 }
 
-BOOL schan_imp_init(void)
+static BOOL gnutls_initialize(void)
 {
     const char *env_str;
     int ret;
@@ -1085,6 +1027,11 @@ BOOL schan_imp_init(void)
         WARN("gnutls_cipher_get_block_size not found\n");
         pgnutls_cipher_get_block_size = compat_cipher_get_block_size;
     }
+    if (!(pgnutls_transport_set_pull_timeout_function = dlsym(libgnutls_handle, "gnutls_transport_set_pull_timeout_function")))
+    {
+        WARN("gnutls_transport_set_pull_timeout_function not found\n");
+        pgnutls_transport_set_pull_timeout_function = compat_gnutls_transport_set_pull_timeout_function;
+    }
     if (!(pgnutls_alpn_set_protocols = dlsym(libgnutls_handle, "gnutls_alpn_set_protocols")))
     {
         WARN("gnutls_alpn_set_protocols not found\n");
@@ -1094,6 +1041,11 @@ BOOL schan_imp_init(void)
     {
         WARN("gnutls_alpn_get_selected_protocol not found\n");
         pgnutls_alpn_get_selected_protocol = compat_gnutls_alpn_get_selected_protocol;
+    }
+    if (!(pgnutls_dtls_set_mtu = dlsym(libgnutls_handle, "gnutls_dtls_set_mtu")))
+    {
+        WARN("gnutls_dtls_set_mtu not found\n");
+        pgnutls_dtls_set_mtu = compat_gnutls_dtls_set_mtu;
     }
     if (!(pgnutls_privkey_export_x509 = dlsym(libgnutls_handle, "gnutls_privkey_export_x509")))
     {
@@ -1116,7 +1068,7 @@ BOOL schan_imp_init(void)
     if (TRACE_ON(secur32))
     {
         pgnutls_global_set_log_level(4);
-        pgnutls_global_set_log_function(schan_gnutls_log);
+        pgnutls_global_set_log_function(gnutls_log);
     }
 
     check_supported_protocols();
@@ -1128,11 +1080,50 @@ fail:
     return FALSE;
 }
 
-void schan_imp_deinit(void)
+static void gnutls_uninitialize(void)
 {
     pgnutls_global_deinit();
     dlclose(libgnutls_handle);
     libgnutls_handle = NULL;
 }
 
-#endif /* SONAME_LIBGNUTLS && !HAVE_SECURITY_SECURITY_H */
+static const struct schan_funcs funcs =
+{
+    schan_allocate_certificate_credentials,
+    schan_create_session,
+    schan_dispose_session,
+    schan_free_certificate_credentials,
+    schan_get_application_protocol,
+    schan_get_connection_info,
+    schan_get_enabled_protocols,
+    schan_get_key_signature_algorithm,
+    schan_get_max_message_size,
+    schan_get_session_cipher_block_size,
+    schan_get_session_peer_certificate,
+    schan_get_unique_channel_binding,
+    schan_handshake,
+    schan_recv,
+    schan_send,
+    schan_set_application_protocols,
+    schan_set_dtls_mtu,
+    schan_set_session_target,
+    schan_set_session_transport,
+};
+
+NTSTATUS CDECL __wine_init_unix_lib( HMODULE module, DWORD reason, const void *ptr_in, void *ptr_out )
+{
+    switch (reason)
+    {
+    case DLL_PROCESS_ATTACH:
+        if (!gnutls_initialize()) return STATUS_DLL_NOT_FOUND;
+        callbacks = ptr_in;
+        *(const struct schan_funcs **)ptr_out = &funcs;
+        break;
+    case DLL_PROCESS_DETACH:
+        if (libgnutls_handle) gnutls_uninitialize();
+        break;
+    }
+    return STATUS_SUCCESS;
+}
+
+#endif /* SONAME_LIBGNUTLS */

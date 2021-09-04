@@ -124,7 +124,7 @@ static void _expect_ref_broken(IUnknown* obj, ULONG ref, ULONG brokenref, int li
 
 static BOOL (WINAPI *pGetFontRealizationInfo)(HDC hdc, void *);
 
-static const WCHAR test_fontfile[] = {'w','i','n','e','_','t','e','s','t','_','f','o','n','t','.','t','t','f',0};
+static const WCHAR test_fontfile[] = L"wine_test_font.ttf";
 
 /* PANOSE is 10 bytes in size, need to pack the structure properly */
 #include "pshpack2.h"
@@ -585,6 +585,20 @@ static BOOL has_face_variations(IDWriteFontFace *fontface)
     }
 
     return ret;
+}
+
+#define check_familymodel(a,b) _check_familymodel(a,b,__LINE__)
+static void _check_familymodel(void *iface_ptr, DWRITE_FONT_FAMILY_MODEL expected_model, unsigned int line)
+{
+    IDWriteFontCollection2 *collection;
+    DWRITE_FONT_FAMILY_MODEL model;
+
+    if (SUCCEEDED(IUnknown_QueryInterface((IUnknown *)iface_ptr, &IID_IDWriteFontCollection2, (void **)&collection)))
+    {
+        model = IDWriteFontCollection2_GetFontFamilyModel(collection);
+        ok_(__FILE__,line)(model == expected_model, "Unexpected family model %d, expected %d.\n", model, expected_model);
+        IDWriteFontCollection2_Release(collection);
+    }
 }
 
 struct test_fontenumerator
@@ -1626,7 +1640,20 @@ if (0) /* crashes on native */
 
             if (SUCCEEDED(IDWriteFontFamily1_QueryInterface(family1, &IID_IDWriteFontList2, (void **)&fontlist2)))
             {
+                IDWriteFontSet1 *fontset = NULL, *fontset2 = NULL;
+
                 ok(fontlist == (IDWriteFontList *)fontlist2, "Unexpected interface pointer.\n");
+
+                hr = IDWriteFontList2_GetFontSet(fontlist2, &fontset);
+                ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+                hr = IDWriteFontList2_GetFontSet(fontlist2, &fontset2);
+                ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+                ok(fontset != fontset2, "Unexpected instance.\n");
+
+                IDWriteFontSet1_Release(fontset2);
+                IDWriteFontSet1_Release(fontset);
+
                 IDWriteFontList2_Release(fontlist2);
             }
             else
@@ -2106,56 +2133,61 @@ static void check_font_metrics(const WCHAR *nameW, IDWriteFontFace *fontface, co
     else
         IDWriteFontFace_GetMetrics(fontface, (DWRITE_FONT_METRICS *)&metrics);
 
-    ok(metrics.designUnitsPerEm == expected->designUnitsPerEm, "font %s: designUnitsPerEm %u, expected %u\n",
-        wine_dbgstr_w(nameW), metrics.designUnitsPerEm, expected->designUnitsPerEm);
-    ok(metrics.ascent == expected->ascent, "font %s: ascent %u, expected %u\n", wine_dbgstr_w(nameW), metrics.ascent,
-        expected->ascent);
-    ok(metrics.descent == expected->descent, "font %s: descent %u, expected %u\n", wine_dbgstr_w(nameW),
-        metrics.descent, expected->descent);
-    ok(metrics.lineGap == expected->lineGap, "font %s: lineGap %d, expected %d\n", wine_dbgstr_w(nameW),
-        metrics.lineGap, expected->lineGap);
-    ok(metrics.underlinePosition == expected->underlinePosition, "font %s: underlinePosition %d, expected %d\n",
-        wine_dbgstr_w(nameW), metrics.underlinePosition, expected->underlinePosition);
-    ok(metrics.underlineThickness == expected->underlineThickness, "font %s: underlineThickness %u, "
-        "expected %u\n", wine_dbgstr_w(nameW), metrics.underlineThickness, expected->underlineThickness);
-    ok(metrics.strikethroughPosition == expected->strikethroughPosition, "font %s: strikethroughPosition %d, expected %d\n",
-        wine_dbgstr_w(nameW), metrics.strikethroughPosition, expected->strikethroughPosition);
-    ok(metrics.strikethroughThickness == expected->strikethroughThickness, "font %s: strikethroughThickness %u, "
-        "expected %u\n", wine_dbgstr_w(nameW), metrics.strikethroughThickness, expected->strikethroughThickness);
+    winetest_push_context("Font %s", wine_dbgstr_w(nameW));
 
-    if (has_metrics1) {
+    ok(metrics.designUnitsPerEm == expected->designUnitsPerEm, "designUnitsPerEm %u, expected %u.\n",
+            metrics.designUnitsPerEm, expected->designUnitsPerEm);
+    ok(metrics.ascent == expected->ascent, "ascent %u, expected %u.\n", metrics.ascent, expected->ascent);
+    ok(metrics.descent == expected->descent, "descent %u, expected %u.\n", metrics.descent, expected->descent);
+    ok(metrics.lineGap == expected->lineGap, "lineGap %d, expected %d.\n", metrics.lineGap, expected->lineGap);
+    ok(metrics.underlinePosition == expected->underlinePosition, "underlinePosition %d, expected %d.\n",
+            metrics.underlinePosition, expected->underlinePosition);
+    ok(metrics.underlineThickness == expected->underlineThickness, "underlineThickness %u, expected %u.\n",
+            metrics.underlineThickness, expected->underlineThickness);
+    ok(metrics.strikethroughPosition == expected->strikethroughPosition, "strikethroughPosition %d, expected %d.\n",
+            metrics.strikethroughPosition, expected->strikethroughPosition);
+    ok(metrics.strikethroughThickness == expected->strikethroughThickness, "strikethroughThickness %u, "
+            "expected %u.\n", metrics.strikethroughThickness, expected->strikethroughThickness);
+
+    if (has_metrics1)
+    {
         /* For simulated faces metrics are adjusted. Enable tests when exact pattern is understood. */
         if (simulations & DWRITE_FONT_SIMULATIONS_OBLIQUE)
+        {
+            winetest_pop_context();
             return;
+        }
 
-        ok(metrics.hasTypographicMetrics == expected->hasTypographicMetrics, "font %s: hasTypographicMetrics %d, "
-            "expected %d\n", wine_dbgstr_w(nameW), metrics.hasTypographicMetrics, expected->hasTypographicMetrics);
-        ok(metrics.glyphBoxLeft == expected->glyphBoxLeft, "font %s: glyphBoxLeft %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.glyphBoxLeft, expected->glyphBoxLeft);
-        ok(metrics.glyphBoxTop == expected->glyphBoxTop, "font %s: glyphBoxTop %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.glyphBoxTop, expected->glyphBoxTop);
-        ok(metrics.glyphBoxRight == expected->glyphBoxRight, "font %s: glyphBoxRight %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.glyphBoxRight, expected->glyphBoxRight);
-        ok(metrics.glyphBoxBottom == expected->glyphBoxBottom, "font %s: glyphBoxBottom %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.glyphBoxBottom, expected->glyphBoxBottom);
+        ok(metrics.hasTypographicMetrics == expected->hasTypographicMetrics, "hasTypographicMetrics %d, "
+                "expected %d.\n", metrics.hasTypographicMetrics, expected->hasTypographicMetrics);
+        ok(metrics.glyphBoxLeft == expected->glyphBoxLeft, "glyphBoxLeft %d, expected %d.\n",
+                metrics.glyphBoxLeft, expected->glyphBoxLeft);
+        ok(metrics.glyphBoxTop == expected->glyphBoxTop, "glyphBoxTop %d, expected %d.\n",
+                metrics.glyphBoxTop, expected->glyphBoxTop);
+        ok(metrics.glyphBoxRight == expected->glyphBoxRight, "glyphBoxRight %d, expected %d.\n",
+                metrics.glyphBoxRight, expected->glyphBoxRight);
+        ok(metrics.glyphBoxBottom == expected->glyphBoxBottom, "glyphBoxBottom %d, expected %d.\n",
+                metrics.glyphBoxBottom, expected->glyphBoxBottom);
 
-        ok(metrics.subscriptPositionX == expected->subscriptPositionX, "font %s: subscriptPositionX %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.subscriptPositionX, expected->subscriptPositionX);
-        ok(metrics.subscriptPositionY == expected->subscriptPositionY, "font %s: subscriptPositionY %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.subscriptPositionY, expected->subscriptPositionY);
-        ok(metrics.subscriptSizeX == expected->subscriptSizeX, "font %s: subscriptSizeX %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.subscriptSizeX, expected->subscriptSizeX);
-        ok(metrics.subscriptSizeY == expected->subscriptSizeY, "font %s: subscriptSizeY %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.subscriptSizeY, expected->subscriptSizeY);
-        ok(metrics.superscriptPositionX == expected->superscriptPositionX, "font %s: superscriptPositionX %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.superscriptPositionX, expected->superscriptPositionX);
-        ok(metrics.superscriptPositionY == expected->superscriptPositionY, "font %s: superscriptPositionY %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.superscriptPositionY, expected->superscriptPositionY);
-        ok(metrics.superscriptSizeX == expected->superscriptSizeX, "font %s: superscriptSizeX %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.superscriptSizeX, expected->superscriptSizeX);
-        ok(metrics.superscriptSizeY == expected->superscriptSizeY, "font %s: superscriptSizeY %d, expected %d\n",
-            wine_dbgstr_w(nameW), metrics.superscriptSizeY, expected->superscriptSizeY);
+        ok(metrics.subscriptPositionX == expected->subscriptPositionX, "subscriptPositionX %d, expected %d.\n",
+                metrics.subscriptPositionX, expected->subscriptPositionX);
+        ok(metrics.subscriptPositionY == expected->subscriptPositionY, "subscriptPositionY %d, expected %d.\n",
+                metrics.subscriptPositionY, expected->subscriptPositionY);
+        ok(metrics.subscriptSizeX == expected->subscriptSizeX, "subscriptSizeX %d, expected %d.\n",
+                metrics.subscriptSizeX, expected->subscriptSizeX);
+        ok(metrics.subscriptSizeY == expected->subscriptSizeY, "subscriptSizeY %d, expected %d.\n",
+                metrics.subscriptSizeY, expected->subscriptSizeY);
+        ok(metrics.superscriptPositionX == expected->superscriptPositionX, "superscriptPositionX %d, expected %d.\n",
+                metrics.superscriptPositionX, expected->superscriptPositionX);
+        ok(metrics.superscriptPositionY == expected->superscriptPositionY, "superscriptPositionY %d, expected %d.\n",
+                metrics.superscriptPositionY, expected->superscriptPositionY);
+        ok(metrics.superscriptSizeX == expected->superscriptSizeX, "superscriptSizeX %d, expected %d.\n",
+                metrics.superscriptSizeX, expected->superscriptSizeX);
+        ok(metrics.superscriptSizeY == expected->superscriptSizeY, "superscriptSizeY %d, expected %d.\n",
+                metrics.superscriptSizeY, expected->superscriptSizeY);
     }
+
+    winetest_pop_context();
 }
 
 static void get_enus_string(IDWriteLocalizedStrings *strings, WCHAR *buff, UINT32 size)
@@ -2166,8 +2198,8 @@ static void get_enus_string(IDWriteLocalizedStrings *strings, WCHAR *buff, UINT3
 
     hr = IDWriteLocalizedStrings_FindLocaleName(strings, L"en-us", &index, &exists);
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(exists, "got %d\n", exists);
-
+    if (!exists)
+        index = 0;
     hr = IDWriteLocalizedStrings_GetString(strings, index, buff, size);
     ok(hr == S_OK, "got 0x%08x\n", hr);
 }
@@ -2398,8 +2430,11 @@ static void test_GetMetrics(void)
 
             get_combined_font_name(familyW, faceW, nameW);
 
-            if (has_face_variations(fontface)) {
-                skip("%s: test does not support variable fonts.\n", wine_dbgstr_w(nameW));
+            if (has_face_variations(fontface))
+            {
+                static int once;
+                if (!once++)
+                    skip("GetMetrics() test does not support variable fonts.\n");
                 IDWriteFontFace_Release(fontface);
                 continue;
             }
@@ -2425,7 +2460,6 @@ static void test_system_fontcollection(void)
     IDWriteFontCollection2 *collection2;
     IDWriteFontCollection3 *collection3;
     IDWriteFactory *factory, *factory2;
-    DWRITE_FONT_FAMILY_MODEL model;
     IDWriteFontFileLoader *loader;
     IDWriteFontFamily *family;
     IDWriteFontFace *fontface;
@@ -2443,11 +2477,6 @@ static void test_system_fontcollection(void)
     ok(hr == S_OK, "got 0x%08x\n", hr);
 
     hr = IDWriteFactory_GetSystemFontCollection(factory, &coll2, FALSE);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(coll2 == collection, "got %p, was %p\n", coll2, collection);
-    IDWriteFontCollection_Release(coll2);
-
-    hr = IDWriteFactory_GetSystemFontCollection(factory, &coll2, TRUE);
     ok(hr == S_OK, "got 0x%08x\n", hr);
     ok(coll2 == collection, "got %p, was %p\n", coll2, collection);
     IDWriteFontCollection_Release(coll2);
@@ -2610,8 +2639,7 @@ static void test_system_fontcollection(void)
 todo_wine
         ok(!!event, "Expected event handle.\n");
 
-        model = IDWriteFontCollection3_GetFontFamilyModel(collection3);
-        ok(model == DWRITE_FONT_FAMILY_MODEL_WEIGHT_STRETCH_STYLE, "Unexpected model.\n");
+        check_familymodel(collection3, DWRITE_FONT_FAMILY_MODEL_WEIGHT_STRETCH_STYLE);
 
         IDWriteFontCollection3_Release(collection3);
     }
@@ -2639,10 +2667,8 @@ todo_wine
         hr = IDWriteFactory6_GetSystemFontCollection(factory6, FALSE, DWRITE_FONT_FAMILY_MODEL_WEIGHT_STRETCH_STYLE,
                 &collection2);
         ok(hr == S_OK, "Failed to get collection, hr %#x.\n", hr);
-        ok(collection == (IDWriteFontCollection *)collection2, "Unexpected instance.\n");
         IDWriteFontCollection2_Release(collection2);
     }
-
         IDWriteFactory6_Release(factory6);
     }
     else
@@ -2835,8 +2861,11 @@ if (0) /* crashes on native */
             hr = IDWriteFont_CreateFontFace(font, &fontface);
             ok(hr == S_OK, "got 0x%08x\n", hr);
 
-            if (has_face_variations(fontface)) {
-                skip("%s: test does not support variable fonts.\n", wine_dbgstr_w(nameW));
+            if (has_face_variations(fontface))
+            {
+                static int once;
+                if (!once++)
+                    skip("ConvertFontFaceToLOGFONT() test does not support variable fonts.\n");
                 IDWriteFontFace_Release(fontface);
                 IDWriteFont_Release(font);
                 continue;
@@ -2849,21 +2878,22 @@ if (0) /* crashes on native */
             sim = IDWriteFontFace_GetSimulations(fontface);
             get_logfont_from_font(font, &lf);
 
-            ok(logfont.lfWeight == lf.lfWeight, "%s: unexpected lfWeight %d, expected lfWeight %d, font weight %d, "
-                "bold simulation %s\n", wine_dbgstr_w(nameW), logfont.lfWeight, lf.lfWeight, IDWriteFont_GetWeight(font),
-                sim & DWRITE_FONT_SIMULATIONS_BOLD ? "yes" : "no");
-            ok(logfont.lfItalic == lf.lfItalic, "%s: unexpected italic flag %d, oblique simulation %s\n",
-                wine_dbgstr_w(nameW), logfont.lfItalic, sim & DWRITE_FONT_SIMULATIONS_OBLIQUE ? "yes" : "no");
-            ok(!lstrcmpW(logfont.lfFaceName, lf.lfFaceName), "%s: unexpected facename %s, expected %s\n",
-                wine_dbgstr_w(nameW), wine_dbgstr_w(logfont.lfFaceName), wine_dbgstr_w(lf.lfFaceName));
+            winetest_push_context("Font %s", wine_dbgstr_w(nameW));
 
-            ok(logfont.lfOutPrecision == OUT_OUTLINE_PRECIS, "%s: unexpected output precision %d\n", wine_dbgstr_w(nameW),
-                logfont.lfOutPrecision);
-            ok(logfont.lfClipPrecision == CLIP_DEFAULT_PRECIS, "%s: unexpected clipping precision %d\n", wine_dbgstr_w(nameW),
-                logfont.lfClipPrecision);
-            ok(logfont.lfQuality == DEFAULT_QUALITY, "%s: unexpected quality %d\n", wine_dbgstr_w(nameW), logfont.lfQuality);
-            ok(logfont.lfPitchAndFamily == DEFAULT_PITCH, "%s: unexpected pitch %d\n", wine_dbgstr_w(nameW),
-                logfont.lfPitchAndFamily);
+            ok(logfont.lfWeight == lf.lfWeight, "Unexpected lfWeight %d, expected lfWeight %d, font weight %d, "
+                    "bold simulation %s.\n", logfont.lfWeight, lf.lfWeight, IDWriteFont_GetWeight(font),
+                    sim & DWRITE_FONT_SIMULATIONS_BOLD ? "yes" : "no");
+            ok(logfont.lfItalic == lf.lfItalic, "Unexpected italic flag %d, oblique simulation %s.\n",
+                    logfont.lfItalic, sim & DWRITE_FONT_SIMULATIONS_OBLIQUE ? "yes" : "no");
+            ok(!lstrcmpW(logfont.lfFaceName, lf.lfFaceName), "Unexpected facename %s, expected %s\n",
+                    wine_dbgstr_w(logfont.lfFaceName), wine_dbgstr_w(lf.lfFaceName));
+
+            ok(logfont.lfOutPrecision == OUT_OUTLINE_PRECIS, "Unexpected output precision %d.\n", logfont.lfOutPrecision);
+            ok(logfont.lfClipPrecision == CLIP_DEFAULT_PRECIS, "Unexpected clipping precision %d.\n", logfont.lfClipPrecision);
+            ok(logfont.lfQuality == DEFAULT_QUALITY, "Unexpected quality %d.\n", logfont.lfQuality);
+            ok(logfont.lfPitchAndFamily == DEFAULT_PITCH, "Unexpected pitch %d.\n", logfont.lfPitchAndFamily);
+
+            winetest_pop_context();
 
             IDWriteFontFace_Release(fontface);
             IDWriteFont_Release(font);
@@ -3804,8 +3834,11 @@ if (strcmp(winetest_platform, "wine")) {
 
             IDWriteLocalizedStrings_Release(names);
 
-            if (IDWriteFontFace_IsSymbolFont(fontface)) {
-                skip("Skipping for symbol font %s %s.\n", wine_dbgstr_w(familynameW), wine_dbgstr_w(facenameW));
+            if (IDWriteFontFace_IsSymbolFont(fontface))
+            {
+                static int once;
+                if (!once++)
+                    skip("GetUnicodeRanges() test does not support symbol fonts.\n");
                 IDWriteFontFace_Release(fontface);
                 continue;
             }
@@ -4067,6 +4100,18 @@ static void test_GetMatchingFonts(void)
 
     if (SUCCEEDED(IDWriteFontList_QueryInterface(fontlist, &IID_IDWriteFontList2, (void **)&fontlist3)))
     {
+        IDWriteFontSet1 *fontset, *fontset2;
+
+        hr = IDWriteFontList2_GetFontSet(fontlist3, &fontset);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+        hr = IDWriteFontList2_GetFontSet(fontlist3, &fontset2);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        ok(fontset != fontset2, "Unexpected instance.\n");
+
+        IDWriteFontSet1_Release(fontset2);
+        IDWriteFontSet1_Release(fontset);
+
         IDWriteFontList2_Release(fontlist3);
     }
     else
@@ -4237,7 +4282,7 @@ struct font_realization_info
     DWORD flags;
     DWORD cache_num;
     DWORD instance_id;
-    DWORD unk;
+    DWORD file_count;
     WORD  face_index;
     WORD  simulations;
 };
@@ -4784,8 +4829,11 @@ if (0) { /* crashes on native */
             has_variations = has_face_variations(fontface);
             IDWriteFontFace_Release(fontface);
 
-            if (has_variations) {
-                skip("%s: test does not support variable fonts.\n", wine_dbgstr_w(nameW));
+            if (has_variations)
+            {
+                static int once;
+                if (!once++)
+                    skip("ConvertFontToLOGFONT() test does not support variable fonts.\n");
                 IDWriteFont_Release(font);
                 continue;
             }
@@ -4798,22 +4846,23 @@ if (0) { /* crashes on native */
 
             sim = IDWriteFont_GetSimulations(font);
 
-            get_logfont_from_font(font, &lf);
-            ok(logfont.lfWeight == lf.lfWeight, "%s: unexpected lfWeight %d, expected lfWeight %d, font weight %d, "
-                "bold simulation %s\n", wine_dbgstr_w(nameW), logfont.lfWeight, lf.lfWeight, IDWriteFont_GetWeight(font),
-                sim & DWRITE_FONT_SIMULATIONS_BOLD ? "yes" : "no");
-            ok(logfont.lfItalic == lf.lfItalic, "%s: unexpected italic flag %d, oblique simulation %s\n",
-                wine_dbgstr_w(nameW), logfont.lfItalic, sim & DWRITE_FONT_SIMULATIONS_OBLIQUE ? "yes" : "no");
-            ok(!lstrcmpW(logfont.lfFaceName, lf.lfFaceName), "%s: unexpected facename %s, expected %s\n",
-                wine_dbgstr_w(nameW), wine_dbgstr_w(logfont.lfFaceName), wine_dbgstr_w(lf.lfFaceName));
+            winetest_push_context("Font %s", wine_dbgstr_w(nameW));
 
-            ok(logfont.lfOutPrecision == OUT_OUTLINE_PRECIS, "%s: unexpected output precision %d\n", wine_dbgstr_w(nameW),
-                logfont.lfOutPrecision);
-            ok(logfont.lfClipPrecision == CLIP_DEFAULT_PRECIS, "%s: unexpected clipping precision %d\n", wine_dbgstr_w(nameW),
-                logfont.lfClipPrecision);
-            ok(logfont.lfQuality == DEFAULT_QUALITY, "%s: unexpected quality %d\n", wine_dbgstr_w(nameW), logfont.lfQuality);
-            ok(logfont.lfPitchAndFamily == DEFAULT_PITCH, "%s: unexpected pitch %d\n", wine_dbgstr_w(nameW),
-                logfont.lfPitchAndFamily);
+            get_logfont_from_font(font, &lf);
+            ok(logfont.lfWeight == lf.lfWeight, "Unexpected lfWeight %d, expected lfWeight %d, font weight %d, "
+                    "bold simulation %s.\n", logfont.lfWeight, lf.lfWeight, IDWriteFont_GetWeight(font),
+                    sim & DWRITE_FONT_SIMULATIONS_BOLD ? "yes" : "no");
+            ok(logfont.lfItalic == lf.lfItalic, "Unexpected italic flag %d, oblique simulation %s.\n",
+                    logfont.lfItalic, sim & DWRITE_FONT_SIMULATIONS_OBLIQUE ? "yes" : "no");
+            ok(!lstrcmpW(logfont.lfFaceName, lf.lfFaceName), "Unexpected facename %s, expected %s.\n",
+                    wine_dbgstr_w(logfont.lfFaceName), wine_dbgstr_w(lf.lfFaceName));
+
+            ok(logfont.lfOutPrecision == OUT_OUTLINE_PRECIS, "Unexpected output precision %d.\n", logfont.lfOutPrecision);
+            ok(logfont.lfClipPrecision == CLIP_DEFAULT_PRECIS, "Unexpected clipping precision %d.\n", logfont.lfClipPrecision);
+            ok(logfont.lfQuality == DEFAULT_QUALITY, "Unexpected quality %d.\n", logfont.lfQuality);
+            ok(logfont.lfPitchAndFamily == DEFAULT_PITCH, "Unexpected pitch %d.\n", logfont.lfPitchAndFamily);
+
+            winetest_pop_context();
 
             IDWriteFont_Release(font);
         }
@@ -6164,79 +6213,77 @@ static BOOL get_vdmx_size(const struct VDMX_group *group, int emsize, int *a, in
 
 static void test_metrics_cmp(FLOAT emsize, const DWRITE_FONT_METRICS *metrics, const DWRITE_FONT_METRICS1 *expected)
 {
-    ok(metrics->designUnitsPerEm == expected->designUnitsPerEm, "%.2f: emsize: got %u expect %u\n",
-           emsize, metrics->designUnitsPerEm, expected->designUnitsPerEm);
-    ok(metrics->ascent == expected->ascent, "%.2f a: got %u expect %u\n",
-           emsize, metrics->ascent, expected->ascent);
-    ok(metrics->descent == expected->descent, "%.2f d: got %u expect %u\n",
-           emsize, metrics->descent, expected->descent);
-    ok(metrics->lineGap == expected->lineGap, "%.2f lg: got %d expect %d\n",
-           emsize, metrics->lineGap, expected->lineGap);
-    ok(metrics->capHeight == expected->capHeight, "%.2f capH: got %u expect %u\n",
-           emsize, metrics->capHeight, expected->capHeight);
-    ok(metrics->xHeight == expected->xHeight, "%.2f xH: got %u expect %u\n",
-           emsize, metrics->xHeight, expected->xHeight);
-    ok(metrics->underlinePosition == expected->underlinePosition, "%.2f ulP: got %d expect %d\n",
-            emsize, metrics->underlinePosition, expected->underlinePosition);
-    ok(metrics->underlineThickness == expected->underlineThickness, "%.2f ulTh: got %u expect %u\n",
-           emsize, metrics->underlineThickness, expected->underlineThickness);
-    ok(metrics->strikethroughPosition == expected->strikethroughPosition, "%.2f stP: got %d expect %d\n",
-           emsize, metrics->strikethroughPosition, expected->strikethroughPosition);
-    ok(metrics->strikethroughThickness == expected->strikethroughThickness, "%.2f stTh: got %u expect %u\n",
-           emsize, metrics->strikethroughThickness, expected->strikethroughThickness);
+    winetest_push_context("Size %.2f", emsize);
+
+    ok(metrics->designUnitsPerEm == expected->designUnitsPerEm, "got %u expect %u.\n",
+            metrics->designUnitsPerEm, expected->designUnitsPerEm);
+    ok(metrics->ascent == expected->ascent, "a: got %u expect %u.\n", metrics->ascent, expected->ascent);
+    ok(metrics->descent == expected->descent, "d: got %u expect %u.\n", metrics->descent, expected->descent);
+    ok(metrics->lineGap == expected->lineGap, "lg: got %d expect %d.\n", metrics->lineGap, expected->lineGap);
+    ok(metrics->capHeight == expected->capHeight, "capH: got %u expect %u.\n", metrics->capHeight, expected->capHeight);
+    ok(metrics->xHeight == expected->xHeight, "xH: got %u expect %u.\n", metrics->xHeight, expected->xHeight);
+    ok(metrics->underlinePosition == expected->underlinePosition, "ulP: got %d expect %d.\n",
+            metrics->underlinePosition, expected->underlinePosition);
+    ok(metrics->underlineThickness == expected->underlineThickness, "ulTh: got %u expect %u.\n",
+            metrics->underlineThickness, expected->underlineThickness);
+    ok(metrics->strikethroughPosition == expected->strikethroughPosition, "stP: got %d expect %d.\n",
+            metrics->strikethroughPosition, expected->strikethroughPosition);
+    ok(metrics->strikethroughThickness == expected->strikethroughThickness, "stTh: got %u expect %u.\n",
+            metrics->strikethroughThickness, expected->strikethroughThickness);
+
+    winetest_pop_context();
 }
 
 static void test_metrics1_cmp(FLOAT emsize, const DWRITE_FONT_METRICS1 *metrics, const DWRITE_FONT_METRICS1 *expected)
 {
-    ok(metrics->designUnitsPerEm == expected->designUnitsPerEm, "%.2f: emsize: got %u expect %u\n",
-           emsize, metrics->designUnitsPerEm, expected->designUnitsPerEm);
-    ok(metrics->ascent == expected->ascent, "%.2f a: got %u expect %u\n",
-           emsize, metrics->ascent, expected->ascent);
-    ok(metrics->descent == expected->descent, "%.2f d: got %u expect %u\n",
-           emsize, metrics->descent, expected->descent);
-    ok(metrics->lineGap == expected->lineGap, "%.2f lg: got %d expect %d\n",
-           emsize, metrics->lineGap, expected->lineGap);
-    ok(metrics->capHeight == expected->capHeight, "%.2f capH: got %u expect %u\n",
-           emsize, metrics->capHeight, expected->capHeight);
-    ok(metrics->xHeight == expected->xHeight, "%.2f xH: got %u expect %u\n",
-           emsize, metrics->xHeight, expected->xHeight);
-    ok(metrics->underlinePosition == expected->underlinePosition, "%.2f ulP: got %d expect %d\n",
-            emsize, metrics->underlinePosition, expected->underlinePosition);
-    ok(metrics->underlineThickness == expected->underlineThickness, "%.2f ulTh: got %u expect %u\n",
-           emsize, metrics->underlineThickness, expected->underlineThickness);
-    ok(metrics->strikethroughPosition == expected->strikethroughPosition, "%.2f stP: got %d expect %d\n",
-           emsize, metrics->strikethroughPosition, expected->strikethroughPosition);
-    ok(metrics->strikethroughThickness == expected->strikethroughThickness, "%.2f stTh: got %u expect %u\n",
-           emsize, metrics->strikethroughThickness, expected->strikethroughThickness);
-    ok(metrics->glyphBoxLeft == expected->glyphBoxLeft, "%.2f box left: got %d expect %d\n",
-           emsize, metrics->glyphBoxLeft, expected->glyphBoxLeft);
+    winetest_push_context("Size %.2f", emsize);
+
+    ok(metrics->designUnitsPerEm == expected->designUnitsPerEm, "got %u expect %u.\n",
+            metrics->designUnitsPerEm, expected->designUnitsPerEm);
+    ok(metrics->ascent == expected->ascent, "a: got %u expect %u.\n", metrics->ascent, expected->ascent);
+    ok(metrics->descent == expected->descent, "d: got %u expect %u.\n", metrics->descent, expected->descent);
+    ok(metrics->lineGap == expected->lineGap, "lg: got %d expect %d.\n", metrics->lineGap, expected->lineGap);
+    ok(metrics->capHeight == expected->capHeight, "capH: got %u expect %u.\n", metrics->capHeight, expected->capHeight);
+    ok(metrics->xHeight == expected->xHeight, "xH: got %u expect %u.\n", metrics->xHeight, expected->xHeight);
+    ok(metrics->underlinePosition == expected->underlinePosition, "ulP: got %d expect %d.\n",
+            metrics->underlinePosition, expected->underlinePosition);
+    ok(metrics->underlineThickness == expected->underlineThickness, "ulTh: got %u expect %u.\n",
+            metrics->underlineThickness, expected->underlineThickness);
+    ok(metrics->strikethroughPosition == expected->strikethroughPosition, "stP: got %d expect %d.\n",
+            metrics->strikethroughPosition, expected->strikethroughPosition);
+    ok(metrics->strikethroughThickness == expected->strikethroughThickness, "stTh: got %u expect %u.\n",
+            metrics->strikethroughThickness, expected->strikethroughThickness);
+    ok(metrics->glyphBoxLeft == expected->glyphBoxLeft, "box left: got %d expect %d.\n",
+            metrics->glyphBoxLeft, expected->glyphBoxLeft);
 if (0) { /* this is not consistent */
-    ok(metrics->glyphBoxTop == expected->glyphBoxTop, "%.2f box top: got %d expect %d\n",
-           emsize, metrics->glyphBoxTop, expected->glyphBoxTop);
-    ok(metrics->glyphBoxRight == expected->glyphBoxRight, "%.2f box right: got %d expect %d\n",
-           emsize, metrics->glyphBoxRight, expected->glyphBoxRight);
+    ok(metrics->glyphBoxTop == expected->glyphBoxTop, "box top: got %d expect %d.\n",
+            metrics->glyphBoxTop, expected->glyphBoxTop);
+    ok(metrics->glyphBoxRight == expected->glyphBoxRight, "box right: got %d expect %d.\n",
+            metrics->glyphBoxRight, expected->glyphBoxRight);
 }
-    ok(metrics->glyphBoxBottom == expected->glyphBoxBottom, "%.2f box bottom: got %d expect %d\n",
-           emsize, metrics->glyphBoxBottom, expected->glyphBoxBottom);
-    ok(metrics->subscriptPositionX == expected->subscriptPositionX, "%.2f subX: got %d expect %d\n",
-           emsize, metrics->subscriptPositionX, expected->subscriptPositionX);
-    ok(metrics->subscriptPositionY == expected->subscriptPositionY, "%.2f subY: got %d expect %d\n",
-           emsize, metrics->subscriptPositionY, expected->subscriptPositionY);
-    ok(metrics->subscriptSizeX == expected->subscriptSizeX, "%.2f subsizeX: got %d expect %d\n",
-           emsize, metrics->subscriptSizeX, expected->subscriptSizeX);
-    ok(metrics->subscriptPositionY == expected->subscriptPositionY, "%.2f subsizeY: got %d expect %d\n",
-           emsize, metrics->subscriptSizeY, expected->subscriptSizeY);
-    ok(metrics->superscriptPositionX == expected->superscriptPositionX, "%.2f supX: got %d expect %d\n",
-           emsize, metrics->superscriptPositionX, expected->superscriptPositionX);
+    ok(metrics->glyphBoxBottom == expected->glyphBoxBottom, "box bottom: got %d expect %d.\n",
+            metrics->glyphBoxBottom, expected->glyphBoxBottom);
+    ok(metrics->subscriptPositionX == expected->subscriptPositionX, "subX: got %d expect %d.\n",
+            metrics->subscriptPositionX, expected->subscriptPositionX);
+    ok(metrics->subscriptPositionY == expected->subscriptPositionY, "subY: got %d expect %d.\n",
+            metrics->subscriptPositionY, expected->subscriptPositionY);
+    ok(metrics->subscriptSizeX == expected->subscriptSizeX, "subsizeX: got %d expect %d.\n",
+            metrics->subscriptSizeX, expected->subscriptSizeX);
+    ok(metrics->subscriptPositionY == expected->subscriptPositionY, "subsizeY: got %d expect %d.\n",
+            metrics->subscriptSizeY, expected->subscriptSizeY);
+    ok(metrics->superscriptPositionX == expected->superscriptPositionX, "supX: got %d expect %d.\n",
+            metrics->superscriptPositionX, expected->superscriptPositionX);
 if (0)
-    ok(metrics->superscriptPositionY == expected->superscriptPositionY, "%.2f supY: got %d expect %d\n",
-           emsize, metrics->superscriptPositionY, expected->superscriptPositionY);
-    ok(metrics->superscriptSizeX == expected->superscriptSizeX, "%.2f supsizeX: got %d expect %d\n",
-           emsize, metrics->superscriptSizeX, expected->superscriptSizeX);
-    ok(metrics->superscriptSizeY == expected->superscriptSizeY, "%.2f supsizeY: got %d expect %d\n",
-           emsize, metrics->superscriptSizeY, expected->superscriptSizeY);
-    ok(metrics->hasTypographicMetrics == expected->hasTypographicMetrics, "%.2f hastypo: got %d expect %d\n",
-           emsize, metrics->hasTypographicMetrics, expected->hasTypographicMetrics);
+    ok(metrics->superscriptPositionY == expected->superscriptPositionY, "supY: got %d expect %d.\n",
+            metrics->superscriptPositionY, expected->superscriptPositionY);
+    ok(metrics->superscriptSizeX == expected->superscriptSizeX, "supsizeX: got %d expect %d.\n",
+            metrics->superscriptSizeX, expected->superscriptSizeX);
+    ok(metrics->superscriptSizeY == expected->superscriptSizeY, "supsizeY: got %d expect %d.\n",
+            metrics->superscriptSizeY, expected->superscriptSizeY);
+    ok(metrics->hasTypographicMetrics == expected->hasTypographicMetrics, "hastypo: got %d expect %d.\n",
+            metrics->hasTypographicMetrics, expected->hasTypographicMetrics);
+
+    winetest_pop_context();
 }
 
 struct compatmetrics_test {
@@ -6515,26 +6562,30 @@ static void test_GetPanose(void)
         IDWriteFont1_GetPanose(font1, &panose);
         get_expected_panose(font1, &expected_panose);
 
-        ok(panose.values[0] == expected_panose.values[0], "%s: values[0] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        winetest_push_context("Font %s", wine_dbgstr_w(nameW));
+
+        ok(panose.values[0] == expected_panose.values[0], "values[0] %#x, expected %#x.\n",
             panose.values[0], expected_panose.values[0]);
-        ok(panose.values[1] == expected_panose.values[1], "%s: values[1] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[1] == expected_panose.values[1], "values[1] %#x, expected %#x.\n",
             panose.values[1], expected_panose.values[1]);
-        ok(panose.values[2] == expected_panose.values[2], "%s: values[2] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[2] == expected_panose.values[2], "values[2] %#x, expected %#x.\n",
             panose.values[2], expected_panose.values[2]);
-        ok(panose.values[3] == expected_panose.values[3], "%s: values[3] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[3] == expected_panose.values[3], "values[3] %#x, expected %#x.\n",
             panose.values[3], expected_panose.values[3]);
-        ok(panose.values[4] == expected_panose.values[4], "%s: values[4] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[4] == expected_panose.values[4], "values[4] %#x, expected %#x.\n",
             panose.values[4], expected_panose.values[4]);
-        ok(panose.values[5] == expected_panose.values[5], "%s: values[5] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[5] == expected_panose.values[5], "values[5] %#x, expected %#x.\n",
             panose.values[5], expected_panose.values[5]);
-        ok(panose.values[6] == expected_panose.values[6], "%s: values[6] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[6] == expected_panose.values[6], "values[6] %#x, expected %#x.\n",
             panose.values[6], expected_panose.values[6]);
-        ok(panose.values[7] == expected_panose.values[7], "%s: values[7] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[7] == expected_panose.values[7], "values[7] %#x, expected %#x.\n",
             panose.values[7], expected_panose.values[7]);
-        ok(panose.values[8] == expected_panose.values[8], "%s: values[8] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[8] == expected_panose.values[8], "values[8] %#x, expected %#x.\n",
             panose.values[8], expected_panose.values[8]);
-        ok(panose.values[9] == expected_panose.values[9], "%s: values[9] %#x, expected %#x.\n", wine_dbgstr_w(nameW),
+        ok(panose.values[9] == expected_panose.values[9], "values[9] %#x, expected %#x.\n",
             panose.values[9], expected_panose.values[9]);
+
+        winetest_pop_context();
 
         hr = IDWriteFont1_CreateFontFace(font1, &fontface);
         ok(hr == S_OK, "Failed to create a font face, %#x.\n", hr);
@@ -6834,20 +6885,26 @@ static void test_GetRecommendedRenderingMode(void)
     /* detect old dwrite version, that is using higher threshold value */
     g_is_vista = fontface1 == NULL;
 
-    for (emsize = 1.0; emsize < 500.0; emsize += 1.0) {
+    for (emsize = 1.0; emsize < 500.0; emsize += 1.0)
+    {
         DWRITE_RENDERING_MODE expected;
+        unsigned int i;
         FLOAT ppdip;
         WORD gasp;
-        int i;
 
-        for (i = 0; i < ARRAY_SIZE(recmode_tests); i++) {
+        winetest_push_context("Size %.2f", emsize);
+
+        for (i = 0; i < ARRAY_SIZE(recmode_tests); ++i)
+        {
+            winetest_push_context("%u", i);
+
             ppdip = 1.0f;
             mode = 10;
             gasp = get_gasp_flags(fontface, emsize, ppdip);
             expected = get_expected_rendering_mode(emsize * ppdip, gasp, recmode_tests[i].measuring, recmode_tests[i].threshold);
             hr = IDWriteFontFace_GetRecommendedRenderingMode(fontface, emsize, ppdip, recmode_tests[i].measuring, params, &mode);
             ok(hr == S_OK, "got 0x%08x\n", hr);
-            ok(mode == expected, "%.2f/%d: got %d, ppdip %f, flags 0x%04x, expected %d\n", emsize, i, mode, ppdip, gasp, expected);
+            ok(mode == expected, "got %d, ppdip %f, flags 0x%04x, expected %d.\n", mode, ppdip, gasp, expected);
 
             /* some ppdip variants */
             ppdip = 0.5f;
@@ -6856,18 +6913,19 @@ static void test_GetRecommendedRenderingMode(void)
             expected = get_expected_rendering_mode(emsize * ppdip, gasp, recmode_tests[i].measuring, recmode_tests[i].threshold);
             hr = IDWriteFontFace_GetRecommendedRenderingMode(fontface, emsize, ppdip, recmode_tests[i].measuring, params, &mode);
             ok(hr == S_OK, "got 0x%08x\n", hr);
-            ok(mode == expected, "%.2f/%d: got %d, ppdip %f, flags 0x%04x, expected %d\n", emsize, i, mode, ppdip, gasp, expected);
+            ok(mode == expected, "got %d, ppdip %f, flags 0x%04x, expected %d.\n", mode, ppdip, gasp, expected);
 
             /* Only test larger sizes to workaround Win7 differences, where unscaled natural emsize threshold is used;
                Win8 and Win10 handle this as expected. */
-            if (emsize > 20.0f) {
+            if (emsize > 20.0f)
+            {
                 ppdip = 1.5f;
                 mode = 10;
                 gasp = get_gasp_flags(fontface, emsize, ppdip);
                 expected = get_expected_rendering_mode(emsize * ppdip, gasp, recmode_tests[i].measuring, recmode_tests[i].threshold);
                 hr = IDWriteFontFace_GetRecommendedRenderingMode(fontface, emsize, ppdip, recmode_tests[i].measuring, params, &mode);
                 ok(hr == S_OK, "got 0x%08x\n", hr);
-                ok(mode == expected, "%.2f/%d: got %d, ppdip %f, flags 0x%04x, expected %d\n", emsize, i, mode, ppdip, gasp, expected);
+                ok(mode == expected, "got %d, ppdip %f, flags 0x%04x, expected %d.\n", mode, ppdip, gasp, expected);
 
                 ppdip = 2.0f;
                 mode = 10;
@@ -6875,14 +6933,20 @@ static void test_GetRecommendedRenderingMode(void)
                 expected = get_expected_rendering_mode(emsize * ppdip, gasp, recmode_tests[i].measuring, recmode_tests[i].threshold);
                 hr = IDWriteFontFace_GetRecommendedRenderingMode(fontface, emsize, ppdip, recmode_tests[i].measuring, params, &mode);
                 ok(hr == S_OK, "got 0x%08x\n", hr);
-                ok(mode == expected, "%.2f/%d: got %d, ppdip %f, flags 0x%04x, expected %d\n", emsize, i, mode, ppdip, gasp, expected);
+                ok(mode == expected, "got %d, ppdip %f, flags 0x%04x, expected %d.\n", mode, ppdip, gasp, expected);
             }
+
+            winetest_pop_context();
         }
 
         /* IDWriteFontFace1 offers another variant of this method */
-        if (fontface1) {
-            for (i = 0; i < ARRAY_SIZE(recmode_tests1); i++) {
+        if (fontface1)
+        {
+            for (i = 0; i < ARRAY_SIZE(recmode_tests1); ++i)
+            {
                 FLOAT dpi;
+
+                winetest_push_context("%u", i);
 
                 ppdip = 1.0f;
                 dpi = 96.0f * ppdip;
@@ -6892,11 +6956,12 @@ static void test_GetRecommendedRenderingMode(void)
                 hr = IDWriteFontFace1_GetRecommendedRenderingMode(fontface1, emsize, dpi, dpi,
                     NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, &mode);
                 ok(hr == S_OK, "got 0x%08x\n", hr);
-                ok(mode == expected, "%.2f/%d: got %d, dpi %f, flags 0x%04x, expected %d\n", emsize, i, mode, dpi, gasp, expected);
+                ok(mode == expected, "got %d, dpi %f, flags 0x%04x, expected %d.\n", mode, dpi, gasp, expected);
 
                 /* Only test larger sizes to workaround Win7 differences, where unscaled natural emsize threshold is used;
                    Win8 and Win10 handle this as expected. */
-                if (emsize > 20.0f) {
+                if (emsize > 20.0f)
+                {
                     ppdip = 2.0f;
                     dpi = 96.0f * ppdip;
                     mode = 10;
@@ -6905,7 +6970,7 @@ static void test_GetRecommendedRenderingMode(void)
                     hr = IDWriteFontFace1_GetRecommendedRenderingMode(fontface1, emsize, dpi, dpi,
                         NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, &mode);
                     ok(hr == S_OK, "got 0x%08x\n", hr);
-                    ok(mode == expected, "%.2f/%d: got %d, dpi %f, flags 0x%04x, expected %d\n", emsize, i, mode, dpi, gasp, expected);
+                    ok(mode == expected, "got %d, dpi %f, flags 0x%04x, expected %d.\n", mode, dpi, gasp, expected);
 
                     ppdip = 0.5f;
                     dpi = 96.0f * ppdip;
@@ -6915,7 +6980,7 @@ static void test_GetRecommendedRenderingMode(void)
                     hr = IDWriteFontFace1_GetRecommendedRenderingMode(fontface1, emsize, dpi, dpi,
                         NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, &mode);
                     ok(hr == S_OK, "got 0x%08x\n", hr);
-                    ok(mode == expected, "%.2f/%d: got %d, dpi %f, flags 0x%04x, expected %d\n", emsize, i, mode, dpi, gasp, expected);
+                    ok(mode == expected, "got %d, dpi %f, flags 0x%04x, expected %d.\n", mode, dpi, gasp, expected);
 
                     /* try different dpis for X and Y direction */
                     ppdip = 1.0f;
@@ -6926,7 +6991,7 @@ static void test_GetRecommendedRenderingMode(void)
                     hr = IDWriteFontFace1_GetRecommendedRenderingMode(fontface1, emsize, dpi * 0.5f, dpi,
                         NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, &mode);
                     ok(hr == S_OK, "got 0x%08x\n", hr);
-                    ok(mode == expected, "%.2f/%d: got %d, dpi %f, flags 0x%04x, expected %d\n", emsize, i, mode, dpi, gasp, expected);
+                    ok(mode == expected, "got %d, dpi %f, flags 0x%04x, expected %d.\n", mode, dpi, gasp, expected);
 
                     ppdip = 1.0f;
                     dpi = 96.0f * ppdip;
@@ -6936,7 +7001,7 @@ static void test_GetRecommendedRenderingMode(void)
                     hr = IDWriteFontFace1_GetRecommendedRenderingMode(fontface1, emsize, dpi, dpi * 0.5f,
                         NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, &mode);
                     ok(hr == S_OK, "got 0x%08x\n", hr);
-                    ok(mode == expected, "%.2f/%d: got %d, dpi %f, flags 0x%04x, expected %d\n", emsize, i, mode, dpi, gasp, expected);
+                    ok(mode == expected, "got %d, dpi %f, flags 0x%04x, expected %d.\n", mode, dpi, gasp, expected);
 
                     ppdip = 2.0f;
                     dpi = 96.0f * ppdip;
@@ -6946,7 +7011,7 @@ static void test_GetRecommendedRenderingMode(void)
                     hr = IDWriteFontFace1_GetRecommendedRenderingMode(fontface1, emsize, dpi * 0.5f, dpi,
                         NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, &mode);
                     ok(hr == S_OK, "got 0x%08x\n", hr);
-                    ok(mode == expected, "%.2f/%d: got %d, dpi %f, flags 0x%04x, expected %d\n", emsize, i, mode, dpi, gasp, expected);
+                    ok(mode == expected, "got %d, dpi %f, flags 0x%04x, expected %d.\n", mode, dpi, gasp, expected);
 
                     ppdip = 2.0f;
                     dpi = 96.0f * ppdip;
@@ -6956,8 +7021,10 @@ static void test_GetRecommendedRenderingMode(void)
                     hr = IDWriteFontFace1_GetRecommendedRenderingMode(fontface1, emsize, dpi, dpi * 0.5f,
                         NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, &mode);
                     ok(hr == S_OK, "got 0x%08x\n", hr);
-                    ok(mode == expected, "%.2f/%d: got %d, dpi %f, flags 0x%04x, expected %d\n", emsize, i, mode, dpi, gasp, expected);
+                    ok(mode == expected, "got %d, dpi %f, flags 0x%04x, expected %d.\n", mode, dpi, gasp, expected);
                 }
+
+                winetest_pop_context();
             }
         }
 
@@ -6966,16 +7033,20 @@ static void test_GetRecommendedRenderingMode(void)
             DWRITE_GRID_FIT_MODE gridfit, expected_gridfit;
 
             gasp = get_gasp_flags(fontface, emsize, 1.0f);
-            for (i = 0; i < ARRAY_SIZE(recmode_tests1); i++) {
+            for (i = 0; i < ARRAY_SIZE(recmode_tests1); ++i)
+            {
+                winetest_push_context("%u", i);
+
                 mode = 10;
                 expected = get_expected_rendering_mode(emsize, gasp, recmode_tests1[i].measuring, recmode_tests1[i].threshold);
                 expected_gridfit = get_expected_gridfit_mode(emsize, gasp, recmode_tests1[i].measuring, recmode_tests1[i].threshold);
                 hr = IDWriteFontFace2_GetRecommendedRenderingMode(fontface2, emsize, 96.0f, 96.0f,
                     NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, params, &mode, &gridfit);
                 ok(hr == S_OK, "got 0x%08x\n", hr);
-                ok(mode == expected, "%.2f: got %d, flags 0x%04x, expected %d\n", emsize, mode, gasp, expected);
-                ok(gridfit == expected_gridfit, "%.2f/%d: gridfit: got %d, flags 0x%04x, expected %d\n", emsize, i, gridfit,
-                    gasp, expected_gridfit);
+                ok(mode == expected, "got %d, flags 0x%04x, expected %d.\n", mode, gasp, expected);
+                ok(gridfit == expected_gridfit, "gridfit: got %d, flags 0x%04x, expected %d.\n", gridfit, gasp, expected_gridfit);
+
+                winetest_pop_context();
             }
         }
 
@@ -6985,18 +7056,24 @@ static void test_GetRecommendedRenderingMode(void)
             DWRITE_RENDERING_MODE1 mode1, expected1;
 
             gasp = get_gasp_flags(fontface, emsize, 1.0f);
-            for (i = 0; i < ARRAY_SIZE(recmode_tests1); i++) {
+            for (i = 0; i < ARRAY_SIZE(recmode_tests1); ++i)
+            {
+                winetest_push_context("%u", i);
+
                 mode1 = 10;
                 expected1 = get_expected_rendering_mode(emsize, gasp, recmode_tests1[i].measuring, recmode_tests1[i].threshold);
                 expected_gridfit = get_expected_gridfit_mode(emsize, gasp, recmode_tests1[i].measuring, recmode_tests1[i].threshold);
                 hr = IDWriteFontFace3_GetRecommendedRenderingMode(fontface3, emsize, 96.0f, 96.0f,
                     NULL, FALSE, recmode_tests1[i].threshold, recmode_tests1[i].measuring, params, &mode1, &gridfit);
                 ok(hr == S_OK, "got 0x%08x\n", hr);
-                ok(mode1 == expected1, "%.2f: got %d, flags 0x%04x, expected %d\n", emsize, mode1, gasp, expected1);
-                ok(gridfit == expected_gridfit, "%.2f/%d: gridfit: got %d, flags 0x%04x, expected %d\n", emsize, i, gridfit,
-                    gasp, expected_gridfit);
+                ok(mode1 == expected1, "got %d, flags 0x%04x, expected %d.\n", mode1, gasp, expected1);
+                ok(gridfit == expected_gridfit, "gridfit: got %d, flags 0x%04x, expected %d.\n", gridfit, gasp, expected_gridfit);
+
+                winetest_pop_context();
             }
         }
+
+        winetest_pop_context();
     }
 
     IDWriteRenderingParams_Release(params);
@@ -7792,10 +7869,31 @@ static void test_HasCharacter(void)
     ok(ref == 0, "factory not released, %u\n", ref);
 }
 
+static BOOL has_main_axis_values(const DWRITE_FONT_AXIS_VALUE *values, unsigned int count)
+{
+    BOOL has_wght = FALSE, has_wdth = FALSE, has_ital = FALSE, has_slnt = FALSE;
+    unsigned int i;
+
+    for (i = 0; i < count; ++i)
+    {
+        if (values[i].axisTag == DWRITE_FONT_AXIS_TAG_WEIGHT)
+            has_wght = TRUE;
+        else if (values[i].axisTag == DWRITE_FONT_AXIS_TAG_WIDTH)
+            has_wdth = TRUE;
+        else if (values[i].axisTag == DWRITE_FONT_AXIS_TAG_ITALIC)
+            has_ital = TRUE;
+        else if (values[i].axisTag == DWRITE_FONT_AXIS_TAG_SLANT)
+            has_slnt = TRUE;
+    }
+
+    return has_wght && has_wdth && has_ital && has_slnt;
+}
+
 static void test_CreateFontFaceReference(void)
 {
     IDWriteFontFaceReference *ref, *ref1, *ref3;
     IDWriteFontFace3 *fontface, *fontface1;
+    DWRITE_FONT_AXIS_VALUE axis_values[16];
     IDWriteFontCollection1 *collection;
     IDWriteFontFile *file, *file1;
     IDWriteFactory3 *factory;
@@ -7948,7 +8046,15 @@ todo_wine
                     (void **)&ref2)))
             {
                 UINT32 axis_count = IDWriteFontFaceReference1_GetFontAxisValueCount(ref2);
-                ok(axis_count > 0, "Unexpected axis value count.\n");
+            todo_wine
+                ok(axis_count >= 4, "Unexpected axis value count.\n");
+
+                hr = IDWriteFontFaceReference1_GetFontAxisValues(ref2, axis_values, ARRAY_SIZE(axis_values));
+                ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+            todo_wine
+                ok(has_main_axis_values(axis_values, axis_count), "Unexpected axis returned.\n");
+
                 IDWriteFontFaceReference1_Release(ref2);
             }
 
@@ -8090,19 +8196,23 @@ static void test_GetFontSignature(void)
 
         get_expected_fontsig(font, &expected_signature);
 
-        ok(fontsig.fsUsb[0] == expected_signature.fsUsb[0], "%s: fsUsb[0] %#x, expected %#x\n", wine_dbgstr_w(nameW),
-            fontsig.fsUsb[0], expected_signature.fsUsb[0]);
-        ok(fontsig.fsUsb[1] == expected_signature.fsUsb[1], "%s: fsUsb[1] %#x, expected %#x\n", wine_dbgstr_w(nameW),
-            fontsig.fsUsb[1], expected_signature.fsUsb[1]);
-        ok(fontsig.fsUsb[2] == expected_signature.fsUsb[2], "%s: fsUsb[2] %#x, expected %#x\n", wine_dbgstr_w(nameW),
-            fontsig.fsUsb[2], expected_signature.fsUsb[2]);
-        ok(fontsig.fsUsb[3] == expected_signature.fsUsb[3], "%s: fsUsb[3] %#x, expected %#x\n", wine_dbgstr_w(nameW),
-            fontsig.fsUsb[3], expected_signature.fsUsb[3]);
+        winetest_push_context("Font %s\n", wine_dbgstr_w(nameW));
 
-        ok(fontsig.fsCsb[0] == expected_signature.fsCsb[0], "%s: fsCsb[0] %#x, expected %#x\n", wine_dbgstr_w(nameW),
-            fontsig.fsCsb[0], expected_signature.fsCsb[0]);
-        ok(fontsig.fsCsb[1] == expected_signature.fsCsb[1], "%s: fsCsb[1] %#x, expected %#x\n", wine_dbgstr_w(nameW),
-            fontsig.fsCsb[1], expected_signature.fsCsb[1]);
+        ok(fontsig.fsUsb[0] == expected_signature.fsUsb[0], "fsUsb[0] %#x, expected %#x.\n",
+                fontsig.fsUsb[0], expected_signature.fsUsb[0]);
+        ok(fontsig.fsUsb[1] == expected_signature.fsUsb[1], "fsUsb[1] %#x, expected %#x.\n",
+                fontsig.fsUsb[1], expected_signature.fsUsb[1]);
+        ok(fontsig.fsUsb[2] == expected_signature.fsUsb[2], "fsUsb[2] %#x, expected %#x.\n",
+                fontsig.fsUsb[2], expected_signature.fsUsb[2]);
+        ok(fontsig.fsUsb[3] == expected_signature.fsUsb[3], "fsUsb[3] %#x, expected %#x.\n",
+                fontsig.fsUsb[3], expected_signature.fsUsb[3]);
+
+        ok(fontsig.fsCsb[0] == expected_signature.fsCsb[0], "fsCsb[0] %#x, expected %#x.\n",
+                fontsig.fsCsb[0], expected_signature.fsCsb[0]);
+        ok(fontsig.fsCsb[1] == expected_signature.fsCsb[1], "fsCsb[1] %#x, expected %#x.\n",
+                fontsig.fsCsb[1], expected_signature.fsCsb[1]);
+
+        winetest_pop_context();
 
         IDWriteFont_Release(font);
         IDWriteFontFamily_Release(family);
@@ -8374,31 +8484,46 @@ static void test_HasKerningPairs(void)
     ok(ref == 0, "factory not released, %u\n", ref);
 }
 
+static float get_scaled_metric(const DWRITE_GLYPH_RUN *run, float metric, const DWRITE_FONT_METRICS *m)
+{
+    return run->fontEmSize * metric / m->designUnitsPerEm;
+}
+
 static void get_expected_glyph_origins(D2D1_POINT_2F baseline_origin, const DWRITE_GLYPH_RUN *run,
         D2D1_POINT_2F *origins)
 {
+    DWRITE_GLYPH_METRICS glyph_metrics[2];
+    DWRITE_FONT_METRICS metrics;
     unsigned int i;
+    HRESULT hr;
+
+    IDWriteFontFace_GetMetrics(run->fontFace, &metrics);
+
+    hr = IDWriteFontFace_GetDesignGlyphMetrics(run->fontFace, run->glyphIndices, run->glyphCount, glyph_metrics,
+            run->isSideways);
+    ok(hr == S_OK, "Failed to get glyph metrics, hr %#x.\n", hr);
 
     if (run->bidiLevel & 1)
     {
-        DWRITE_GLYPH_METRICS glyph_metrics[2];
-        DWRITE_FONT_METRICS metrics;
         float advance;
-        HRESULT hr;
 
-        hr = IDWriteFontFace_GetDesignGlyphMetrics(run->fontFace, run->glyphIndices, run->glyphCount, glyph_metrics, FALSE);
-        ok(hr == S_OK, "Failed to get glyph metrics, hr %#x.\n", hr);
-
-        IDWriteFontFace_GetMetrics(run->fontFace, &metrics);
-
-        advance = run->fontEmSize * glyph_metrics[0].advanceWidth / metrics.designUnitsPerEm;
+        advance = get_scaled_metric(run, run->isSideways ? glyph_metrics[0].advanceHeight :
+                glyph_metrics[0].advanceWidth, &metrics);
 
         baseline_origin.x -= advance;
 
         for (i = 0; i < run->glyphCount; ++i)
         {
-            origins[i].x = baseline_origin.x - run->glyphOffsets[i].advanceOffset;
-            origins[i].y = baseline_origin.y - run->glyphOffsets[i].ascenderOffset;
+            origins[i] = baseline_origin;
+
+            if (run->isSideways)
+            {
+                origins[i].x += get_scaled_metric(run, glyph_metrics[i].verticalOriginY, &metrics);
+                origins[i].y += metrics.designUnitsPerEm / (4.0f * run->fontEmSize);
+            }
+
+            origins[i].x -= run->glyphOffsets[i].advanceOffset;
+            origins[i].y -= run->glyphOffsets[i].ascenderOffset;
 
             baseline_origin.x -= run->glyphAdvances[i];
         }
@@ -8407,8 +8532,16 @@ static void get_expected_glyph_origins(D2D1_POINT_2F baseline_origin, const DWRI
     {
         for (i = 0; i < run->glyphCount; ++i)
         {
-            origins[i].x = baseline_origin.x + run->glyphOffsets[i].advanceOffset;
-            origins[i].y = baseline_origin.y - run->glyphOffsets[i].ascenderOffset;
+            origins[i] = baseline_origin;
+
+            if (run->isSideways)
+            {
+                origins[i].x += get_scaled_metric(run, glyph_metrics[i].verticalOriginY, &metrics);
+                origins[i].y += metrics.designUnitsPerEm / (4.0f * run->fontEmSize);
+            }
+
+            origins[i].x += run->glyphOffsets[i].advanceOffset;
+            origins[i].y -= run->glyphOffsets[i].ascenderOffset;
 
             baseline_origin.x += run->glyphAdvances[i];
         }
@@ -8423,12 +8556,18 @@ static void test_ComputeGlyphOrigins(void)
         float advances[2];
         DWRITE_GLYPH_OFFSET offsets[2];
         unsigned int bidi_level;
+        unsigned int sideways;
     }
     origins_tests[] =
     {
         { { 123.0f, 321.0f }, { 10.0f, 20.0f }, { { 0 } } },
         { { 123.0f, 321.0f }, { 10.0f, 20.0f }, { { 0.3f, 0.5f }, { -0.1f, 0.9f } } },
         { { 123.0f, 321.0f }, { 10.0f, 20.0f }, { { 0 } }, 1 },
+
+        { { 123.0f, 321.0f }, { 10.0f, 20.0f }, { { 0 } }, 0, 1 },
+        { { 123.0f, 321.0f }, { 10.0f, 20.0f }, { { 0.3f, 0.5f }, { -0.1f, 0.9f } }, 0, 1 },
+        { { 123.0f, 321.0f }, { 10.0f, 20.0f }, { { 0 } }, 1, 1 },
+        { { 123.0f, 321.0f }, { 10.0f, 20.0f }, { { 0.3f, 0.5f }, { -0.1f, 0.9f } }, 1, 1 },
     };
     IDWriteFactory4 *factory;
     DWRITE_GLYPH_RUN run;
@@ -8458,7 +8597,7 @@ static void test_ComputeGlyphOrigins(void)
         run.glyphIndices = glyphs;
         run.glyphAdvances = origins_tests[i].advances;
         run.glyphOffsets = origins_tests[i].offsets;
-        run.isSideways = FALSE;
+        run.isSideways = !!origins_tests[i].sideways;
         run.bidiLevel = origins_tests[i].bidi_level;
 
         get_expected_glyph_origins(origins_tests[i].baseline_origin, &run, expected_origins);
@@ -8468,6 +8607,7 @@ static void test_ComputeGlyphOrigins(void)
         ok(hr == S_OK, "%u: failed to compute glyph origins, hr %#x.\n", i, hr);
         for (j = 0; j < run.glyphCount; ++j)
         {
+        todo_wine_if(run.isSideways)
             ok(!memcmp(&origins[j], &expected_origins[j], sizeof(origins[j])),
                     "%u: unexpected origin[%u] (%f, %f) - (%f, %f).\n", i, j, origins[j].x, origins[j].y,
                     expected_origins[j].x, expected_origins[j].y);
@@ -9239,30 +9379,34 @@ static void test_CreateCustomRenderingParams(void)
     for (i = 0; i < ARRAY_SIZE(params_tests); i++) {
         IDWriteRenderingParams *params;
 
+        winetest_push_context("%u", i);
+
         params = (void *)0xdeadbeef;
         hr = IDWriteFactory_CreateCustomRenderingParams(factory, params_tests[i].gamma, params_tests[i].contrast,
                 params_tests[i].cleartype_level, params_tests[i].geometry, params_tests[i].rendering_mode, &params);
-        ok(hr == params_tests[i].hr, "%u: unexpected hr %#x, expected %#x.\n", i, hr, params_tests[i].hr);
+        ok(hr == params_tests[i].hr, "unexpected hr %#x, expected %#x.\n", hr, params_tests[i].hr);
 
         if (hr == S_OK) {
-            ok(params_tests[i].gamma == IDWriteRenderingParams_GetGamma(params), "%u: unexpected gamma %f, expected %f.\n",
-                    i, IDWriteRenderingParams_GetGamma(params), params_tests[i].gamma);
+            ok(params_tests[i].gamma == IDWriteRenderingParams_GetGamma(params), "unexpected gamma %f, expected %f.\n",
+                    IDWriteRenderingParams_GetGamma(params), params_tests[i].gamma);
             ok(params_tests[i].contrast == IDWriteRenderingParams_GetEnhancedContrast(params),
-                    "%u: unexpected contrast %f, expected %f.\n",
-                    i, IDWriteRenderingParams_GetEnhancedContrast(params), params_tests[i].contrast);
+                    "unexpected contrast %f, expected %f.\n",
+                    IDWriteRenderingParams_GetEnhancedContrast(params), params_tests[i].contrast);
             ok(params_tests[i].cleartype_level == IDWriteRenderingParams_GetClearTypeLevel(params),
-                    "%u: unexpected ClearType level %f, expected %f.\n",
-                    i, IDWriteRenderingParams_GetClearTypeLevel(params), params_tests[i].cleartype_level);
+                    "unexpected ClearType level %f, expected %f.\n",
+                    IDWriteRenderingParams_GetClearTypeLevel(params), params_tests[i].cleartype_level);
             ok(params_tests[i].geometry == IDWriteRenderingParams_GetPixelGeometry(params),
-                    "%u: unexpected pixel geometry %u, expected %u.\n", i, IDWriteRenderingParams_GetPixelGeometry(params),
+                    "unexpected pixel geometry %u, expected %u.\n", IDWriteRenderingParams_GetPixelGeometry(params),
                     params_tests[i].geometry);
             ok(params_tests[i].rendering_mode == IDWriteRenderingParams_GetRenderingMode(params),
-                    "%u: unexpected rendering mode %u, expected %u.\n", i, IDWriteRenderingParams_GetRenderingMode(params),
+                    "unexpected rendering mode %u, expected %u.\n", IDWriteRenderingParams_GetRenderingMode(params),
                     params_tests[i].rendering_mode);
             IDWriteRenderingParams_Release(params);
         }
         else
             ok(params == NULL, "%u: expected NULL interface pointer on failure.\n", i);
+
+        winetest_pop_context();
     }
 
     ref = IDWriteFactory_Release(factory);
@@ -9363,10 +9507,17 @@ static void test_AnalyzeContainerType(void)
 
 static void test_fontsetbuilder(void)
 {
+    IDWriteFontFaceReference *ref, *ref2, *ref3;
     IDWriteFontCollection1 *collection;
+    IDWriteFontFaceReference1 *ref1;
+    IDWriteFontSetBuilder1 *builder1;
     IDWriteFontSetBuilder *builder;
+    DWRITE_FONT_AXIS_VALUE axis_values[4];
     IDWriteFactory3 *factory;
-    UINT32 count, i, ref;
+    UINT32 count, i, refcount;
+    IDWriteFontSet *fontset;
+    IDWriteFontFile *file;
+    WCHAR *path;
     HRESULT hr;
 
     factory = create_factory_iid(&IID_IDWriteFactory3);
@@ -9380,6 +9531,91 @@ static void test_fontsetbuilder(void)
     hr = IDWriteFactory3_CreateFontSetBuilder(factory, &builder);
     ok(hr == S_OK, "Failed to create font set builder, hr %#x.\n", hr);
     EXPECT_REF(factory, 2);
+
+    if (SUCCEEDED(hr = IDWriteFontSetBuilder_QueryInterface(builder, &IID_IDWriteFontSetBuilder1, (void **)&builder1)))
+    {
+        path = create_testfontfile(test_fontfile);
+
+        hr = IDWriteFactory3_CreateFontFileReference(factory, path, NULL, &file);
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+        hr = IDWriteFontSetBuilder1_AddFontFile(builder1, file);
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+        hr = IDWriteFontSetBuilder1_CreateFontSet(builder1, &fontset);
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+        hr = IDWriteFactory3_CreateFontCollectionFromFontSet(factory, fontset, &collection);
+    todo_wine
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+        if (SUCCEEDED(hr))
+        {
+            count = IDWriteFontCollection1_GetFontFamilyCount(collection);
+            ok(count == 1, "Unexpected family count %u.\n", count);
+            IDWriteFontCollection1_Release(collection);
+        }
+        IDWriteFontSet_Release(fontset);
+
+        hr = IDWriteFontSetBuilder1_AddFontFile(builder1, file);
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+        hr = IDWriteFontSetBuilder1_CreateFontSet(builder1, &fontset);
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+        hr = IDWriteFactory3_CreateFontCollectionFromFontSet(factory, fontset, &collection);
+    todo_wine
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+        if (SUCCEEDED(hr))
+        {
+            check_familymodel(collection, DWRITE_FONT_FAMILY_MODEL_WEIGHT_STRETCH_STYLE);
+            count = IDWriteFontCollection1_GetFontFamilyCount(collection);
+            ok(count == 1, "Unexpected family count %u.\n", count);
+            IDWriteFontCollection1_Release(collection);
+        }
+
+        /* No attempt to eliminate duplicates. */
+        count = IDWriteFontSet_GetFontCount(fontset);
+        ok(count == 2, "Unexpected font count %u.\n", count);
+
+        hr = IDWriteFontSet_GetFontFaceReference(fontset, 0, &ref);
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+        hr = IDWriteFontFaceReference_QueryInterface(ref, &IID_IDWriteFontFaceReference1, (void **)&ref1);
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+        count = IDWriteFontFaceReference1_GetFontAxisValueCount(ref1);
+    todo_wine
+        ok(count == 4, "Unexpected axis count %u.\n", count);
+
+    if (count == 4)
+    {
+        hr = IDWriteFontFaceReference1_GetFontAxisValues(ref1, axis_values, ARRAY_SIZE(axis_values));
+        ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+        ok(axis_values[0].axisTag == DWRITE_FONT_AXIS_TAG_WEIGHT, "Unexpected tag[0] %s.\n",
+                wine_dbgstr_an((char *)&axis_values[0].axisTag, 4));
+        ok(axis_values[0].value == 500.0f, "Unexpected value[0] %f.\n", axis_values[0].value);
+        ok(axis_values[1].axisTag == DWRITE_FONT_AXIS_TAG_WIDTH, "Unexpected tag[1] %s.\n",
+                wine_dbgstr_an((char *)&axis_values[1].axisTag, 4));
+        ok(axis_values[1].value == 100.0f, "Unexpected value[1] %f.\n", axis_values[1].value);
+        ok(axis_values[2].axisTag == DWRITE_FONT_AXIS_TAG_ITALIC, "Unexpected tag[2] %s.\n",
+                wine_dbgstr_an((char *)&axis_values[2].axisTag, 4));
+        ok(axis_values[2].value == 0.0f, "Unexpected value[2] %f.\n", axis_values[2].value);
+        ok(axis_values[3].axisTag == DWRITE_FONT_AXIS_TAG_SLANT, "Unexpected tag[3] %s.\n",
+                wine_dbgstr_an((char *)&axis_values[3].axisTag, 4));
+        ok(axis_values[3].value == 0.0f, "Unexpected value[3] %f.\n", axis_values[3].value);
+    }
+
+        IDWriteFontFaceReference1_Release(ref1);
+
+        IDWriteFontFaceReference_Release(ref);
+
+        IDWriteFontSet_Release(fontset);
+
+        IDWriteFontFile_Release(file);
+        IDWriteFontSetBuilder1_Release(builder1);
+    }
+    else
+        win_skip("IDWriteFontSetBuilder1 is not available.\n");
     IDWriteFontSetBuilder_Release(builder);
 
     hr = IDWriteFactory3_GetSystemFontCollection(factory, FALSE, &collection, FALSE);
@@ -9395,8 +9631,8 @@ static void test_fontsetbuilder(void)
         ok(hr == S_OK, "Failed to get family, hr %#x.\n", hr);
 
         fontcount = IDWriteFontFamily1_GetFontCount(family);
-        for (j = 0; j < fontcount; j++) {
-            IDWriteFontFaceReference *ref, *ref2;
+        for (j = 0; j < fontcount; ++j)
+        {
             IDWriteFontSet *fontset;
             UINT32 setcount, id;
 
@@ -9412,22 +9648,31 @@ static void test_fontsetbuilder(void)
 
             EXPECT_REF(ref, 1);
             hr = IDWriteFontSetBuilder_AddFontFaceReference(builder, ref);
-       todo_wine
             ok(hr == S_OK, "Failed to add fontface reference, hr %#x.\n", hr);
             EXPECT_REF(ref, 1);
 
             hr = IDWriteFontSetBuilder_CreateFontSet(builder, &fontset);
-       todo_wine
             ok(hr == S_OK, "Failed to create a font set, hr %#x.\n", hr);
 
-        if (SUCCEEDED(hr))
-        {
             setcount = IDWriteFontSet_GetFontCount(fontset);
             ok(setcount == 1, "Unexpected font count %u.\n", setcount);
 
+            ref2 = (void *)0xdeadbeef;
+            hr = IDWriteFontSet_GetFontFaceReference(fontset, setcount, &ref2);
+            ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+            ok(!ref2, "Unexpected pointer.\n");
+
+            ref2 = NULL;
             hr = IDWriteFontSet_GetFontFaceReference(fontset, 0, &ref2);
             ok(hr == S_OK, "Failed to get font face reference, hr %#x.\n", hr);
             ok(ref2 != ref, "Unexpected reference.\n");
+
+            ref3 = NULL;
+            hr = IDWriteFontSet_GetFontFaceReference(fontset, 0, &ref3);
+            ok(hr == S_OK, "Failed to get font face reference, hr %#x.\n", hr);
+            ok(ref2 != ref3, "Unexpected reference.\n");
+
+            IDWriteFontFaceReference_Release(ref3);
             IDWriteFontFaceReference_Release(ref2);
 
             for (id = DWRITE_FONT_PROPERTY_ID_FAMILY_NAME; id < DWRITE_FONT_PROPERTY_ID_TOTAL; ++id)
@@ -9435,10 +9680,17 @@ static void test_fontsetbuilder(void)
                 IDWriteLocalizedStrings *values;
                 WCHAR buffW[255], buff2W[255];
                 UINT32 c, ivalue = 0;
-                BOOL exists;
+                BOOL exists = FALSE;
 
                 hr = IDWriteFontSet_GetPropertyValues(fontset, 0, id, &exists, &values);
                 ok(hr == S_OK, "Failed to get property value, hr %#x.\n", hr);
+
+                if (id == DWRITE_FONT_PROPERTY_ID_WEIGHT || id == DWRITE_FONT_PROPERTY_ID_STRETCH
+                        || id == DWRITE_FONT_PROPERTY_ID_STYLE)
+                {
+                todo_wine
+                    ok(exists, "Property %u expected to exist.\n", id);
+                }
 
                 if (!exists)
                     continue;
@@ -9487,7 +9739,6 @@ static void test_fontsetbuilder(void)
             }
 
             IDWriteFontSet_Release(fontset);
-        }
             IDWriteFontFaceReference_Release(ref);
             IDWriteFontSetBuilder_Release(builder);
 
@@ -9499,8 +9750,8 @@ static void test_fontsetbuilder(void)
 
     IDWriteFontCollection1_Release(collection);
 
-    ref = IDWriteFactory3_Release(factory);
-    ok(ref == 0, "factory not released, %u\n", ref);
+    refcount = IDWriteFactory3_Release(factory);
+    ok(!refcount, "Factory not released, %u.\n", refcount);
 }
 
 static void test_font_resource(void)
@@ -9805,6 +10056,270 @@ static void test_GetVerticalGlyphVariants(void)
     ok(!refcount, "Factory not released, refcount %u.\n", refcount);
 }
 
+static HANDLE get_collection_expiration_event(IDWriteFontCollection *collection)
+{
+    IDWriteFontCollection3 *collection3;
+    HANDLE event;
+    HRESULT hr;
+
+    hr = IDWriteFontCollection_QueryInterface(collection, &IID_IDWriteFontCollection3, (void **)&collection3);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    event = IDWriteFontCollection3_GetExpirationEvent(collection3);
+    IDWriteFontCollection3_Release(collection3);
+
+    return event;
+}
+
+static void test_expiration_event(void)
+{
+    IDWriteFontCollection *collection, *collection2;
+    IDWriteFontCollection3 *collection3;
+    IDWriteFactory *factory, *factory2;
+    unsigned int refcount;
+    HANDLE event, event2;
+    HRESULT hr;
+
+    factory = create_factory();
+
+    hr = IDWriteFactory_GetSystemFontCollection(factory, &collection, FALSE);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = IDWriteFontCollection_QueryInterface(collection, &IID_IDWriteFontCollection3, (void **)&collection3);
+    if (FAILED(hr))
+    {
+        win_skip("Expiration events are not supported.\n");
+        IDWriteFontCollection_Release(collection);
+        IDWriteFactory_Release(factory);
+        return;
+    }
+    IDWriteFontCollection3_Release(collection3);
+
+    event = get_collection_expiration_event(collection);
+todo_wine
+    ok(!!event, "Unexpected event handle.\n");
+
+    /* Compare handles with another isolated factory. */
+    factory2 = create_factory();
+
+    hr = IDWriteFactory_GetSystemFontCollection(factory2, &collection2, FALSE);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    event2 = get_collection_expiration_event(collection2);
+todo_wine {
+    ok(!!event2, "Unexpected event handle.\n");
+    ok(event != event2, "Unexpected event handle.\n");
+}
+    IDWriteFontCollection_Release(collection2);
+
+    IDWriteFontCollection_Release(collection);
+
+    refcount = IDWriteFactory_Release(factory2);
+    ok(!refcount, "Unexpected factory refcount %u.\n", refcount);
+    refcount = IDWriteFactory_Release(factory);
+    ok(!refcount, "Unexpected factory refcount %u.\n", refcount);
+}
+
+static void test_family_font_set(void)
+{
+    IDWriteFontCollection *collection;
+    IDWriteFontFamily2 *family2;
+    IDWriteFontFamily *family;
+    IDWriteFactory *factory;
+    unsigned int count, refcount;
+    IDWriteFontSet1 *fontset, *fontset2;
+    IDWriteLocalizedStrings *values;
+    IDWriteFontResource *resource;
+    WCHAR buffW[64];
+    BOOL exists;
+    HRESULT hr;
+
+    factory = create_factory();
+
+    hr = IDWriteFactory_GetSystemFontCollection(factory, &collection, FALSE);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = IDWriteFontCollection_GetFontFamily(collection, 0, &family);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    if (SUCCEEDED(IDWriteFontFamily_QueryInterface(family, &IID_IDWriteFontFamily2, (void **)&family2)))
+    {
+        hr = IDWriteFontFamily2_GetFontSet(family2, &fontset);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        hr = IDWriteFontFamily2_GetFontSet(family2, &fontset2);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        ok(fontset != fontset2, "Unexpected fontset instance.\n");
+
+        count = IDWriteFontSet1_GetFontCount(fontset);
+
+        /* Invalid property id. */
+        exists = TRUE;
+        values = (void *)0xdeadbeef;
+        hr = IDWriteFontSet1_GetPropertyValues(fontset, 0, 100, &exists, &values);
+        ok(FAILED(hr), "Unexpected hr %#x.\n", hr);
+        ok(!exists && !values, "Unexpected return value.\n");
+
+        /* Invalid index. */
+        exists = TRUE;
+        values = (void *)0xdeadbeef;
+        hr = IDWriteFontSet1_GetPropertyValues(fontset, count, DWRITE_FONT_PROPERTY_ID_POSTSCRIPT_NAME, &exists, &values);
+        ok(FAILED(hr), "Unexpected hr %#x.\n", hr);
+        ok(!exists && !values, "Unexpected return value.\n");
+
+        exists = TRUE;
+        values = (void *)0xdeadbeef;
+        hr = IDWriteFontSet1_GetPropertyValues(fontset, count, 100, &exists, &values);
+        ok(FAILED(hr), "Unexpected hr %#x.\n", hr);
+        ok(!exists && !values, "Unexpected return value.\n");
+
+        hr = IDWriteFontSet1_GetPropertyValues(fontset, 0, DWRITE_FONT_PROPERTY_ID_POSTSCRIPT_NAME, &exists, &values);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        ok(exists == !!values, "Unexpected return value.\n");
+        if (values)
+        {
+            hr = IDWriteLocalizedStrings_GetString(values, 0, buffW, ARRAY_SIZE(buffW));
+            ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+            IDWriteLocalizedStrings_Release(values);
+        }
+
+        hr = IDWriteFontSet1_CreateFontResource(fontset, 100, &resource);
+        ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
+
+        hr = IDWriteFontSet1_CreateFontResource(fontset, 0, &resource);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+        IDWriteFontResource_Release(resource);
+
+        IDWriteFontSet1_Release(fontset2);
+        IDWriteFontSet1_Release(fontset);
+
+        IDWriteFontFamily2_Release(family2);
+    }
+    else
+        win_skip("IDWriteFontFamily2 is not supported.\n");
+
+    IDWriteFontFamily_Release(family);
+    IDWriteFontCollection_Release(collection);
+
+    refcount = IDWriteFactory_Release(factory);
+    ok(!refcount, "Unexpected factory refcount %u.\n", refcount);
+}
+
+static void test_system_font_set(void)
+{
+    IDWriteFontSet *fontset, *filtered_set;
+    IDWriteFontFaceReference *ref;
+    IDWriteFontFace3 *fontface;
+    IDWriteFactory3 *factory;
+    DWRITE_FONT_PROPERTY p;
+    unsigned int count;
+    HRESULT hr;
+
+    if (!(factory = create_factory_iid(&IID_IDWriteFactory3)))
+    {
+        win_skip("System font set is not supported.\n");
+        return;
+    }
+
+    hr = IDWriteFactory3_GetSystemFontSet(factory, &fontset);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    count = IDWriteFontSet_GetFontCount(fontset);
+    ok(!!count, "Unexpected font count %u.\n", count);
+
+    p.propertyId = DWRITE_FONT_PROPERTY_ID_FULL_NAME;
+    p.propertyValue = L"Tahoma";
+    p.localeName = L"";
+    hr = IDWriteFontSet_GetMatchingFonts(fontset, &p, 1, &filtered_set);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    count = IDWriteFontSet_GetFontCount(filtered_set);
+    ok(!!count, "Unexpected font count %u.\n", count);
+
+    hr = IDWriteFontSet_GetFontFaceReference(filtered_set, 0, &ref);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    hr = IDWriteFontFaceReference_CreateFontFace(ref, &fontface);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+
+    IDWriteFontFace3_Release(fontface);
+    IDWriteFontFaceReference_Release(ref);
+
+    IDWriteFontSet_Release(filtered_set);
+
+    IDWriteFontSet_Release(fontset);
+
+    IDWriteFactory3_Release(factory);
+}
+
+static void test_CreateFontCollectionFromFontSet(void)
+{
+    unsigned int index, count, refcount;
+    IDWriteFontCollection1 *collection;
+    IDWriteFontSetBuilder1 *builder;
+    DWRITE_FONT_PROPERTY props[1];
+    IDWriteFontFaceReference *ref;
+    IDWriteFactory5 *factory;
+    IDWriteFontSet *fontset;
+    IDWriteFontFile *file;
+    WCHAR *path;
+    BOOL exists;
+    HRESULT hr;
+
+    if (!(factory = create_factory_iid(&IID_IDWriteFactory5)))
+    {
+        win_skip("_CreateFontCollectionFromFontSet() is not available.\n");
+        return;
+    }
+
+    hr = IDWriteFactory5_CreateFontSetBuilder(factory, &builder);
+    ok(hr == S_OK, "Failed to create font set builder, hr %#x.\n", hr);
+
+    path = create_testfontfile(test_fontfile);
+
+    hr = IDWriteFactory5_CreateFontFileReference(factory, path, NULL, &file);
+    ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+    hr = IDWriteFontSetBuilder1_AddFontFile(builder, file);
+    ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+    /* Add same file, with explicit properties. */
+    hr = IDWriteFactory5_CreateFontFaceReference_(factory, file, 0, DWRITE_FONT_SIMULATIONS_NONE, &ref);
+    ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+    props[0].propertyId = DWRITE_FONT_PROPERTY_ID_WEIGHT_STRETCH_STYLE_FAMILY_NAME;
+    props[0].propertyValue = L"Another Font";
+    props[0].localeName = L"en-US";
+    hr = IDWriteFontSetBuilder1_AddFontFaceReference_(builder, ref, props, 1);
+todo_wine
+    ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+    IDWriteFontFaceReference_Release(ref);
+
+    hr = IDWriteFontSetBuilder1_CreateFontSet(builder, &fontset);
+    ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+    hr = IDWriteFactory5_CreateFontCollectionFromFontSet(factory, fontset, &collection);
+todo_wine
+    ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+
+if (SUCCEEDED(hr))
+{
+    count = IDWriteFontCollection1_GetFontFamilyCount(collection);
+    ok(count == 2, "Unexpected family count %u.\n", count);
+
+    /* Explicit fontset properties are prioritized and not replaced by actual properties from a file. */
+    exists = FALSE;
+    hr = IDWriteFontCollection1_FindFamilyName(collection, L"Another Font", &index, &exists);
+    ok(hr == S_OK, "Unexpected hr %#x.\n",hr);
+    ok(!!exists, "Unexpected return value %d.\n", exists);
+
+    IDWriteFontCollection1_Release(collection);
+}
+    IDWriteFontSet_Release(fontset);
+
+    IDWriteFontSetBuilder1_Release(builder);
+
+    IDWriteFontFile_Release(file);
+    refcount = IDWriteFactory5_Release(factory);
+    ok(!refcount, "Unexpected factory refcount %u.\n", refcount);
+    DELETE_FONTFILE(path);
+}
+
 START_TEST(font)
 {
     IDWriteFactory *factory;
@@ -9875,6 +10390,10 @@ START_TEST(font)
     test_font_resource();
     test_IsColorFont();
     test_GetVerticalGlyphVariants();
+    test_expiration_event();
+    test_family_font_set();
+    test_system_font_set();
+    test_CreateFontCollectionFromFontSet();
 
     IDWriteFactory_Release(factory);
 }

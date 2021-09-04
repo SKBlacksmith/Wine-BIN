@@ -112,11 +112,11 @@ struct gdb_context
 static void gdbctx_delete_xpoint(struct gdb_context *gdbctx, struct dbg_thread *thread,
                                  dbg_ctx_t *ctx, struct gdb_xpoint *x)
 {
-    struct dbg_process *process = thread->process;
+    struct dbg_process *process = gdbctx->process;
     struct backend_cpu *cpu = process->be_cpu;
 
     if (!cpu->remove_Xpoint(process->handle, process->process_io, ctx, x->type, x->addr, x->value, x->size))
-        ERR("%04x:%04x: Couldn't remove breakpoint at:%p/%x type:%d\n", process->pid, thread->tid, x->addr, x->size, x->type);
+        ERR("%04x:%04x: Couldn't remove breakpoint at:%p/%x type:%d\n", process->pid, thread ? thread->tid : ~0, x->addr, x->size, x->type);
 
     list_remove(&x->entry);
     HeapFree(GetProcessHeap(), 0, x);
@@ -395,7 +395,7 @@ static BOOL handle_exception(struct gdb_context* gdbctx, EXCEPTION_DEBUG_INFO* e
     }
 }
 
-static BOOL handle_debug_event(struct gdb_context* gdbctx)
+static BOOL handle_debug_event(struct gdb_context* gdbctx, BOOL stop_on_dll_load_unload)
 {
     DEBUG_EVENT *de = &gdbctx->de;
     struct dbg_thread *thread;
@@ -404,6 +404,7 @@ static BOOL handle_debug_event(struct gdb_context* gdbctx)
         char                bufferA[256];
         WCHAR               buffer[256];
     } u;
+    DWORD size;
 
     gdbctx->exec_tid = de->dwThreadId;
     gdbctx->other_tid = de->dwThreadId;
@@ -417,10 +418,8 @@ static BOOL handle_debug_event(struct gdb_context* gdbctx)
         if (!gdbctx->process)
             return TRUE;
 
-        memory_get_string_indirect(gdbctx->process,
-                                   de->u.CreateProcessInfo.lpImageName,
-                                   de->u.CreateProcessInfo.fUnicode,
-                                   u.buffer, ARRAY_SIZE(u.buffer));
+        size = ARRAY_SIZE(u.buffer);
+        QueryFullProcessImageNameW( gdbctx->process->handle, 0, u.buffer, &size );
         dbg_set_process_name(gdbctx->process, u.buffer);
 
         fprintf(stderr, "%04x:%04x: create process '%s'/%p @%p (%u<%u>)\n",
@@ -438,16 +437,17 @@ static BOOL handle_debug_event(struct gdb_context* gdbctx)
         fprintf(stderr, "%04x:%04x: create thread I @%p\n", de->dwProcessId,
             de->dwThreadId, de->u.CreateProcessInfo.lpStartAddress);
 
+        dbg_load_module(gdbctx->process->handle, de->u.CreateProcessInfo.hFile, u.buffer,
+                        (DWORD_PTR)de->u.CreateProcessInfo.lpBaseOfImage, 0);
+
         dbg_add_thread(gdbctx->process, de->dwThreadId,
                        de->u.CreateProcessInfo.hThread,
                        de->u.CreateProcessInfo.lpThreadLocalBase);
         return TRUE;
 
     case LOAD_DLL_DEBUG_EVENT:
-        memory_get_string_indirect(gdbctx->process,
-                                   de->u.LoadDll.lpImageName,
-                                   de->u.LoadDll.fUnicode,
-                                   u.buffer, ARRAY_SIZE(u.buffer));
+        fetch_module_name( de->u.LoadDll.lpImageName, de->u.LoadDll.lpBaseOfDll,
+                           u.buffer, ARRAY_SIZE(u.buffer) );
         fprintf(stderr, "%04x:%04x: loads DLL %s @%p (%u<%u>)\n",
                 de->dwProcessId, de->dwThreadId,
                 dbg_W2A(u.buffer, -1),
@@ -456,6 +456,8 @@ static BOOL handle_debug_event(struct gdb_context* gdbctx)
                 de->u.LoadDll.nDebugInfoSize);
         dbg_load_module(gdbctx->process->handle, de->u.LoadDll.hFile, u.buffer,
                         (DWORD_PTR)de->u.LoadDll.lpBaseOfDll, 0);
+        if (stop_on_dll_load_unload)
+            break;
         return TRUE;
 
     case UNLOAD_DLL_DEBUG_EVENT:
@@ -463,6 +465,8 @@ static BOOL handle_debug_event(struct gdb_context* gdbctx)
                 de->dwProcessId, de->dwThreadId, de->u.UnloadDll.lpBaseOfDll);
         SymUnloadModule(gdbctx->process->handle,
                         (DWORD_PTR)de->u.UnloadDll.lpBaseOfDll);
+        if (stop_on_dll_load_unload)
+            break;
         return TRUE;
 
     case EXCEPTION_DEBUG_EVENT:
@@ -596,7 +600,7 @@ static void    wait_for_debuggee(struct gdb_context* gdbctx)
 				break;
 			} 
 		}
-        if (!handle_debug_event(gdbctx))
+        if (!handle_debug_event(gdbctx, TRUE))
             break;
         ContinueDebugEvent(gdbctx->de.dwProcessId, gdbctx->de.dwThreadId, DBG_CONTINUE);
     }
@@ -701,6 +705,13 @@ static void get_thread_info(struct gdb_context* gdbctx, unsigned tid,
  *          P A C K E T        U T I L S           *
  * =============================================== *
  */
+
+static int addr_width(struct gdb_context* gdbctx)
+{
+    int sz = (gdbctx && gdbctx->process && gdbctx->process->be_cpu) ?
+        gdbctx->process->be_cpu->pointer_size : (int)sizeof(void*);
+    return sz * 2;
+}
 
 enum packet_return {packet_error = 0x00, packet_ok = 0x01, packet_done = 0x02,
                     packet_last_f = 0x80};
@@ -909,6 +920,15 @@ static enum packet_return packet_reply_status(struct gdb_context* gdbctx)
         packet_reply_val(gdbctx, gdbctx->de.u.ExitProcess.dwExitCode, 4);
         packet_reply_close(gdbctx);
         return packet_done | packet_last_f;
+
+    case LOAD_DLL_DEBUG_EVENT:
+    case UNLOAD_DLL_DEBUG_EVENT:
+        packet_reply_open(gdbctx);
+        packet_reply_add(gdbctx, "T");
+        packet_reply_val(gdbctx, SIGTRAP, 1);
+        packet_reply_add(gdbctx, "library:;");
+        packet_reply_close(gdbctx);
+        return packet_done;
     }
 }
 
@@ -1343,7 +1363,7 @@ static void packet_query_monitor_wnd_helper(struct gdb_context* gdbctx, HWND hWn
                 "%*s%04lx%*s%-17.17s %08x %0*lx %.14s\n",
                 indent, "", (ULONG_PTR)hWnd, 13 - indent, "",
                 clsName, GetWindowLongW(hWnd, GWL_STYLE),
-                ADDRWIDTH, (ULONG_PTR)GetWindowLongPtrW(hWnd, GWLP_WNDPROC),
+                addr_width(gdbctx), (ULONG_PTR)GetWindowLongPtrW(hWnd, GWLP_WNDPROC),
                 wndName);
        packet_reply_hex_to_str(gdbctx, buffer);
        packet_reply_close(gdbctx);
@@ -1452,13 +1472,13 @@ static void packet_query_monitor_mem(struct gdb_context* gdbctx, int len, const 
             }
             memset(prot, ' ' , sizeof(prot)-1);
             prot[sizeof(prot)-1] = '\0';
-            if (mbi.AllocationProtect & (PAGE_READONLY|PAGE_READWRITE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE))
+            if (mbi.AllocationProtect & (PAGE_READONLY|PAGE_READWRITE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_WRITECOPY|PAGE_EXECUTE_WRITECOPY))
                 prot[0] = 'R';
             if (mbi.AllocationProtect & (PAGE_READWRITE|PAGE_EXECUTE_READWRITE))
                 prot[1] = 'W';
             if (mbi.AllocationProtect & (PAGE_WRITECOPY|PAGE_EXECUTE_WRITECOPY))
                 prot[1] = 'C';
-            if (mbi.AllocationProtect & (PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE))
+            if (mbi.AllocationProtect & (PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY))
                 prot[2] = 'X';
         }
         else
@@ -1468,8 +1488,8 @@ static void packet_query_monitor_mem(struct gdb_context* gdbctx, int len, const 
         }
         packet_reply_open(gdbctx);
         snprintf(buffer, sizeof(buffer), "%0*lx %0*lx %s %s %s\n",
-                 (unsigned)sizeof(void*), (DWORD_PTR)addr,
-                 (unsigned)sizeof(void*), mbi.RegionSize, state, type, prot);
+                 addr_width(gdbctx), (DWORD_PTR)addr,
+                 addr_width(gdbctx), mbi.RegionSize, state, type, prot);
         packet_reply_add(gdbctx, "O");
         packet_reply_hex_to_str(gdbctx, buffer);
         packet_reply_close(gdbctx);
@@ -2154,7 +2174,7 @@ static BOOL gdb_startup(struct gdb_context* gdbctx, unsigned flags, unsigned por
         goto cleanup;
 
     /* step 2: do the process internal creation */
-    handle_debug_event(gdbctx);
+    handle_debug_event(gdbctx, FALSE);
 
     /* step 3: fire up gdb (if requested) */
     if (flags & FLAG_NO_START)
@@ -2243,7 +2263,7 @@ static BOOL gdb_init_context(struct gdb_context* gdbctx, unsigned flags, unsigne
             /* gdbctx->dwProcessId = pid; */
             if (!gdb_startup(gdbctx, flags, port)) return FALSE;
         }
-        else if (!handle_debug_event(gdbctx))
+        else if (!handle_debug_event(gdbctx, FALSE))
             break;
         ContinueDebugEvent(gdbctx->de.dwProcessId, gdbctx->de.dwThreadId, DBG_CONTINUE);
     }

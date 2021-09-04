@@ -287,7 +287,11 @@ char * CDECL strtok( char *str, const char *delim )
         if (!(str = data->strtok_next)) return NULL;
 
     while (*str && strchr( delim, *str )) str++;
-    if (!*str) return NULL;
+    if (!*str)
+    {
+        data->strtok_next = str;
+        return NULL;
+    }
     ret = str++;
     while (*str && !strchr( delim, *str )) str++;
     if (*str) *str++ = 0;
@@ -1061,7 +1065,13 @@ double CDECL strtod( const char *str, char **end )
  */
 float CDECL _strtof_l( const char *str, char **end, _locale_t locale )
 {
-    return _strtod_l(str, end, locale);
+    double ret = _strtod_l(str, end, locale);
+    if (ret && isfinite(ret)) {
+        float f = ret;
+        if (!f || !isfinite(f))
+            *_errno() = ERANGE;
+    }
+    return ret;
 }
 
 /*********************************************************************

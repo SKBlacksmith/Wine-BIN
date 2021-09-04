@@ -17,7 +17,6 @@
  */
 
 #include <stdarg.h>
-#include <assert.h>
 
 #define COBJMACROS
 
@@ -192,7 +191,7 @@ static HRESULT WINAPI HTMLScriptElement_put_text(IHTMLScriptElement *iface, BSTR
     TRACE("(%p)->(%s)\n", This, debugstr_w(v));
 
     if(!This->element.node.doc || !This->element.node.doc->window) {
-        WARN("no windoow\n");
+        WARN("no window\n");
         return E_UNEXPECTED;
     }
 

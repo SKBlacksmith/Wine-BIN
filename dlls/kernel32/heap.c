@@ -44,6 +44,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(globalmem);
 
 static HANDLE systemHeap;   /* globally shared heap */
 
+extern BOOL CDECL __wine_needs_override_large_address_aware(void);
+
 
 /***********************************************************************
  *           HEAP_CreateSystemHeap
@@ -530,13 +532,6 @@ SIZE_T WINAPI LocalSize(
     return GlobalSize( handle );
 }
 
-static BOOL force_laa(void)
-{
-    WCHAR e[16];
-    e[0] = '\0';
-    GetEnvironmentVariableW(L"WINE_LARGE_ADDRESS_AWARE", e, ARRAY_SIZE(e));
-    return (*e != '\0' && *e != '0');
-}
 
 /***********************************************************************
  *           GlobalMemoryStatus   (KERNEL32.@)
@@ -550,11 +545,13 @@ VOID WINAPI GlobalMemoryStatus( LPMEMORYSTATUS lpBuffer )
 {
     MEMORYSTATUSEX memstatus;
     OSVERSIONINFOW osver;
+#ifndef _WIN64
     IMAGE_NT_HEADERS *nt = RtlImageNtHeader( GetModuleHandleW(0) );
+#endif
     static int force_large_address_aware = -1;
 
     if (force_large_address_aware == -1)
-        force_large_address_aware = force_laa() ? 1 : 0;
+        force_large_address_aware = __wine_needs_override_large_address_aware();
 
     /* Because GlobalMemoryStatus is identical to GlobalMemoryStatusEX save
        for one extra field in the struct, and the lack of a bug, we simply
@@ -572,6 +569,14 @@ VOID WINAPI GlobalMemoryStatus( LPMEMORYSTATUS lpBuffer )
     osver.dwOSVersionInfoSize = sizeof(osver);
     GetVersionExW(&osver);
 
+    lpBuffer->dwTotalPhys = memstatus.ullTotalPhys;
+    lpBuffer->dwAvailPhys = memstatus.ullAvailPhys;
+    lpBuffer->dwTotalPageFile = memstatus.ullTotalPageFile;
+    lpBuffer->dwAvailPageFile = memstatus.ullAvailPageFile;
+    lpBuffer->dwTotalVirtual = memstatus.ullTotalVirtual;
+    lpBuffer->dwAvailVirtual = memstatus.ullAvailVirtual;
+
+#ifndef _WIN64
     if ( osver.dwMajorVersion >= 5 || osver.dwPlatformId == VER_PLATFORM_WIN32_WINDOWS )
     {
         lpBuffer->dwTotalPhys = min( memstatus.ullTotalPhys, MAXDWORD );
@@ -581,16 +586,6 @@ VOID WINAPI GlobalMemoryStatus( LPMEMORYSTATUS lpBuffer )
         lpBuffer->dwAvailPageFile = min( memstatus.ullAvailPageFile, MAXDWORD );
         lpBuffer->dwTotalVirtual = min( memstatus.ullTotalVirtual, MAXDWORD );
         lpBuffer->dwAvailVirtual = min( memstatus.ullAvailVirtual, MAXDWORD );
-
-    }
-    else /* duplicate NT bug */
-    {
-        lpBuffer->dwTotalPhys = memstatus.ullTotalPhys;
-        lpBuffer->dwAvailPhys = memstatus.ullAvailPhys;
-        lpBuffer->dwTotalPageFile = memstatus.ullTotalPageFile;
-        lpBuffer->dwAvailPageFile = memstatus.ullAvailPageFile;
-        lpBuffer->dwTotalVirtual = memstatus.ullTotalVirtual;
-        lpBuffer->dwAvailVirtual = memstatus.ullAvailVirtual;
     }
 
     /* values are limited to 2Gb unless the app has the IMAGE_FILE_LARGE_ADDRESS_AWARE flag */
@@ -615,6 +610,7 @@ VOID WINAPI GlobalMemoryStatus( LPMEMORYSTATUS lpBuffer )
         if (lpBuffer->dwTotalPageFile > MAXLONG) lpBuffer->dwTotalPageFile = MAXLONG;
         if (lpBuffer->dwAvailPageFile > MAXLONG) lpBuffer->dwAvailPageFile = MAXLONG;
     }
+#endif
 
     TRACE("Length %u, MemoryLoad %u, TotalPhys %lx, AvailPhys %lx,"
           " TotalPageFile %lx, AvailPageFile %lx, TotalVirtual %lx, AvailVirtual %lx\n",

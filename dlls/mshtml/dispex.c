@@ -17,7 +17,6 @@
  */
 
 #include <stdarg.h>
-#include <assert.h>
 
 #define COBJMACROS
 #define NONAMELESSUNION
@@ -112,7 +111,7 @@ struct dispex_dynamic_data_t {
 
 #define FDEX_VERSION_MASK 0xf0000000
 
-static ITypeLib *typelib;
+static ITypeLib *typelib, *typelib_private;
 static ITypeInfo *typeinfos[LAST_tid];
 static struct list dispex_data_list = LIST_INIT(dispex_data_list);
 
@@ -120,14 +119,18 @@ static REFIID tid_ids[] = {
 #define XIID(iface) &IID_ ## iface,
 #define XDIID(iface) &DIID_ ## iface,
 TID_LIST
+    NULL,
+PRIVATE_TID_LIST
 #undef XIID
 #undef XDIID
 };
 
 static HRESULT load_typelib(void)
 {
+    WCHAR module_path[MAX_PATH + 3];
     HRESULT hres;
     ITypeLib *tl;
+    DWORD len;
 
     hres = LoadRegTypeLib(&LIBID_MSHTML, 4, 0, LOCALE_SYSTEM_DEFAULT, &tl);
     if(FAILED(hres)) {
@@ -137,7 +140,25 @@ static HRESULT load_typelib(void)
 
     if(InterlockedCompareExchangePointer((void**)&typelib, tl, NULL))
         ITypeLib_Release(tl);
-    return hres;
+
+    len = GetModuleFileNameW(hInst, module_path, MAX_PATH + 1);
+    if (!len || len == MAX_PATH + 1)
+    {
+        ERR("Could not get module file name, len %u.\n", len);
+        return E_FAIL;
+    }
+    lstrcatW(module_path, L"\\1");
+
+    hres = LoadTypeLibEx(module_path, REGKIND_NONE, &tl);
+    if(FAILED(hres)) {
+        ERR("LoadTypeLibEx failed for private typelib: %08x\n", hres);
+        return hres;
+    }
+
+    if(InterlockedCompareExchangePointer((void**)&typelib_private, tl, NULL))
+        ITypeLib_Release(tl);
+
+    return S_OK;
 }
 
 static HRESULT get_typeinfo(tid_t tid, ITypeInfo **typeinfo)
@@ -152,7 +173,7 @@ static HRESULT get_typeinfo(tid_t tid, ITypeInfo **typeinfo)
     if(!typeinfos[tid]) {
         ITypeInfo *ti;
 
-        hres = ITypeLib_GetTypeInfoOfGuid(typelib, tid_ids[tid], &ti);
+        hres = ITypeLib_GetTypeInfoOfGuid(tid > LAST_public_tid ? typelib_private : typelib, tid_ids[tid], &ti);
         if(FAILED(hres)) {
             ERR("GetTypeInfoOfGuid(%s) failed: %08x\n", debugstr_mshtml_guid(tid_ids[tid]), hres);
             return hres;
@@ -198,6 +219,7 @@ void release_typelib(void)
             ITypeInfo_Release(typeinfos[i]);
 
     ITypeLib_Release(typelib);
+    ITypeLib_Release(typelib_private);
     DeleteCriticalSection(&cs_dispex_static_data);
 }
 
@@ -211,6 +233,8 @@ HRESULT get_class_typeinfo(const CLSID *clsid, ITypeInfo **typeinfo)
         return hres;
 
     hres = ITypeLib_GetTypeInfoOfGuid(typelib, clsid, typeinfo);
+    if (FAILED(hres))
+        hres = ITypeLib_GetTypeInfoOfGuid(typelib_private, clsid, typeinfo);
     if(FAILED(hres))
         ERR("GetTypeInfoOfGuid failed: %08x\n", hres);
     return hres;
@@ -331,7 +355,7 @@ static void add_func_info(dispex_data_t *data, tid_t tid, const FUNCDESC *desc, 
 
                 hres = ITypeInfo_GetRefTypeInfo(dti, tdesc->u.lptdesc->u.hreftype, &ref_type_info);
                 if(FAILED(hres)) {
-                    ERR("Coulg not get referenced type info: %08x\n", hres);
+                    ERR("Could not get referenced type info: %08x\n", hres);
                     return;
                 }
 
@@ -876,7 +900,7 @@ static func_disp_t *create_func_disp(DispatchEx *obj, func_info_t *info)
         return NULL;
 
     ret->IUnknown_iface.lpVtbl = &FunctionUnkVtbl;
-    init_dispex(&ret->dispex, &ret->IUnknown_iface,  &function_dispex);
+    init_dispatch(&ret->dispex, &ret->IUnknown_iface,  &function_dispex, dispex_compat_mode(obj));
     ret->ref = 1;
     ret->obj = obj;
     ret->info = info;
@@ -1675,14 +1699,26 @@ static HRESULT WINAPI DispatchEx_InvokeEx(IDispatchEx *iface, DISPID id, LCID lc
     }
 }
 
-static HRESULT WINAPI DispatchEx_DeleteMemberByName(IDispatchEx *iface, BSTR bstrName, DWORD grfdex)
+static HRESULT WINAPI DispatchEx_DeleteMemberByName(IDispatchEx *iface, BSTR name, DWORD grfdex)
 {
     DispatchEx *This = impl_from_IDispatchEx(iface);
+    DISPID id;
+    HRESULT hres;
 
-    TRACE("(%p)->(%s %x)\n", This, debugstr_w(bstrName), grfdex);
+    TRACE("(%p)->(%s %x)\n", This, debugstr_w(name), grfdex);
 
-    /* Not implemented by IE */
-    return E_NOTIMPL;
+    if(dispex_compat_mode(This) < COMPAT_MODE_IE8) {
+        /* Not implemented by IE */
+        return E_NOTIMPL;
+    }
+
+    hres = IDispatchEx_GetDispID(&This->IDispatchEx_iface, name, grfdex & ~fdexNameEnsure, &id);
+    if(FAILED(hres)) {
+        TRACE("property %s not found\n", debugstr_w(name));
+        return dispex_compat_mode(This) < COMPAT_MODE_IE9 ? hres : S_OK;
+    }
+
+    return IDispatchEx_DeleteMemberByDispID(&This->IDispatchEx_iface, id);
 }
 
 static HRESULT WINAPI DispatchEx_DeleteMemberByDispID(IDispatchEx *iface, DISPID id)
@@ -1691,8 +1727,25 @@ static HRESULT WINAPI DispatchEx_DeleteMemberByDispID(IDispatchEx *iface, DISPID
 
     TRACE("(%p)->(%x)\n", This, id);
 
-    /* Not implemented by IE */
-    return E_NOTIMPL;
+    if(dispex_compat_mode(This) < COMPAT_MODE_IE8) {
+        /* Not implemented by IE */
+        return E_NOTIMPL;
+    }
+
+    if(is_dynamic_dispid(id)) {
+        DWORD idx = id - DISPID_DYNPROP_0;
+        dynamic_prop_t *prop;
+
+        if(!get_dynamic_data(This) || idx > This->dynamic_data->prop_cnt)
+            return S_OK;
+
+        prop = This->dynamic_data->props + idx;
+        VariantClear(&prop->var);
+        prop->flags |= DYNPROP_DELETED;
+        return S_OK;
+    }
+
+    return S_OK;
 }
 
 static HRESULT WINAPI DispatchEx_GetMemberProperties(IDispatchEx *iface, DISPID id, DWORD grfdexFetch, DWORD *pgrfdex)
@@ -1910,7 +1963,7 @@ void release_dispex(DispatchEx *This)
     heap_free(This->dynamic_data);
 }
 
-void init_dispex_with_compat_mode(DispatchEx *dispex, IUnknown *outer, dispex_static_data_t *data, compat_mode_t compat_mode)
+void init_dispatch(DispatchEx *dispex, IUnknown *outer, dispex_static_data_t *data, compat_mode_t compat_mode)
 {
     assert(compat_mode < COMPAT_MODE_CNT);
 

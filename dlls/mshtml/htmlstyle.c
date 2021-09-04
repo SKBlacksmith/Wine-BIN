@@ -17,7 +17,6 @@
  */
 
 #include <stdarg.h>
-#include <assert.h>
 #include <math.h>
 
 #define COBJMACROS
@@ -10061,8 +10060,8 @@ void init_css_style(CSSStyle *style, nsIDOMCSSStyleDeclaration *nsstyle, style_q
     style->nsstyle = nsstyle;
     nsIDOMCSSStyleDeclaration_AddRef(nsstyle);
 
-    init_dispex_with_compat_mode(&style->dispex, (IUnknown*)&style->IHTMLCSSStyleDeclaration_iface,
-                                 dispex_info, compat_mode);
+    init_dispatch(&style->dispex, (IUnknown*)&style->IHTMLCSSStyleDeclaration_iface,
+                  dispex_info, compat_mode);
 }
 
 HRESULT HTMLStyle_Create(HTMLElement *elem, HTMLStyle **ret)

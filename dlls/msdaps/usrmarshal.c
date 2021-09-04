@@ -1583,6 +1583,36 @@ HRESULT CALLBACK IGetDataSource_GetDataSource_Proxy(IGetDataSource* This, REFIID
     return E_NOTIMPL;
 }
 
+HRESULT CALLBACK IColumnsRowset_GetAvailableColumns_Proxy(IColumnsRowset* This, DBORDINAL *count, DBID **columns)
+{
+    FIXME("(%p)->(%p %p): stub\n", This, count, columns);
+    return E_NOTIMPL;
+}
+
+HRESULT __RPC_STUB IColumnsRowset_GetAvailableColumns_Stub(IColumnsRowset* This, DBORDINAL *count, DBID **columns,
+    IErrorInfo **error)
+{
+    FIXME("(%p)->(%p %p %p): stub\n", This, count, columns, error);
+    return E_NOTIMPL;
+}
+
+HRESULT CALLBACK IColumnsRowset_GetColumnsRowset_Proxy(IColumnsRowset* This, IUnknown *outer, DBORDINAL count,
+    const DBID columns[], REFIID riid, ULONG property_cnt, DBPROPSET property_sets[], IUnknown **rowset)
+{
+    FIXME("(%p)->(%p %ld %p %s %d %p %p): stub\n", This, outer, count, columns, debugstr_guid(riid),
+          property_cnt, property_sets, rowset);
+    return E_NOTIMPL;
+}
+
+HRESULT __RPC_STUB IColumnsRowset_GetColumnsRowset_Stub(IColumnsRowset* This, IUnknown *outer,
+    DBORDINAL count, const DBID *columns, REFIID riid, ULONG property_cnt, DBPROPSET *property_sets,
+    IUnknown **rowset, ULONG props_cnt, DBPROPSTATUS *prop_status, IErrorInfo **error)
+{
+    FIXME("(%p)->(%p %ld %p %s %d %p %p %u %p %p): stub\n", This, outer, count, columns, debugstr_guid(riid),
+          property_cnt, property_sets, rowset, props_cnt, prop_status, error);
+    return E_NOTIMPL;
+}
+
 HRESULT __RPC_STUB IGetDataSource_GetDataSource_Stub(IGetDataSource* This, REFIID riid, IUnknown **datasource,
     IErrorInfo **error)
 {
@@ -1665,5 +1695,49 @@ HRESULT CALLBACK ICommandPrepare_Unprepare_Proxy(ICommandPrepare* This)
 HRESULT __RPC_STUB ICommandPrepare_Unprepare_Stub(ICommandPrepare* This, IErrorInfo **error)
 {
     FIXME("(%p)->(%p): stub\n", This, error);
+    return E_NOTIMPL;
+}
+
+HRESULT CALLBACK ICommandWithParameters_GetParameterInfo_Proxy(ICommandWithParameters* This,
+    DB_UPARAMS *uparams, DBPARAMINFO **info, OLECHAR **buffer)
+{
+    FIXME("(%p)->(%p %p %p): stub\n", This, uparams, info, buffer);
+    return E_NOTIMPL;
+}
+
+HRESULT __RPC_STUB ICommandWithParameters_GetParameterInfo_Stub(ICommandWithParameters* This,
+    DB_UPARAMS *uparams, DBPARAMINFO **param_info, DBBYTEOFFSET **offsets, DBLENGTH *buff_len,
+    OLECHAR **buffer, IErrorInfo **error)
+{
+    FIXME("(%p)->(%p %p %p %p %p %p %p): stub\n", This, uparams, param_info, buffer, offsets, buff_len,
+          buffer, error);
+    return E_NOTIMPL;
+}
+
+HRESULT CALLBACK ICommandWithParameters_SetParameterInfo_Proxy(ICommandWithParameters* This,
+    DB_UPARAMS params, const DB_UPARAMS ordinals[], const DBPARAMBINDINFO bindinfo[])
+{
+    FIXME("(%p)->(%ld %p %p): stub\n", This, params, ordinals, bindinfo);
+    return E_NOTIMPL;
+}
+
+HRESULT __RPC_STUB ICommandWithParameters_SetParameterInfo_Stub(ICommandWithParameters* This,
+    DB_UPARAMS params, const DB_UPARAMS *ordinals, const DBPARAMBINDINFO *bindinfo, IErrorInfo **error)
+{
+    FIXME("(%p)->(%ld %p %p %p): stub\n", This, params, ordinals, bindinfo, error);
+    return E_NOTIMPL;
+}
+
+HRESULT CALLBACK ICommandWithParameters_MapParameterNames_Proxy(ICommandWithParameters* This,
+    DB_UPARAMS count, LPCWSTR names[], DB_LPARAMS ordinals[])
+{
+    FIXME("(%p)->(%ld %p %p): stub\n", This, count, names, ordinals);
+    return E_NOTIMPL;
+}
+
+HRESULT __RPC_STUB ICommandWithParameters_MapParameterNames_Stub(ICommandWithParameters* This,
+    DB_UPARAMS count, LPCOLESTR *names, DB_LPARAMS *ordinals, IErrorInfo **error)
+{
+    FIXME("(%p)->(%ld %p %p %p): stub\n", This, count, names, ordinals, error);
     return E_NOTIMPL;
 }

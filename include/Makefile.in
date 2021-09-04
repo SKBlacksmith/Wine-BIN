@@ -20,6 +20,7 @@ SOURCES = \
 	appmodel.h \
 	asferr.h \
 	asptlb.idl \
+	asyncinfo.idl \
 	asynot.idl \
 	asysta.idl \
 	atlbase.h \
@@ -67,10 +68,13 @@ SOURCES = \
 	cmdprp.idl \
 	cmdstrm.idl \
 	cmdtxt.idl \
+	cmdwpr.idl \
 	cmnquery.idl \
 	codecapi.h \
 	colinf.idl \
 	colordlg.h \
+	colrst.idl \
+	combaseapi.h \
 	comcat.idl \
 	commctrl.h \
 	commctrl.rh \
@@ -96,6 +100,7 @@ SOURCES = \
 	d2d1.idl \
 	d2d1_1.idl \
 	d2d1_2.idl \
+	d2d1effects.idl \
 	d2dbasetypes.h \
 	d2derr.h \
 	d3d.h \
@@ -137,8 +142,9 @@ SOURCES = \
 	d3dvec.inl \
 	d3dx10.h \
 	d3dx10async.h \
-	d3dx10core.idl \
+	d3dx10core.h \
 	d3dx10math.h \
+	d3dx10mesh.h \
 	d3dx10tex.h \
 	d3dx11.h \
 	d3dx11async.h \
@@ -176,6 +182,7 @@ SOURCES = \
 	ddk/d3dkmthk.h \
 	ddk/fltkernel.h \
 	ddk/hidclass.h \
+	ddk/hidpddi.h \
 	ddk/hidpi.h \
 	ddk/hidport.h \
 	ddk/hidsdi.h \
@@ -282,6 +289,7 @@ SOURCES = \
 	errors.h \
 	errrec.idl \
 	evcode.h \
+	eventtoken.idl \
 	evntprov.h \
 	evntrace.h \
 	evr.idl \
@@ -298,6 +306,7 @@ SOURCES = \
 	fontsub.h \
 	fusion.idl \
 	gameux.idl \
+	gamingtcui.h \
 	gdiplus.h \
 	gdipluscolor.h \
 	gdipluscolormatrix.h \
@@ -519,6 +528,7 @@ SOURCES = \
 	netcon.idl \
 	netfw.idl \
 	netioapi.h \
+	netiodef.h \
 	netlistmgr.idl \
 	newdev.h \
 	nldef.h \
@@ -526,6 +536,7 @@ SOURCES = \
 	nserror.h \
 	nspapi.h \
 	ntddcdrm.h \
+	ntddkbd.h \
 	ntddmou.h \
 	ntddndis.h \
 	ntddscsi.h \
@@ -533,7 +544,7 @@ SOURCES = \
 	ntddvdeo.h \
 	ntdef.h \
 	ntdsapi.h \
-	ntifs.h \
+	ntgdi.h \
 	ntlsa.h \
 	ntquery.h \
 	ntsecapi.h \
@@ -575,6 +586,7 @@ SOURCES = \
 	powrprof.h \
 	prntvpt.h \
 	profinfo.h \
+	proofofpossessioncookieinfo.idl \
 	propidl.idl \
 	propkey.h \
 	propkeydef.h \
@@ -679,6 +691,7 @@ SOURCES = \
 	t2embapi.h \
 	tapi.h \
 	taskschd.idl \
+	tbs.h \
 	tchar.h \
 	tcpestats.h \
 	tcpmib.h \
@@ -739,6 +752,7 @@ SOURCES = \
 	wimgapi.h \
 	winapifamily.h \
 	winbase.h \
+	winber.h \
 	wincodec.idl \
 	wincodecsdk.idl \
 	wincon.h \
@@ -747,11 +761,17 @@ SOURCES = \
 	wincrypt.h \
 	windef.h \
 	windns.h \
+	windot11.h \
 	windows.foundation.collections.idl \
 	windows.foundation.idl \
+	windows.gaming.input.forcefeedback.idl \
+	windows.gaming.input.idl \
 	windows.globalization.idl \
 	windows.h \
+	windows.media.devices.idl \
 	windows.media.speechsynthesis.idl \
+	windows.system.idl \
+	windows.system.userprofile.idl \
 	windowscontracts.idl \
 	windowsx.h \
 	wine/debug.h \
@@ -760,7 +780,6 @@ SOURCES = \
 	wine/itss.idl \
 	wine/orpc.idl \
 	wine/svcctl.idl \
-	wine/wined3d-interop.idl \
 	wine/winedxgi.idl \
 	winerror.h \
 	winevt.h \
@@ -830,6 +849,8 @@ SOURCES = \
 	wtypes.idl \
 	wuapi.idl \
 	x3daudio.h \
+	xact.h \
+	xact2wb.h \
 	xact3.h \
 	xact3wb.h \
 	xapo.idl \

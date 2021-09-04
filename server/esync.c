@@ -138,7 +138,7 @@ const struct object_ops esync_ops =
     esync_map_access,          /* map_access */
     default_get_sd,            /* get_sd */
     default_set_sd,            /* set_sd */
-    default_get_full_name,     /* get_full_name */
+    no_get_full_name,          /* get_full_name */
     no_lookup_name,            /* lookup_name */
     directory_link_name,       /* link_name */
     default_unlink_name,       /* unlink_name */
@@ -281,7 +281,7 @@ struct esync *create_esync( struct object *root, const struct unicode_str *name,
                 if (ftruncate( shm_fd, shm_size ) == -1)
                 {
                     fprintf( stderr, "esync: couldn't expand %s to size %ld: ",
-                             shm_name, (long)shm_size );
+                        shm_name, shm_size );
                     perror( "ftruncate" );
                 }
             }

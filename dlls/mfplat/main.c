@@ -1545,11 +1545,13 @@ const char *debugstr_attr(const GUID *guid)
         X(MF_MT_TIMESTAMP_CAN_BE_DTS),
         X(MFT_CODEC_MERIT_Attribute),
         X(MF_TOPOLOGY_PLAYBACK_MAX_DIMS),
+        X(MF_XVP_DISABLE_FRC),
         X(MF_LOW_LATENCY),
         X(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS),
         X(MF_MT_MPEG2_FLAGS),
         X(MF_MEDIA_ENGINE_AUDIO_CATEGORY),
         X(MF_MT_PIXEL_ASPECT_RATIO),
+        X(MF_VIDEO_PROCESSOR_ALGORITHM),
         X(MF_TOPOLOGY_ENABLE_XVP_FOR_PLAYBACK),
         X(MFT_CONNECTED_STREAM_ATTRIBUTE),
         X(MF_MT_REALTIME_CONTENT),
@@ -1561,6 +1563,7 @@ const char *debugstr_attr(const GUID *guid)
         X(MF_MT_MAX_LUMINANCE_LEVEL),
         X(MFT_CONNECTED_TO_HW_STREAM),
         X(MF_SA_D3D_AWARE),
+        X(MF_XVP_SAMPLE_LOCK_TIMEOUT),
         X(MF_MT_MAX_KEYFRAME_SPACING),
         X(MFT_TRANSFORM_CLSID_Attribute),
         X(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING),
@@ -1699,6 +1702,7 @@ const char *debugstr_attr(const GUID *guid)
         X(MF_BYTESTREAM_DLNA_PROFILE_ID),
         X(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_AUDCAP_ROLE),
         X(MF_MT_MAJOR_TYPE),
+        X(MF_SA_REQUIRED_SAMPLE_COUNT_PROGRESSIVE),
         X(MF_MT_IN_BAND_PARAMETER_SET),
         X(MF_EVENT_SOURCE_CHARACTERISTICS),
         X(MF_EVENT_SOURCE_CHARACTERISTICS_OLD),
@@ -1729,6 +1733,7 @@ const char *debugstr_attr(const GUID *guid)
         X(MF_EVENT_STREAM_METADATA_KEYDATA),
         X(MF_READER_WRITER_D3D_MANAGER),
         X(MFSampleExtension_3DVideo),
+        X(MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT_PROGRESSIVE),
         X(MF_MT_H264_USAGE),
         X(MF_MEDIA_ENGINE_EME_CALLBACK),
         X(MF_EVENT_SOURCE_FAKE_START),
@@ -1756,6 +1761,7 @@ const char *debugstr_attr(const GUID *guid)
         X(MF_MT_VIDEO_RENDERER_EXTENSION_PROFILE),
         X(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_HW_SOURCE),
         X(MF_MT_AUDIO_PREFER_WAVEFORMATEX),
+        X(MF_XVP_CALLER_ALLOCATES_OUTPUT),
         X(MF_MT_H264_SVC_CAPABILITIES),
         X(MF_TOPONODE_WORKQUEUE_ITEM_PRIORITY),
         X(MF_MT_SPATIAL_AUDIO_OBJECT_METADATA_LENGTH),
@@ -1786,6 +1792,7 @@ const char *debugstr_attr(const GUID *guid)
         X(MF_EVENT_START_PRESENTATION_TIME_AT_OUTPUT),
         X(MFSampleExtension_DecodeTimestamp),
         X(MF_MEDIA_ENGINE_COMPATIBILITY_MODE),
+        X(MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT),
         X(MF_MT_VIDEO_H264_NO_FMOASO),
         X(MF_MT_AVG_BIT_ERROR_RATE),
         X(MF_MT_VIDEO_PRIMARIES),
@@ -8898,8 +8905,6 @@ HRESULT WINAPI MFCreateDXGIDeviceManager(UINT *token, IMFDXGIDeviceManager **man
     struct dxgi_device_manager *object;
 
     TRACE("%p, %p.\n", token, manager);
-
-    return E_NOTIMPL;
 
     if (!token || !manager)
         return E_POINTER;

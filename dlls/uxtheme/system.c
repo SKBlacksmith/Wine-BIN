@@ -55,6 +55,8 @@ static WCHAR szCurrentTheme[MAX_PATH];
 static WCHAR szCurrentColor[64];
 static WCHAR szCurrentSize[64];
 
+struct user_api_hook user_api = {0};
+
 /***********************************************************************/
 
 static BOOL CALLBACK UXTHEME_broadcast_msg_enumchild (HWND hWnd, LPARAM msg)
@@ -507,6 +509,18 @@ void UXTHEME_InitSystem(HINSTANCE hInst)
     atDialogThemeEnabled = GlobalAddAtomW(L"ux_dialogtheme");
 
     UXTHEME_LoadTheme();
+    ThemeHooksInstall();
+}
+
+void UXTHEME_UninitSystem(void)
+{
+    ThemeHooksRemove();
+    MSSTYLES_SetActiveTheme(NULL, FALSE);
+
+    GlobalDeleteAtom(atWindowTheme);
+    GlobalDeleteAtom(atSubAppName);
+    GlobalDeleteAtom(atSubIdList);
+    GlobalDeleteAtom(atDialogThemeEnabled);
 }
 
 /***********************************************************************
@@ -634,10 +648,16 @@ HTHEME WINAPI OpenThemeDataEx(HWND hwnd, LPCWSTR pszClassList, DWORD flags)
 
         if (pszUseClassList)
             hTheme = MSSTYLES_OpenThemeClass(pszAppName, pszUseClassList);
+
+        /* Fall back to default class if the specified subclass is not found */
+        if (!hTheme)
+            hTheme = MSSTYLES_OpenThemeClass(NULL, pszUseClassList);
     }
     if(IsWindow(hwnd))
         SetPropW(hwnd, (LPCWSTR)MAKEINTATOM(atWindowTheme), hTheme);
     TRACE(" = %p\n", hTheme);
+
+    SetLastError(hTheme ? ERROR_SUCCESS : E_PROP_ID_UNSUPPORTED);
     return hTheme;
 }
 
@@ -663,6 +683,13 @@ HTHEME WINAPI OpenThemeData(HWND hwnd, LPCWSTR classlist)
 HTHEME WINAPI GetWindowTheme(HWND hwnd)
 {
     TRACE("(%p)\n", hwnd);
+
+    if (!hwnd)
+    {
+        SetLastError(E_HANDLE);
+        return NULL;
+    }
+
     return GetPropW(hwnd, (LPCWSTR)MAKEINTATOM(atWindowTheme));
 }
 
@@ -677,11 +704,15 @@ HRESULT WINAPI SetWindowTheme(HWND hwnd, LPCWSTR pszSubAppName,
     HRESULT hr;
     TRACE("(%p,%s,%s)\n", hwnd, debugstr_w(pszSubAppName),
           debugstr_w(pszSubIdList));
+
+    if (!hwnd)
+        return E_HANDLE;
+
     hr = UXTHEME_SetWindowProperty(hwnd, atSubAppName, pszSubAppName);
     if(SUCCEEDED(hr))
         hr = UXTHEME_SetWindowProperty(hwnd, atSubIdList, pszSubIdList);
     if(SUCCEEDED(hr))
-	UXTHEME_broadcast_msg (hwnd, WM_THEMECHANGED);
+        SendMessageW(hwnd, WM_THEMECHANGED, 0, 0);
     return hr;
 }
 
@@ -1192,4 +1223,20 @@ HRESULT WINAPI CheckThemeSignature(LPCWSTR pszThemeFileName)
         return hr;
     MSSTYLES_CloseThemeFile(pt);
     return S_OK;
+}
+
+BOOL WINAPI ThemeHooksInstall(void)
+{
+    struct user_api_hook hooks;
+
+    hooks.pDefDlgProc = UXTHEME_DefDlgProc;
+    hooks.pScrollBarDraw = UXTHEME_ScrollBarDraw;
+    hooks.pScrollBarWndProc = UXTHEME_ScrollbarWndProc;
+    return RegisterUserApiHook(&hooks, &user_api);
+}
+
+BOOL WINAPI ThemeHooksRemove(void)
+{
+    UnregisterUserApiHook();
+    return TRUE;
 }

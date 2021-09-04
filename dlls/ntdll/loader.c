@@ -44,12 +44,25 @@ WINE_DECLARE_DEBUG_CHANNEL(relay);
 WINE_DECLARE_DEBUG_CHANNEL(snoop);
 WINE_DECLARE_DEBUG_CHANNEL(loaddll);
 WINE_DECLARE_DEBUG_CHANNEL(imports);
+WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
 #ifdef _WIN64
 #define DEFAULT_SECURITY_COOKIE_64  (((ULONGLONG)0x00002b99 << 32) | 0x2ddfa232)
 #endif
 #define DEFAULT_SECURITY_COOKIE_32  0xbb40e64e
 #define DEFAULT_SECURITY_COOKIE_16  (DEFAULT_SECURITY_COOKIE_32 >> 16)
+
+#ifdef __i386__
+static const WCHAR pe_dir[] = L"\\i386-windows";
+#elif defined __x86_64__
+static const WCHAR pe_dir[] = L"\\x86_64-windows";
+#elif defined __arm__
+static const WCHAR pe_dir[] = L"\\arm-windows";
+#elif defined __aarch64__
+static const WCHAR pe_dir[] = L"\\aarch64-windows";
+#else
+static const WCHAR pe_dir[] = L"";
+#endif
 
 /* we don't want to include winuser.h */
 #define RT_MANIFEST                         ((ULONG_PTR)24)
@@ -60,20 +73,23 @@ typedef void  (CALLBACK *LDRENUMPROC)(LDR_DATA_TABLE_ENTRY *, void *, BOOLEAN *)
 
 void (FASTCALL *pBaseThreadInitThunk)(DWORD,LPTHREAD_START_ROUTINE,void *) = NULL;
 
+static DWORD (WINAPI *pCtrlRoutine)(void *);
+
+SYSTEM_DLL_INIT_BLOCK LdrSystemDllInitBlock = { 0xf0 };
+
 const struct unix_funcs *unix_funcs = NULL;
 
 /* windows directory */
 const WCHAR windows_dir[] = L"C:\\windows";
 /* system directory with trailing backslash */
 const WCHAR system_dir[] = L"C:\\windows\\system32\\";
-const WCHAR syswow64_dir[] = L"C:\\windows\\syswow64\\";
 
-static const BOOL is_win64 = (sizeof(void *) > sizeof(int));
-BOOL is_wow64 = FALSE;
+HMODULE kernel32_handle = 0;
 
 /* system search path */
 static const WCHAR system_path[] = L"C:\\windows\\system32;C:\\windows\\system;C:\\windows;C:\\Program Files (x86)\\Steam";
 
+static BOOL is_prefix_bootstrap;  /* are we bootstrapping the prefix? */
 static BOOL imports_fixup_done = FALSE;  /* set once the imports have been fixed up, before attaching them */
 static BOOL process_detaching = FALSE;  /* set on process detach to avoid deadlocks with thread detach */
 static int free_lib_count;   /* recursion depth of LdrUnloadDll calls */
@@ -81,6 +97,7 @@ static ULONG path_safe_mode;  /* path mode set by RtlSetSearchPathMode */
 static ULONG dll_safe_mode = 1;  /* dll search mode */
 static UNICODE_STRING dll_directory;  /* extra path for LdrSetDllDirectory */
 static DWORD default_search_flags;  /* default flags set by LdrSetDefaultDllDirectories */
+static WCHAR *default_load_path;    /* default dll search path */
 
 struct dll_dir_entry
 {
@@ -105,8 +122,6 @@ static const char * const reason_names[] =
     "PROCESS_ATTACH",
     "THREAD_ATTACH",
     "THREAD_DETACH",
-    NULL, NULL, NULL, NULL,
-    "WINE_PREATTACH"
 };
 
 struct file_id
@@ -119,7 +134,6 @@ typedef struct _wine_modref
 {
     LDR_DATA_TABLE_ENTRY  ldr;
     struct file_id        id;
-    void                 *unix_entry;
     int                   alloc_deps;
     int                   nDeps;
     struct _wine_modref **deps;
@@ -156,7 +170,14 @@ static RTL_CRITICAL_SECTION_DEBUG peb_critsect_debug =
 };
 static RTL_CRITICAL_SECTION peb_lock = { &peb_critsect_debug, -1, 0, 0, 0, 0 };
 
-static PEB_LDR_DATA ldr = { sizeof(ldr), TRUE };
+static PEB_LDR_DATA ldr =
+{
+    sizeof(ldr), TRUE, NULL,
+    { &ldr.InLoadOrderModuleList, &ldr.InLoadOrderModuleList },
+    { &ldr.InMemoryOrderModuleList, &ldr.InMemoryOrderModuleList },
+    { &ldr.InInitializationOrderModuleList, &ldr.InInitializationOrderModuleList }
+};
+
 static RTL_BITMAP tls_bitmap;
 static RTL_BITMAP tls_expansion_bitmap;
 
@@ -182,35 +203,6 @@ static inline void *get_rva( HMODULE module, DWORD va )
 static inline BOOL contains_path( LPCWSTR name )
 {
     return ((*name && (name[1] == ':')) || wcschr(name, '/') || wcschr(name, '\\'));
-}
-
-static char *crash_log;
-static size_t crash_log_len;
-
-static void append_to_crash_log(const char *fmt, ...)
-{
-    char buf[1024];
-    size_t len;
-    va_list ap;
-
-    va_start(ap, fmt);
-
-    vsnprintf(buf, sizeof(buf), fmt, ap);
-
-    va_end(ap);
-
-    len = (crash_log ? strlen(crash_log) : 0) + strlen(buf) + 1;
-
-    if(len > crash_log_len){
-        if(crash_log){
-            crash_log = RtlReAllocateHeap( GetProcessHeap(), HEAP_ZERO_MEMORY, crash_log, len );
-        }else{
-            crash_log = RtlAllocateHeap( GetProcessHeap(), HEAP_ZERO_MEMORY, len );
-        }
-        crash_log_len = len;
-    }
-
-    strcat(crash_log, buf);
 }
 
 #define RTL_UNLOAD_EVENT_TRACE_NUMBER 64
@@ -674,9 +666,11 @@ static FARPROC find_forwarded_export( HMODULE module, const char *forward, LPCWS
                                                  IMAGE_DIRECTORY_ENTRY_EXPORT, &exp_size )))
     {
         const char *name = end + 1;
-        if (*name == '#')  /* ordinal */
-            proc = find_ordinal_export( wm->ldr.DllBase, exports, exp_size, atoi(name+1), load_path );
-        else
+
+        if (*name == '#') { /* ordinal */
+            proc = find_ordinal_export( wm->ldr.DllBase, exports, exp_size,
+                                        atoi(name+1) - exports->Base, load_path );
+        } else
             proc = find_named_export( wm->ldr.DllBase, exports, exp_size, name, -1, load_path );
     }
 
@@ -734,6 +728,29 @@ static FARPROC find_ordinal_export( HMODULE module, const IMAGE_EXPORT_DIRECTORY
 
 
 /*************************************************************************
+ *		find_name_in_exports
+ *
+ * Helper for find_named_export.
+ */
+static int find_name_in_exports( HMODULE module, const IMAGE_EXPORT_DIRECTORY *exports, const char *name )
+{
+    const WORD *ordinals = get_rva( module, exports->AddressOfNameOrdinals );
+    const DWORD *names = get_rva( module, exports->AddressOfNames );
+    int min = 0, max = exports->NumberOfNames - 1;
+
+    while (min <= max)
+    {
+        int res, pos = (min + max) / 2;
+        char *ename = get_rva( module, names[pos] );
+        if (!(res = strcmp( ename, name ))) return ordinals[pos];
+        if (res > 0) max = pos - 1;
+        else min = pos + 1;
+    }
+    return -1;
+}
+
+
+/*************************************************************************
  *		find_named_export
  *
  * Find an exported function by name.
@@ -744,10 +761,10 @@ static FARPROC find_named_export( HMODULE module, const IMAGE_EXPORT_DIRECTORY *
 {
     const WORD *ordinals = get_rva( module, exports->AddressOfNameOrdinals );
     const DWORD *names = get_rva( module, exports->AddressOfNames );
-    int min = 0, max = exports->NumberOfNames - 1;
+    int ordinal;
 
     /* first check the hint */
-    if (hint >= 0 && hint <= max)
+    if (hint >= 0 && hint < exports->NumberOfNames)
     {
         char *ename = get_rva( module, names[hint] );
         if (!strcmp( ename, name ))
@@ -755,17 +772,30 @@ static FARPROC find_named_export( HMODULE module, const IMAGE_EXPORT_DIRECTORY *
     }
 
     /* then do a binary search */
-    while (min <= max)
-    {
-        int res, pos = (min + max) / 2;
-        char *ename = get_rva( module, names[pos] );
-        if (!(res = strcmp( ename, name )))
-            return find_ordinal_export( module, exports, exp_size, ordinals[pos], load_path );
-        if (res > 0) max = pos - 1;
-        else min = pos + 1;
-    }
-    return NULL;
+    if ((ordinal = find_name_in_exports( module, exports, name )) == -1) return NULL;
+    return find_ordinal_export( module, exports, exp_size, ordinal, load_path );
 
+}
+
+
+/*************************************************************************
+ *		RtlFindExportedRoutineByName
+ */
+void * WINAPI RtlFindExportedRoutineByName( HMODULE module, const char *name )
+{
+    const IMAGE_EXPORT_DIRECTORY *exports;
+    const DWORD *functions;
+    DWORD exp_size;
+    int ordinal;
+
+    exports = RtlImageDirectoryEntryToData( module, TRUE, IMAGE_DIRECTORY_ENTRY_EXPORT, &exp_size );
+    if (!exports || exp_size < sizeof(*exports)) return NULL;
+
+    if ((ordinal = find_name_in_exports( module, exports, name )) == -1) return NULL;
+    if (ordinal >= exports->NumberOfFunctions) return NULL;
+    functions = get_rva( module, exports->AddressOfFunctions );
+    if (!functions[ordinal]) return NULL;
+    return get_rva( module, functions[ordinal] );
 }
 
 
@@ -825,19 +855,11 @@ static BOOL import_dll( HMODULE module, const IMAGE_IMPORT_DESCRIPTOR *descr, LP
     if (status)
     {
         if (status == STATUS_DLL_NOT_FOUND)
-        {
             ERR("Library %s (which is needed by %s) not found\n",
                 name, debugstr_w(current_modref->ldr.FullDllName.Buffer));
-            append_to_crash_log("Library %s (which is needed by %s) not found\n",
-                name, debugstr_w(current_modref->ldr.FullDllName.Buffer));
-        }
         else
-        {
             ERR("Loading library %s (which is needed by %s) failed (error %x).\n",
                 name, debugstr_w(current_modref->ldr.FullDllName.Buffer), status);
-            append_to_crash_log("Loading library %s (which is needed by %s) failed (error %x).\n",
-                name, debugstr_w(current_modref->ldr.FullDllName.Buffer), status);
-        }
         return FALSE;
     }
 
@@ -1094,10 +1116,9 @@ static void free_tls_slot( LDR_DATA_TABLE_ENTRY *mod )
  */
 static NTSTATUS fixup_imports_ilonly( WINE_MODREF *wm, LPCWSTR load_path, void **entry )
 {
-    IMAGE_EXPORT_DIRECTORY *exports;
-    DWORD exp_size;
     NTSTATUS status;
-    void *proc = NULL;
+    void *proc;
+    const char *name;
     WINE_MODREF *prev, *imp;
 
     if (!(wm->ldr.Flags & LDR_DONT_RESOLVE_REFS)) return STATUS_SUCCESS;  /* already done */
@@ -1119,13 +1140,8 @@ static NTSTATUS fixup_imports_ilonly( WINE_MODREF *wm, LPCWSTR load_path, void *
 
     TRACE( "loaded mscoree for %s\n", debugstr_w(wm->ldr.FullDllName.Buffer) );
 
-    if ((exports = RtlImageDirectoryEntryToData( imp->ldr.DllBase, TRUE,
-                                                 IMAGE_DIRECTORY_ENTRY_EXPORT, &exp_size )))
-    {
-        const char *name = (wm->ldr.Flags & LDR_IMAGE_IS_DLL) ? "_CorDllMain" : "_CorExeMain";
-        proc = find_named_export( imp->ldr.DllBase, exports, exp_size, name, -1, load_path );
-    }
-    if (!proc) return STATUS_PROCEDURE_NOT_FOUND;
+    name = (wm->ldr.Flags & LDR_IMAGE_IS_DLL) ? "_CorDllMain" : "_CorExeMain";
+    if (!(proc = RtlFindExportedRoutineByName( imp->ldr.DllBase, name ))) return STATUS_PROCEDURE_NOT_FOUND;
     *entry = proc;
     return STATUS_SUCCESS;
 }
@@ -1207,6 +1223,8 @@ static WINE_MODREF *alloc_module( HMODULE hModule, const UNICODE_STRING *nt_name
     wm->ldr.Flags         = LDR_DONT_RESOLVE_REFS | (builtin ? LDR_WINE_INTERNAL : 0);
     wm->ldr.TlsIndex      = -1;
     wm->ldr.LoadCount     = 1;
+    wm->ldr.CheckSum      = nt->OptionalHeader.CheckSum;
+    wm->ldr.TimeDateStamp = nt->FileHeader.TimeDateStamp;
 
     if (!(buffer = RtlAllocateHeap( GetProcessHeap(), 0, nt_name->Length - 3 * sizeof(WCHAR) )))
     {
@@ -1298,8 +1316,6 @@ static void call_tls_callbacks( HMODULE module, UINT reason )
     const PIMAGE_TLS_CALLBACK *callback;
     ULONG dirsize;
 
-    if (reason == DLL_WINE_PREATTACH) return;
-
     dir = RtlImageDirectoryEntryToData( module, TRUE, IMAGE_DIRECTORY_ENTRY_TLS, &dirsize );
     if (!dir || !dir->AddressOfCallBacks) return;
 
@@ -1323,6 +1339,31 @@ static void call_tls_callbacks( HMODULE module, UINT reason )
     }
 }
 
+
+/*************************************************************************
+ *              init_builtin_dll
+ */
+static void init_builtin_dll( HMODULE module )
+{
+    void *buffer[16];
+    void (**funcs)(int, char **, char **) = (void *)buffer;
+    SIZE_T i, size;
+    NTSTATUS status;
+
+    status = NtQueryVirtualMemory( GetCurrentProcess(), module, MemoryWineImageInitFuncs,
+                                   buffer, sizeof(buffer), &size );
+    if (status == STATUS_BUFFER_TOO_SMALL)
+    {
+        if (!(funcs = RtlAllocateHeap( GetProcessHeap(), 0, size ))) return;
+        status = NtQueryVirtualMemory( GetCurrentProcess(), module, MemoryWineImageInitFuncs,
+                                       funcs, size, &size );
+    }
+    if (!status) for (i = 0; i < size / sizeof(*funcs); i++) funcs[i]( 0, NULL, NULL );
+
+    if ((void *)funcs != (void *)buffer) RtlFreeHeap( GetProcessHeap(), 0, funcs );
+}
+
+
 /*************************************************************************
  *              MODULE_InitDLL
  */
@@ -1339,7 +1380,7 @@ static NTSTATUS MODULE_InitDLL( WINE_MODREF *wm, UINT reason, LPVOID lpReserved 
     if (wm->ldr.Flags & LDR_DONT_RESOLVE_REFS) return STATUS_SUCCESS;
     if (wm->ldr.TlsIndex != -1) call_tls_callbacks( wm->ldr.DllBase, reason );
     if (wm->ldr.Flags & LDR_WINE_INTERNAL && reason == DLL_PROCESS_ATTACH)
-        unix_funcs->init_builtin_dll( wm->ldr.DllBase );
+        init_builtin_dll( wm->ldr.DllBase );
     if (!entry) return STATUS_SUCCESS;
 
     if (TRACE_ON(relay))
@@ -1726,9 +1767,8 @@ NTSTATUS WINAPI LdrGetProcedureAddress(HMODULE module, const ANSI_STRING *name,
     else if ((exports = RtlImageDirectoryEntryToData( module, TRUE,
                                                       IMAGE_DIRECTORY_ENTRY_EXPORT, &exp_size )))
     {
-        LPCWSTR load_path = NtCurrentTeb()->Peb->ProcessParameters->DllPath.Buffer;
-        void *proc = name ? find_named_export( module, exports, exp_size, name->Buffer, -1, load_path )
-                          : find_ordinal_export( module, exports, exp_size, ord - exports->Base, load_path );
+        void *proc = name ? find_named_export( module, exports, exp_size, name->Buffer, -1, NULL )
+                          : find_ordinal_export( module, exports, exp_size, ord - exports->Base, NULL );
         if (proc)
         {
             *address = proc;
@@ -1874,48 +1914,31 @@ static NTSTATUS build_module( LPCWSTR load_path, const UNICODE_STRING *nt_name, 
                               const SECTION_IMAGE_INFORMATION *image_info, const struct file_id *id,
                               DWORD flags, WINE_MODREF **pwm )
 {
-    static HMODULE lsteamclient = NULL;
-    UNICODE_STRING lsteamclient_us;
+    static const char builtin_signature[] = "Wine builtin DLL";
+    char *signature = (char *)((IMAGE_DOS_HEADER *)*module + 1);
+    BOOL is_builtin;
     IMAGE_NT_HEADERS *nt;
     WINE_MODREF *wm;
     NTSTATUS status;
     SIZE_T map_size;
-    WCHAR *basename, *tmp;
-    ULONG basename_len;
 
     if (!(nt = RtlImageNtHeader( *module ))) return STATUS_INVALID_IMAGE_FORMAT;
 
     map_size = (nt->OptionalHeader.SizeOfImage + page_size - 1) & ~(page_size - 1);
     if ((status = perform_relocations( *module, nt, map_size ))) return status;
 
+    is_builtin = ((char *)nt - signature >= sizeof(builtin_signature) &&
+                  !memcmp( signature, builtin_signature, sizeof(builtin_signature) ));
+
     /* create the MODREF */
 
-    if (!(wm = alloc_module( *module, nt_name, (image_info->u.s.WineBuiltin) )))
-        return STATUS_NO_MEMORY;
+    if (!(wm = alloc_module( *module, nt_name, is_builtin ))) return STATUS_NO_MEMORY;
 
     if (id) wm->id = *id;
     if (image_info->LoaderFlags) wm->ldr.Flags |= LDR_COR_IMAGE;
     if (image_info->u.s.ComPlusILOnly) wm->ldr.Flags |= LDR_COR_ILONLY;
 
     set_security_cookie( *module, map_size );
-
-    basename = nt_name->Buffer;
-    if ((tmp = wcsrchr(basename, '\\'))) basename = tmp + 1;
-    if ((tmp = wcsrchr(basename, '/'))) basename = tmp + 1;
-    basename_len = wcslen(basename);
-    if (basename_len >= 4 && !wcscmp(basename + basename_len - 4, L".dll")) basename_len -= 4;
-
-    if ((!RtlCompareUnicodeStrings(basename, basename_len, L"steamclient", 11, TRUE) ||
-         !RtlCompareUnicodeStrings(basename, basename_len, L"steamclient64", 13, TRUE) ||
-         !RtlCompareUnicodeStrings(basename, basename_len, L"gameoverlayrenderer", 19, TRUE) ||
-         !RtlCompareUnicodeStrings(basename, basename_len, L"gameoverlayrenderer64", 21, TRUE)) &&
-        RtlCreateUnicodeStringFromAsciiz(&lsteamclient_us, "lsteamclient.dll") &&
-        (lsteamclient || LdrLoadDll(load_path, 0, &lsteamclient_us, &lsteamclient) == STATUS_SUCCESS))
-    {
-        unix_funcs->steamclient_setup_trampolines( *module, lsteamclient );
-        wm->ldr.Flags |= LDR_DONT_RESOLVE_REFS;
-        flags |= DONT_RESOLVE_DLL_REFERENCES;
-    }
 
     /* fixup imports */
 
@@ -1947,7 +1970,7 @@ static NTSTATUS build_module( LPCWSTR load_path, const UNICODE_STRING *nt_name, 
 
     TRACE( "loaded %s %p %p\n", debugstr_us(nt_name), wm, *module );
 
-    if (image_info->u.s.WineBuiltin)
+    if (is_builtin)
     {
         if (TRACE_ON(relay)) RELAY_SetupDLL( *module );
     }
@@ -1957,7 +1980,7 @@ static NTSTATUS build_module( LPCWSTR load_path, const UNICODE_STRING *nt_name, 
     }
 
     TRACE_(loaddll)( "Loaded %s at %p: %s\n", debugstr_w(wm->ldr.FullDllName.Buffer), *module,
-                     (image_info->u.s.WineBuiltin) ? "builtin" : "native" );
+                     is_builtin ? "builtin" : "native" );
 
     wm->ldr.LoadCount = 1;
     *pwm = wm;
@@ -2326,10 +2349,38 @@ static NTSTATUS open_dll_file( UNICODE_STRING *nt_name, WINE_MODREF **pwm, HANDL
             TRACE( "%s is for arch %x, continuing search\n", debugstr_us(nt_name), image_info->Machine );
             status = STATUS_IMAGE_MACHINE_TYPE_MISMATCH;
             NtClose( *mapping );
+            *mapping = NULL;
         }
     }
     NtClose( handle );
     return status;
+}
+
+
+/******************************************************************************
+ *	find_existing_module
+ *
+ * Find an existing module that is the same mapping as the new module.
+ */
+static WINE_MODREF *find_existing_module( HMODULE module )
+{
+    WINE_MODREF *wm;
+    LIST_ENTRY *mark, *entry;
+    LDR_DATA_TABLE_ENTRY *mod;
+    IMAGE_NT_HEADERS *nt = RtlImageNtHeader( module );
+
+    if ((wm = get_modref( module ))) return wm;
+
+    mark = &NtCurrentTeb()->Peb->LdrData->InMemoryOrderModuleList;
+    for (entry = mark->Flink; entry != mark; entry = entry->Flink)
+    {
+        mod = CONTAINING_RECORD( entry, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks );
+        if (mod->TimeDateStamp != nt->FileHeader.TimeDateStamp) continue;
+        if (mod->CheckSum != nt->OptionalHeader.CheckSum) continue;
+        if (NtAreMappedFilesTheSame( mod->DllBase, module ) != STATUS_SUCCESS) continue;
+        return CONTAINING_RECORD( mod, WINE_MODREF, ldr );
+    }
+    return NULL;
 }
 
 
@@ -2346,8 +2397,19 @@ static NTSTATUS load_native_dll( LPCWSTR load_path, const UNICODE_STRING *nt_nam
                                           ViewShare, 0, PAGE_EXECUTE_READ );
 
     if (status == STATUS_IMAGE_NOT_AT_BASE) status = STATUS_SUCCESS;
+    if (status) return status;
+
+    if ((*pwm = find_existing_module( module )))  /* already loaded */
+    {
+        if ((*pwm)->ldr.LoadCount != -1) (*pwm)->ldr.LoadCount++;
+        TRACE( "found %s for %s at %p, count=%d\n",
+               debugstr_us(&(*pwm)->ldr.FullDllName), debugstr_us(nt_name),
+               (*pwm)->ldr.DllBase, (*pwm)->ldr.LoadCount);
+        if (module != (*pwm)->ldr.DllBase) NtUnmapViewOfSection( NtCurrentProcess(), module );
+        return STATUS_SUCCESS;
+    }
 #ifdef _WIN64
-    if (!status && !convert_to_pe64( module, image_info )) status = STATUS_INVALID_IMAGE_FORMAT;
+    if (!convert_to_pe64( module, image_info )) status = STATUS_INVALID_IMAGE_FORMAT;
 #endif
     if (!status) status = build_module( load_path, nt_name, &module, image_info, id, flags, pwm );
     if (status && module) NtUnmapViewOfSection( NtCurrentProcess(), module );
@@ -2367,10 +2429,11 @@ static NTSTATUS load_so_dll( LPCWSTR load_path, const UNICODE_STRING *nt_name,
     UNICODE_STRING win_name = *nt_name;
 
     TRACE( "trying %s as so lib\n", debugstr_us(&win_name) );
-    if (unix_funcs->load_so_dll( &win_name, &module ))
+    if ((status = unix_funcs->load_so_dll( &win_name, &module )))
     {
         WARN( "failed to load .so lib %s\n", debugstr_us(nt_name) );
-        return STATUS_INVALID_IMAGE_FORMAT;
+        if (status == STATUS_INVALID_IMAGE_FORMAT) status = STATUS_INVALID_IMAGE_NOT_MZ;
+        return status;
     }
 
     if ((wm = get_modref( module )))  /* already loaded */
@@ -2383,10 +2446,9 @@ static NTSTATUS load_so_dll( LPCWSTR load_path, const UNICODE_STRING *nt_name,
     {
         SECTION_IMAGE_INFORMATION image_info = { 0 };
 
-        image_info.u.s.WineBuiltin = 1;
-        if ((status = build_module( load_path, &win_name, &module, &image_info, NULL, flags, pwm )))
+        if ((status = build_module( load_path, &win_name, &module, &image_info, NULL, flags, &wm )))
         {
-            if (module) unix_funcs->unload_builtin_dll( module );
+            if (module) NtUnmapViewOfSection( NtCurrentProcess(), module );
             return status;
         }
         TRACE_(loaddll)( "Loaded %s at %p: builtin\n", debugstr_us(nt_name), module );
@@ -2396,34 +2458,85 @@ static NTSTATUS load_so_dll( LPCWSTR load_path, const UNICODE_STRING *nt_name,
 }
 
 
-/***********************************************************************
- *           load_builtin_dll
+/*************************************************************************
+ *		build_main_module
+ *
+ * Build the module data for the main image.
  */
-static NTSTATUS load_builtin_dll( LPCWSTR load_path, UNICODE_STRING *nt_name,
-                                  DWORD flags, WINE_MODREF** pwm, BOOL prefer_native )
+static WINE_MODREF *build_main_module(void)
 {
+    SECTION_IMAGE_INFORMATION info;
+    UNICODE_STRING nt_name;
+    WINE_MODREF *wm;
     NTSTATUS status;
-    void *module, *unix_entry = NULL;
-    SECTION_IMAGE_INFORMATION image_info;
+    RTL_USER_PROCESS_PARAMETERS *params = NtCurrentTeb()->Peb->ProcessParameters;
+    void *module = NtCurrentTeb()->Peb->ImageBaseAddress;
 
-    TRACE("Trying built-in %s\n", debugstr_us(nt_name));
+    default_load_path = params->DllPath.Buffer;
+    if (!default_load_path)
+        get_dll_load_path( params->ImagePathName.Buffer, NULL, dll_safe_mode, &default_load_path );
 
-    status = unix_funcs->load_builtin_dll( nt_name, &module, &unix_entry, &image_info, prefer_native );
-    if (status) return status;
-
-    if ((*pwm = get_modref( module )))  /* already loaded */
+    NtQueryInformationProcess( GetCurrentProcess(), ProcessImageInformation, &info, sizeof(info), NULL );
+    if (info.ImageCharacteristics & IMAGE_FILE_DLL)
     {
-        if ((*pwm)->ldr.LoadCount != -1) (*pwm)->ldr.LoadCount++;
-        TRACE( "Found %s for %s at %p, count=%d\n",
-               debugstr_us(&(*pwm)->ldr.FullDllName), debugstr_us(nt_name),
-               (*pwm)->ldr.DllBase, (*pwm)->ldr.LoadCount);
-        return STATUS_SUCCESS;
+        MESSAGE( "wine: %s is a dll, not an executable\n", debugstr_us(&params->ImagePathName) );
+        NtTerminateProcess( GetCurrentProcess(), STATUS_INVALID_IMAGE_FORMAT );
     }
+#ifdef _WIN64
+    if (!convert_to_pe64( module, &info ))
+    {
+        status = STATUS_INVALID_IMAGE_FORMAT;
+        goto failed;
+    }
+#endif
+    status = RtlDosPathNameToNtPathName_U_WithStatus( params->ImagePathName.Buffer, &nt_name, NULL, NULL );
+    if (status) goto failed;
+    status = build_module( NULL, &nt_name, &module, &info, NULL, DONT_RESOLVE_DLL_REFERENCES, &wm );
+    RtlFreeUnicodeString( &nt_name );
+    if (!status) return wm;
+failed:
+    MESSAGE( "wine: failed to create main module for %s, status %x\n",
+             debugstr_us(&params->ImagePathName), status );
+    NtTerminateProcess( GetCurrentProcess(), status );
+    return NULL;  /* unreached */
+}
 
-    TRACE( "loading %s\n", debugstr_us(nt_name) );
-    status = build_module( load_path, nt_name, &module, &image_info, NULL, flags, pwm );
-    if (!status) (*pwm)->unix_entry = unix_entry;
-    else if (module) unix_funcs->unload_builtin_dll( module );
+
+/***********************************************************************
+ *	build_dlldata_path
+ *
+ * Helper for find_actctx_dll.
+ */
+static NTSTATUS build_dlldata_path( LPCWSTR libname, ACTCTX_SECTION_KEYED_DATA *data, LPWSTR *fullname )
+{
+    struct dllredirect_data *dlldata = data->lpData;
+    char *base = data->lpSectionBase;
+    SIZE_T total = dlldata->total_len + (wcslen(libname) + 1) * sizeof(WCHAR);
+    WCHAR *p, *buffer;
+    NTSTATUS status = STATUS_SUCCESS;
+    ULONG i;
+
+    if (!(p = buffer = RtlAllocateHeap( GetProcessHeap(), 0, total ))) return STATUS_NO_MEMORY;
+    for (i = 0; i < dlldata->paths_count; i++)
+    {
+        memcpy( p, base + dlldata->paths[i].offset, dlldata->paths[i].len );
+        p += dlldata->paths[i].len / sizeof(WCHAR);
+    }
+    if (p == buffer || p[-1] == '\\') wcscpy( p, libname );
+    else *p = 0;
+
+    if (dlldata->flags & DLL_REDIRECT_PATH_EXPAND)
+    {
+        RtlExpandEnvironmentStrings( NULL, buffer, wcslen(buffer), NULL, 0, &total );
+        if ((*fullname = RtlAllocateHeap( GetProcessHeap(), 0, total * sizeof(WCHAR) )))
+            RtlExpandEnvironmentStrings( NULL, buffer, wcslen(buffer), *fullname, total, NULL );
+        else
+            status = STATUS_NO_MEMORY;
+
+        RtlFreeHeap( GetProcessHeap(), 0, buffer );
+    }
+    else *fullname = buffer;
+
     return status;
 }
 
@@ -2437,8 +2550,9 @@ static NTSTATUS find_actctx_dll( LPCWSTR libname, LPWSTR *fullname )
 {
     static const WCHAR winsxsW[] = {'\\','w','i','n','s','x','s','\\'};
 
-    ACTIVATION_CONTEXT_ASSEMBLY_DETAILED_INFORMATION *info;
+    ACTIVATION_CONTEXT_ASSEMBLY_DETAILED_INFORMATION *info = NULL;
     ACTCTX_SECTION_KEYED_DATA data;
+    struct dllredirect_data *dlldata;
     UNICODE_STRING nameW;
     NTSTATUS status;
     SIZE_T needed, size = 1024;
@@ -2450,6 +2564,18 @@ static NTSTATUS find_actctx_dll( LPCWSTR libname, LPWSTR *fullname )
                                                     ACTIVATION_CONTEXT_SECTION_DLL_REDIRECTION,
                                                     &nameW, &data );
     if (status != STATUS_SUCCESS) return status;
+
+    if (data.ulLength < offsetof( struct dllredirect_data, paths[0] ))
+    {
+        status = STATUS_SXS_KEY_NOT_FOUND;
+        goto done;
+    }
+    dlldata = data.lpData;
+    if (!(dlldata->flags & DLL_REDIRECT_PATH_OMITS_ASSEMBLY_ROOT))
+    {
+        status = build_dlldata_path( libname, &data, fullname );
+        goto done;
+    }
 
     for (;;)
     {
@@ -2529,6 +2655,114 @@ done:
 
 
 /***********************************************************************
+ *	get_env_var
+ */
+static NTSTATUS get_env_var( const WCHAR *name, SIZE_T extra, UNICODE_STRING *ret )
+{
+    NTSTATUS status;
+    SIZE_T len, size = 1024 + extra;
+
+    for (;;)
+    {
+        ret->Buffer = RtlAllocateHeap( GetProcessHeap(), 0, size * sizeof(WCHAR) );
+        status = RtlQueryEnvironmentVariable( NULL, name, wcslen(name),
+                                              ret->Buffer, size - extra - 1, &len );
+        if (!status)
+        {
+            ret->Buffer[len] = 0;
+            ret->Length = len * sizeof(WCHAR);
+            ret->MaximumLength = size * sizeof(WCHAR);
+            return status;
+        }
+        RtlFreeHeap( GetProcessHeap(), 0, ret->Buffer );
+        if (status != STATUS_BUFFER_TOO_SMALL)
+        {
+            ret->Buffer = NULL;
+            return status;
+        }
+        size = len + 1 + extra;
+    }
+}
+
+
+/***********************************************************************
+ *	find_builtin_without_file
+ *
+ * Find a builtin dll when the corresponding file cannot be found in the prefix.
+ * This is used during prefix bootstrap.
+ */
+static NTSTATUS find_builtin_without_file( const WCHAR *name, UNICODE_STRING *new_name,
+                                           WINE_MODREF **pwm, HANDLE *mapping,
+                                           SECTION_IMAGE_INFORMATION *image_info, struct file_id *id )
+{
+    const WCHAR *ext;
+    WCHAR dllpath[32];
+    DWORD i, len;
+    NTSTATUS status = STATUS_DLL_NOT_FOUND;
+    BOOL found_image = FALSE;
+
+    if (!get_env_var( L"WINEBUILDDIR", 20 + 2 * wcslen(name), new_name ))
+    {
+        len = new_name->Length;
+        RtlAppendUnicodeToString( new_name, L"\\dlls\\" );
+        RtlAppendUnicodeToString( new_name, name );
+        if ((ext = wcsrchr( name, '.' )) && !wcscmp( ext, L".dll" )) new_name->Length -= 4 * sizeof(WCHAR);
+        RtlAppendUnicodeToString( new_name, L"\\" );
+        RtlAppendUnicodeToString( new_name, name );
+        status = open_dll_file( new_name, pwm, mapping, image_info, id );
+        if (status != STATUS_DLL_NOT_FOUND) goto done;
+        RtlAppendUnicodeToString( new_name, L".fake" );
+        status = open_dll_file( new_name, pwm, mapping, image_info, id );
+        if (status != STATUS_DLL_NOT_FOUND) goto done;
+
+        new_name->Length = len;
+        RtlAppendUnicodeToString( new_name, L"\\programs\\" );
+        RtlAppendUnicodeToString( new_name, name );
+        RtlAppendUnicodeToString( new_name, L"\\" );
+        RtlAppendUnicodeToString( new_name, name );
+        status = open_dll_file( new_name, pwm, mapping, image_info, id );
+        if (status != STATUS_DLL_NOT_FOUND) goto done;
+        RtlAppendUnicodeToString( new_name, L".fake" );
+        status = open_dll_file( new_name, pwm, mapping, image_info, id );
+        if (status != STATUS_DLL_NOT_FOUND) goto done;
+        RtlFreeUnicodeString( new_name );
+    }
+
+    for (i = 0; ; i++)
+    {
+        swprintf( dllpath, ARRAY_SIZE(dllpath), L"WINEDLLDIR%u", i );
+        if (get_env_var( dllpath, wcslen(pe_dir) + wcslen(name) + 1, new_name )) break;
+        len = new_name->Length;
+        RtlAppendUnicodeToString( new_name, pe_dir );
+        RtlAppendUnicodeToString( new_name, L"\\" );
+        RtlAppendUnicodeToString( new_name, name );
+        status = open_dll_file( new_name, pwm, mapping, image_info, id );
+        if (status != STATUS_DLL_NOT_FOUND) goto done;
+        new_name->Length = len;
+        RtlAppendUnicodeToString( new_name, L"\\" );
+        RtlAppendUnicodeToString( new_name, name );
+        status = open_dll_file( new_name, pwm, mapping, image_info, id );
+        if (status == STATUS_IMAGE_MACHINE_TYPE_MISMATCH) found_image = TRUE;
+        else if (status != STATUS_DLL_NOT_FOUND) goto done;
+        RtlFreeUnicodeString( new_name );
+    }
+    if (found_image) status = STATUS_IMAGE_MACHINE_TYPE_MISMATCH;
+
+done:
+    RtlFreeUnicodeString( new_name );
+    if (!status)
+    {
+        new_name->Length = (4 + wcslen(system_dir) + wcslen(name)) * sizeof(WCHAR);
+        new_name->Buffer = RtlAllocateHeap( GetProcessHeap(), 0, new_name->Length + sizeof(WCHAR) );
+        wcscpy( new_name->Buffer, L"\\??\\" );
+        wcscat( new_name->Buffer, system_dir );
+        wcscat( new_name->Buffer, name );
+    }
+    return status;
+}
+
+
+/***********************************************************************
  *	search_dll_file
  *
  * Search for dll in the specified paths.
@@ -2540,7 +2774,10 @@ static NTSTATUS search_dll_file( LPCWSTR paths, LPCWSTR search, UNICODE_STRING *
     WCHAR *name;
     BOOL found_image = FALSE;
     NTSTATUS status = STATUS_DLL_NOT_FOUND;
-    ULONG len = wcslen( paths );
+    ULONG len;
+
+    if (!paths) paths = default_load_path;
+    len = wcslen( paths );
 
     if (len < wcslen( system_dir )) len = wcslen( system_dir );
     len += wcslen( search ) + 2;
@@ -2569,56 +2806,16 @@ static NTSTATUS search_dll_file( LPCWSTR paths, LPCWSTR search, UNICODE_STRING *
         paths = ptr;
     }
 
-    if (!found_image)
-    {
-        /* not found, return file in the system dir to be loaded as builtin */
-        wcscpy( name, system_dir );
-        wcscat( name, search );
-        if (!RtlDosPathNameToNtPathName_U( name, nt_name, NULL, NULL )) status = STATUS_NO_MEMORY;
-    }
-    else status = STATUS_IMAGE_MACHINE_TYPE_MISMATCH;
+    if (found_image)
+        status = STATUS_IMAGE_MACHINE_TYPE_MISMATCH;
+    else if (is_prefix_bootstrap && !contains_path( search ))
+        status = find_builtin_without_file( search, nt_name, pwm, mapping, image_info, id );
 
 done:
     RtlFreeHeap( GetProcessHeap(), 0, name );
     return status;
 }
 
-static WCHAR *strstriW( const WCHAR *str, const WCHAR *sub )
-{
-    while (*str)
-    {
-        const WCHAR *p1 = str, *p2 = sub;
-        while (*p1 && *p2 && tolower(*p1) == tolower(*p2)) { p1++; p2++; }
-        if (!*p2) return (WCHAR *)str;
-        str++;
-    }
-    return NULL;
-}
-
-static WCHAR *get_env( const WCHAR *var )
-{
-    UNICODE_STRING name, value;
-
-    RtlInitUnicodeString( &name, var );
-    value.Length = 0;
-    value.MaximumLength = 0;
-    value.Buffer = NULL;
-
-    if (RtlQueryEnvironmentVariable_U( NULL, &name, &value ) == STATUS_BUFFER_TOO_SMALL) {
-
-        value.Buffer = RtlAllocateHeap( GetProcessHeap(), 0, value.Length + sizeof(WCHAR) );
-        value.MaximumLength = value.Length;
-
-        if (RtlQueryEnvironmentVariable_U( NULL, &name, &value ) == STATUS_SUCCESS) {
-            value.Buffer[value.Length / sizeof(WCHAR)] = 0;
-            return value.Buffer;
-        }
-
-        RtlFreeHeap( GetProcessHeap(), 0, value.Buffer );
-    }
-
-    return NULL;
-}
 
 /***********************************************************************
  *	find_dll_file
@@ -2650,7 +2847,7 @@ static NTSTATUS find_dll_file( const WCHAR *load_path, const WCHAR *libname, con
     }
 
     /* Win 7/2008R2 and up seem to re-enable WoW64 FS redirection when loading libraries */
-    if (is_wow64) RtlWow64EnableFsRedirectionEx( 0, &wow64_old_value );
+    RtlWow64EnableFsRedirectionEx( 0, &wow64_old_value );
 
     nt_name->Buffer = NULL;
 
@@ -2681,33 +2878,18 @@ static NTSTATUS find_dll_file( const WCHAR *load_path, const WCHAR *libname, con
     else if (!(status = RtlDosPathNameToNtPathName_U_WithStatus( libname, nt_name, NULL, NULL )))
         status = open_dll_file( nt_name, pwm, mapping, image_info, id );
 
+    /* 16-bit files can't be loaded from the prefix */
+    if (status && libname[0] && libname[1] && !wcscmp( libname + wcslen(libname) - 2, L"16" ) && !contains_path( libname ))
+        status = find_builtin_without_file( libname, nt_name, pwm, mapping, image_info, id );
+
     if (status == STATUS_IMAGE_MACHINE_TYPE_MISMATCH) status = STATUS_INVALID_IMAGE_FORMAT;
 
 done:
     RtlFreeHeap( GetProcessHeap(), 0, dllname );
     if (wow64_old_value) RtlWow64EnableFsRedirectionEx( 1, &wow64_old_value );
-
-    if (status != STATUS_SUCCESS)
-    {
-        /* HACK for Proton issue #17
-         *
-         * Some games try to load mfc42.dll, but then proceed to not use it.
-         * Just return a handle to kernel32 in that case.
-         */
-        WCHAR *sgi = get_env( L"SteamGameId" );
-        if (sgi)
-        {
-            if (!wcscmp( sgi, L"105450") &&
-                    strstriW( libname, L"mfc42" ))
-            {
-                WARN_(loaddll)( "Using a fake mfc42 handle\n" );
-                status = find_dll_file( load_path, L"kernel32.dll", L".dll", nt_name, pwm, mapping, image_info, id );
-            }
-            RtlFreeHeap(GetProcessHeap(), 0, sgi);
-        }
-    }
     return status;
 }
+
 
 /***********************************************************************
  *	load_dll  (internal)
@@ -2718,14 +2900,12 @@ done:
 static NTSTATUS load_dll( const WCHAR *load_path, const WCHAR *libname, const WCHAR *default_ext,
                           DWORD flags, WINE_MODREF** pwm )
 {
-    enum loadorder loadorder;
-    WINE_MODREF *main_exe;
     UNICODE_STRING nt_name;
     struct file_id id;
     HANDLE mapping = 0;
     SECTION_IMAGE_INFORMATION image_info;
     NTSTATUS nts;
-    void *prev;
+    ULONG64 prev;
 
     TRACE( "looking for %s in %s\n", debugstr_w(libname), debugstr_w(load_path) );
 
@@ -2742,101 +2922,34 @@ static NTSTATUS load_dll( const WCHAR *load_path, const WCHAR *libname, const WC
         return STATUS_SUCCESS;
     }
 
-    if (nts && nts != STATUS_DLL_NOT_FOUND && nts != STATUS_INVALID_IMAGE_NOT_MZ) goto done;
+    if (nts && nts != STATUS_INVALID_IMAGE_NOT_MZ) goto done;
 
-    main_exe = get_modref( NtCurrentTeb()->Peb->ImageBaseAddress );
-    loadorder = get_load_order( main_exe ? main_exe->ldr.BaseDllName.Buffer : NULL, &nt_name );
-
-    prev = NtCurrentTeb()->Tib.ArbitraryUserPointer;
-    NtCurrentTeb()->Tib.ArbitraryUserPointer = nt_name.Buffer + 4;
+    if (NtCurrentTeb64())
+    {
+        prev = NtCurrentTeb64()->Tib.ArbitraryUserPointer;
+        NtCurrentTeb64()->Tib.ArbitraryUserPointer = (ULONG_PTR)(nt_name.Buffer + 4);
+    }
+    else
+    {
+        prev = (ULONG_PTR)NtCurrentTeb()->Tib.ArbitraryUserPointer;
+        NtCurrentTeb()->Tib.ArbitraryUserPointer = nt_name.Buffer + 4;
+    }
 
     switch (nts)
     {
     case STATUS_INVALID_IMAGE_NOT_MZ:  /* not in PE format, maybe it's a .so file */
-        switch (loadorder)
-        {
-        case LO_NATIVE:
-        case LO_NATIVE_BUILTIN:
-        case LO_BUILTIN:
-        case LO_BUILTIN_NATIVE:
-        case LO_DEFAULT:
-            if (!load_so_dll( load_path, &nt_name, flags, pwm )) nts = STATUS_SUCCESS;
-            break;
-        default:
-            nts = STATUS_DLL_NOT_FOUND;
-            break;
-        }
+        nts = load_so_dll( load_path, &nt_name, flags, pwm );
         break;
 
     case STATUS_SUCCESS:  /* valid PE file */
-        if (image_info.u.s.WineBuiltin)
-        {
-            switch (loadorder)
-            {
-            case LO_NATIVE_BUILTIN:
-            case LO_BUILTIN:
-            case LO_BUILTIN_NATIVE:
-            case LO_DEFAULT:
-                nts = load_builtin_dll( load_path, &nt_name, flags, pwm, FALSE );
-                if (nts == STATUS_DLL_NOT_FOUND)
-                    nts = load_native_dll( load_path, &nt_name, mapping, &image_info, &id, flags, pwm );
-                break;
-            default:
-                nts = STATUS_DLL_NOT_FOUND;
-                break;
-            }
-            break;
-        }
-        if (!(image_info.u.s.WineFakeDll))
-        {
-            switch (loadorder)
-            {
-            case LO_NATIVE:
-            case LO_NATIVE_BUILTIN:
-                nts = load_native_dll( load_path, &nt_name, mapping, &image_info, &id, flags, pwm );
-                break;
-            case LO_BUILTIN:
-                nts = load_builtin_dll( load_path, &nt_name, flags, pwm, FALSE );
-                break;
-            case LO_BUILTIN_NATIVE:
-            case LO_DEFAULT:
-                nts = load_builtin_dll( load_path, &nt_name, flags, pwm, loadorder == LO_DEFAULT );
-                if (nts == STATUS_SUCCESS && loadorder == LO_DEFAULT &&
-                    (MODULE_InitDLL( *pwm, DLL_WINE_PREATTACH, NULL ) != STATUS_SUCCESS))
-                {
-                    /* stub-only dll, try native */
-                    TRACE( "%s pre-attach returned FALSE, preferring native\n", debugstr_us(&nt_name) );
-                    LdrUnloadDll( (*pwm)->ldr.DllBase );
-                    nts = STATUS_IMAGE_ALREADY_LOADED;
-                }
-                if (nts == STATUS_DLL_NOT_FOUND || nts == STATUS_IMAGE_ALREADY_LOADED)
-                    nts = load_native_dll( load_path, &nt_name, mapping, &image_info, &id, flags, pwm );
-                break;
-            default:
-                nts = STATUS_DLL_NOT_FOUND;
-                break;
-            }
-            break;
-        }
-        TRACE( "%s is a fake Wine dll\n", debugstr_us(&nt_name) );
-        /* fall through */
-
-    case STATUS_DLL_NOT_FOUND:  /* no file found, try builtin */
-        switch (loadorder)
-        {
-        case LO_NATIVE_BUILTIN:
-        case LO_BUILTIN:
-        case LO_BUILTIN_NATIVE:
-        case LO_DEFAULT:
-            nts = load_builtin_dll( load_path, &nt_name, flags, pwm, FALSE );
-            break;
-        default:
-            nts = STATUS_DLL_NOT_FOUND;
-            break;
-        }
+        nts = load_native_dll( load_path, &nt_name, mapping, &image_info, &id, flags, pwm );
         break;
     }
-    NtCurrentTeb()->Tib.ArbitraryUserPointer = prev;
+
+    if (NtCurrentTeb64())
+        NtCurrentTeb64()->Tib.ArbitraryUserPointer = prev;
+    else
+        NtCurrentTeb()->Tib.ArbitraryUserPointer = (void *)(ULONG_PTR)prev;
 
 done:
     if (nts == STATUS_SUCCESS)
@@ -2856,21 +2969,28 @@ done:
 NTSTATUS __cdecl __wine_init_unix_lib( HMODULE module, DWORD reason, const void *ptr_in, void *ptr_out )
 {
     WINE_MODREF *wm;
-    NTSTATUS ret = STATUS_DLL_NOT_FOUND;
+    NTSTATUS ret;
 
     RtlEnterCriticalSection( &loader_section );
 
-    if ((wm = get_modref( module )))
-    {
-        NTSTATUS (CDECL *init_func)( HMODULE, DWORD, const void *, void * ) = wm->unix_entry;
-        if (init_func) ret = init_func( module, reason, ptr_in, ptr_out );
-    }
+    if ((wm = get_modref( module ))) ret = unix_funcs->init_unix_lib( module, reason, ptr_in, ptr_out );
     else ret = STATUS_INVALID_HANDLE;
 
     RtlLeaveCriticalSection( &loader_section );
     return ret;
 }
 
+
+/***********************************************************************
+ *              __wine_ctrl_routine
+ */
+NTSTATUS WINAPI __wine_ctrl_routine( void *arg )
+{
+    DWORD ret = 0;
+
+    if (pCtrlRoutine && NtCurrentTeb()->Peb->ProcessParameters->ConsoleHandle) ret = pCtrlRoutine( arg );
+    RtlExitUserThread( ret );
+}
 
 /******************************************************************
  *		LdrLoadDll (NTDLL.@)
@@ -2883,7 +3003,6 @@ NTSTATUS WINAPI DECLSPEC_HOTPATCH LdrLoadDll(LPCWSTR path_name, DWORD flags,
 
     RtlEnterCriticalSection( &loader_section );
 
-    if (!path_name) path_name = NtCurrentTeb()->Peb->ProcessParameters->DllPath.Buffer;
     nts = load_dll( path_name, libname->Buffer, L".dll", flags, &wm );
 
     if (nts == STATUS_SUCCESS && !(wm->ldr.Flags & LDR_DONT_RESOLVE_REFS))
@@ -2915,8 +3034,6 @@ NTSTATUS WINAPI LdrGetDllHandle( LPCWSTR load_path, ULONG flags, const UNICODE_S
     struct file_id id;
 
     RtlEnterCriticalSection( &loader_section );
-
-    if (!load_path) load_path = NtCurrentTeb()->Peb->ProcessParameters->DllPath.Buffer;
 
     status = find_dll_file( load_path, name->Buffer, L".dll", &nt_name, &wm, &mapping, &image_info, &id );
 
@@ -3028,10 +3145,10 @@ IMAGE_BASE_RELOCATION * WINAPI LdrProcessRelocationBlock( void *page, UINT count
  *		LdrQueryProcessModuleInformation
  *
  */
-NTSTATUS WINAPI LdrQueryProcessModuleInformation(PSYSTEM_MODULE_INFORMATION smi, 
+NTSTATUS WINAPI LdrQueryProcessModuleInformation(RTL_PROCESS_MODULES *smi,
                                                  ULONG buf_size, ULONG* req_size)
 {
-    SYSTEM_MODULE*      sm = &smi->Modules[0];
+    RTL_PROCESS_MODULE_INFORMATION *sm = &smi->Modules[0];
     ULONG               size = sizeof(ULONG);
     NTSTATUS            nts = STATUS_SUCCESS;
     ANSI_STRING         str;
@@ -3282,6 +3399,7 @@ void WINAPI LdrShutdownProcess(void)
     process_detach();
 }
 
+extern const char * CDECL wine_get_version(void);
 
 /******************************************************************
  *		RtlExitUserProcess (NTDLL.@)
@@ -3334,7 +3452,7 @@ void WINAPI LdrShutdownThread(void)
     if (wm->ldr.TlsIndex != -1) call_tls_callbacks( wm->ldr.DllBase, DLL_THREAD_DETACH );
 
     RtlAcquirePebLock();
-    RemoveEntryList( &NtCurrentTeb()->TlsLinks );
+    if (NtCurrentTeb()->TlsLinks.Flink) RemoveEntryList( &NtCurrentTeb()->TlsLinks );
     if ((pointers = NtCurrentTeb()->ThreadLocalStoragePointer))
     {
         for (i = 0; i < tls_module_count; i++) RtlFreeHeap( GetProcessHeap(), 0, pointers[i] );
@@ -3372,7 +3490,6 @@ static void free_modref( WINE_MODREF *wm )
 
     free_tls_slot( &wm->ldr );
     RtlReleaseActivationContext( wm->ldr.ActivationContext );
-    unix_funcs->unload_builtin_dll( wm->ldr.DllBase );
     NtUnmapViewOfSection( NtCurrentProcess(), wm->ldr.DllBase );
     if (cached_modref == wm) cached_modref = NULL;
     RtlFreeUnicodeString( &wm->ldr.FullDllName );
@@ -3539,6 +3656,141 @@ static void process_breakpoint(void)
 }
 
 
+/***********************************************************************
+ *           load_global_options
+ */
+static void load_global_options(void)
+{
+    OBJECT_ATTRIBUTES attr;
+    UNICODE_STRING name_str, val_str;
+    HANDLE hkey;
+
+    RtlInitUnicodeString( &name_str, L"WINEBOOTSTRAPMODE" );
+    val_str.MaximumLength = 0;
+    is_prefix_bootstrap = RtlQueryEnvironmentVariable_U( NULL, &name_str, &val_str ) != STATUS_VARIABLE_NOT_FOUND;
+
+    attr.Length = sizeof(attr);
+    attr.RootDirectory = 0;
+    attr.ObjectName = &name_str;
+    attr.Attributes = OBJ_CASE_INSENSITIVE;
+    attr.SecurityDescriptor = NULL;
+    attr.SecurityQualityOfService = NULL;
+    RtlInitUnicodeString( &name_str, L"Machine\\System\\CurrentControlSet\\Control\\Session Manager" );
+
+    if (!NtOpenKey( &hkey, KEY_QUERY_VALUE, &attr ))
+    {
+        query_dword_option( hkey, L"SafeProcessSearchMode", &path_safe_mode );
+        query_dword_option( hkey, L"SafeDllSearchMode", &dll_safe_mode );
+        NtClose( hkey );
+    }
+}
+
+
+
+#ifdef _WIN64
+
+static void (WINAPI *pWow64LdrpInitialize)( CONTEXT *ctx );
+
+static void init_wow64( CONTEXT *context )
+{
+    if (!imports_fixup_done)
+    {
+        HMODULE wow64;
+        WINE_MODREF *wm;
+        NTSTATUS status;
+        static const WCHAR wow64_path[] = L"C:\\windows\\system32\\wow64.dll";
+
+        if ((status = load_dll( NULL, wow64_path, NULL, 0, &wm )))
+        {
+            ERR( "could not load %s, status %x\n", debugstr_w(wow64_path), status );
+            NtTerminateProcess( GetCurrentProcess(), status );
+        }
+        wow64 = wm->ldr.DllBase;
+#define GET_PTR(name) \
+        if (!(p ## name = RtlFindExportedRoutineByName( wow64, #name ))) ERR( "failed to load %s\n", #name )
+
+        GET_PTR( Wow64LdrpInitialize );
+#undef GET_PTR
+        imports_fixup_done = TRUE;
+    }
+
+    RtlLeaveCriticalSection( &loader_section );
+    pWow64LdrpInitialize( context );
+}
+
+
+#else
+
+void *Wow64Transition = NULL;
+
+static void map_wow64cpu(void)
+{
+    SIZE_T size = 0;
+    OBJECT_ATTRIBUTES attr;
+    UNICODE_STRING string;
+    HANDLE file, section;
+    IO_STATUS_BLOCK io;
+    NTSTATUS status;
+
+    RtlInitUnicodeString( &string, L"\\??\\C:\\windows\\sysnative\\wow64cpu.dll" );
+    InitializeObjectAttributes( &attr, &string, 0, NULL, NULL );
+    if ((status = NtOpenFile( &file, GENERIC_READ | SYNCHRONIZE, &attr, &io, FILE_SHARE_READ,
+                              FILE_SYNCHRONOUS_IO_NONALERT | FILE_NON_DIRECTORY_FILE )))
+    {
+        WARN("failed to open wow64cpu, status %#x\n", status);
+        return;
+    }
+    if (!NtCreateSection( &section, STANDARD_RIGHTS_REQUIRED | SECTION_QUERY |
+                          SECTION_MAP_READ | SECTION_MAP_EXECUTE,
+                          NULL, NULL, PAGE_EXECUTE_READ, SEC_COMMIT, file ))
+    {
+        NtMapViewOfSection( section, NtCurrentProcess(), &Wow64Transition, 0,
+                            0, NULL, &size, ViewShare, 0, PAGE_EXECUTE_READ );
+        NtClose( section );
+    }
+    NtClose( file );
+}
+
+static void init_wow64( CONTEXT *context )
+{
+    PEB *peb = NtCurrentTeb()->Peb;
+    PEB64 *peb64 = UlongToPtr( NtCurrentTeb64()->Peb );
+
+    if (Wow64Transition) return;  /* already initialized */
+
+    peb64->OSMajorVersion   = peb->OSMajorVersion;
+    peb64->OSMinorVersion   = peb->OSMinorVersion;
+    peb64->OSBuildNumber    = peb->OSBuildNumber;
+    peb64->OSPlatformId     = peb->OSPlatformId;
+
+#define SET_INIT_BLOCK(func) LdrSystemDllInitBlock.p ## func = PtrToUlong( &func )
+    SET_INIT_BLOCK( KiUserApcDispatcher );
+    SET_INIT_BLOCK( KiUserExceptionDispatcher );
+    SET_INIT_BLOCK( LdrInitializeThunk );
+    SET_INIT_BLOCK( LdrSystemDllInitBlock );
+    SET_INIT_BLOCK( RtlUserThreadStart );
+    SET_INIT_BLOCK( KiUserCallbackDispatcher );
+    /* SET_INIT_BLOCK( RtlpQueryProcessDebugInformationRemote ); */
+    /* SET_INIT_BLOCK( RtlpFreezeTimeBias ); */
+    /* LdrSystemDllInitBlock.ntdll_handle */
+#undef SET_INIT_BLOCK
+
+    map_wow64cpu();
+}
+#endif
+
+
+/* release some address space once dlls are loaded*/
+static void release_address_space(void)
+{
+#ifndef _WIN64
+    void *addr = (void *)1;
+    SIZE_T size = 0;
+
+    NtFreeVirtualMemory( GetCurrentProcess(), &addr, &size, MEM_RELEASE );
+#endif
+}
+
 /******************************************************************
  *		LdrInitializeThunk (NTDLL.@)
  *
@@ -3547,13 +3799,15 @@ static void process_breakpoint(void)
  */
 void WINAPI LdrInitializeThunk( CONTEXT *context, ULONG_PTR unknown2, ULONG_PTR unknown3, ULONG_PTR unknown4 )
 {
+    OBJECT_ATTRIBUTES staging_event_attr;
+    UNICODE_STRING staging_event_string;
+    HANDLE staging_event;
     static int attach_done;
     int i;
     NTSTATUS status;
     ULONG_PTR cookie;
     WINE_MODREF *wm;
     void **entry;
-    LPCWSTR load_path = NtCurrentTeb()->Peb->ProcessParameters->DllPath.Buffer;
 
 #ifdef __i386__
     entry = (void **)&context->Eax;
@@ -3565,32 +3819,84 @@ void WINAPI LdrInitializeThunk( CONTEXT *context, ULONG_PTR unknown2, ULONG_PTR 
     entry = (void **)&context->u.s.X0;
 #endif
 
+    RtlInitUnicodeString( &staging_event_string, L"\\__wine_staging_warn_event" );
+    InitializeObjectAttributes( &staging_event_attr, &staging_event_string, OBJ_OPENIF, NULL, NULL );
+    if (NtCreateEvent( &staging_event, EVENT_ALL_ACCESS, &staging_event_attr, NotificationEvent, FALSE ) == STATUS_SUCCESS)
+    {
+        FIXME_(winediag)("Wine TkG %s is a testing version containing experimental patches.\n", wine_get_version());
+        FIXME_(winediag)("Please don't report bugs about it on winehq.org and use https://github.com/Frogging-Family/wine-tkg-git/issues instead.\n");
+    }
+    else
+        WARN_(winediag)("Wine TkG %s is a testing version containing experimental patches.\n", wine_get_version());
+
     if (process_detaching) NtTerminateThread( GetCurrentThread(), 0 );
 
     RtlEnterCriticalSection( &loader_section );
 
-    wm = get_modref( NtCurrentTeb()->Peb->ImageBaseAddress );
-    assert( wm );
-
     if (!imports_fixup_done)
     {
+        ANSI_STRING func_name;
+        WINE_MODREF *kernel32;
+        PEB *peb = NtCurrentTeb()->Peb;
+
+        peb->LdrData            = &ldr;
+        peb->FastPebLock        = &peb_lock;
+        peb->TlsBitmap          = &tls_bitmap;
+        peb->TlsExpansionBitmap = &tls_expansion_bitmap;
+        peb->LoaderLock         = &loader_section;
+        peb->ProcessHeap        = RtlCreateHeap( HEAP_GROWABLE, NULL, 0, 0, NULL, NULL );
+
+        RtlInitializeBitMap( &tls_bitmap, peb->TlsBitmapBits, sizeof(peb->TlsBitmapBits) * 8 );
+        RtlInitializeBitMap( &tls_expansion_bitmap, peb->TlsExpansionBitmapBits,
+                             sizeof(peb->TlsExpansionBitmapBits) * 8 );
+        RtlSetBits( peb->TlsBitmap, 0, 1 ); /* TLS index 0 is reserved and should be initialized to NULL. */
+
+        init_user_process_params();
+        load_global_options();
+        version_init();
+
+        wm = build_main_module();
+        wm->ldr.LoadCount = -1;
+
+        build_ntdll_module();
+
+        if (NtCurrentTeb()->WowTebOffset) init_wow64( context );
+
+        if ((status = load_dll( NULL, L"kernel32.dll", NULL, 0, &kernel32 )) != STATUS_SUCCESS)
+        {
+            MESSAGE( "wine: could not load kernel32.dll, status %x\n", status );
+            NtTerminateProcess( GetCurrentProcess(), status );
+        }
+        kernel32_handle = kernel32->ldr.DllBase;
+        RtlInitAnsiString( &func_name, "BaseThreadInitThunk" );
+        if ((status = LdrGetProcedureAddress( kernel32_handle, &func_name,
+                                              0, (void **)&pBaseThreadInitThunk )) != STATUS_SUCCESS)
+        {
+            MESSAGE( "wine: could not find BaseThreadInitThunk in kernel32.dll, status %x\n", status );
+            NtTerminateProcess( GetCurrentProcess(), status );
+        }
+        RtlInitAnsiString( &func_name, "CtrlRoutine" );
+        LdrGetProcedureAddress( kernel32_handle, &func_name, 0, (void **)&pCtrlRoutine );
+
         actctx_init();
         if (wm->ldr.Flags & LDR_COR_ILONLY)
-            status = fixup_imports_ilonly( wm, load_path, entry );
+            status = fixup_imports_ilonly( wm, NULL, entry );
         else
-            status = fixup_imports( wm, load_path );
+            status = fixup_imports( wm, NULL );
 
         if (status)
         {
             ERR( "Importing dlls for %s failed, status %x\n",
                  debugstr_w(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer), status );
-            append_to_crash_log( "Importing dlls for %s failed, status %x\n",
-                 debugstr_w(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer), status );
-            unix_funcs->write_crash_log("missingmodule", crash_log);
             NtTerminateProcess( GetCurrentProcess(), status );
         }
         imports_fixup_done = TRUE;
     }
+    else wm = get_modref( NtCurrentTeb()->Peb->ImageBaseAddress );
+
+#ifdef _WIN64
+    if (NtCurrentTeb()->WowTebOffset) init_wow64( context );
+#endif
 
     RtlAcquirePebLock();
     InsertHeadList( &tls_links, &NtCurrentTeb()->TlsLinks );
@@ -3607,7 +3913,6 @@ void WINAPI LdrInitializeThunk( CONTEXT *context, ULONG_PTR unknown2, ULONG_PTR 
                  debugstr_w(NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer), status );
             NtTerminateProcess( GetCurrentProcess(), status );
         }
-        wm->ldr.LoadCount = -1;
         wm->ldr.Flags |= LDR_PROCESS_ATTACHED;  /* don't try to attach again */
         if (wm->ldr.ActivationContext)
             RtlActivateActivationContext( 0, wm->ldr.ActivationContext, &cookie );
@@ -3625,9 +3930,9 @@ void WINAPI LdrInitializeThunk( CONTEXT *context, ULONG_PTR unknown2, ULONG_PTR 
                 NtTerminateProcess( GetCurrentProcess(), status );
             }
         }
-        unix_funcs->virtual_release_address_space();
+        release_address_space();
         if (wm->ldr.TlsIndex != -1) call_tls_callbacks( wm->ldr.DllBase, DLL_PROCESS_ATTACH );
-        if (wm->ldr.Flags & LDR_WINE_INTERNAL) unix_funcs->init_builtin_dll( wm->ldr.DllBase );
+        if (wm->ldr.Flags & LDR_WINE_INTERNAL) init_builtin_dll( wm->ldr.DllBase );
         if (wm->ldr.ActivationContext) RtlDeactivateActivationContext( 0, cookie );
         process_breakpoint();
     }
@@ -3641,65 +3946,6 @@ void WINAPI LdrInitializeThunk( CONTEXT *context, ULONG_PTR unknown2, ULONG_PTR 
 
     RtlLeaveCriticalSection( &loader_section );
     signal_start_thread( context );
-}
-
-
-/***********************************************************************
- *           load_global_options
- */
-static void load_global_options(void)
-{
-    OBJECT_ATTRIBUTES attr;
-    UNICODE_STRING name_str;
-    WCHAR *env_str;
-    HANDLE hkey;
-    ULONG value;
-
-    attr.Length = sizeof(attr);
-    attr.RootDirectory = 0;
-    attr.ObjectName = &name_str;
-    attr.Attributes = OBJ_CASE_INSENSITIVE;
-    attr.SecurityDescriptor = NULL;
-    attr.SecurityQualityOfService = NULL;
-    RtlInitUnicodeString( &name_str, L"Machine\\System\\CurrentControlSet\\Control\\Session Manager" );
-
-    if (!NtOpenKey( &hkey, KEY_QUERY_VALUE, &attr ))
-    {
-        query_dword_option( hkey, L"GlobalFlag", &NtCurrentTeb()->Peb->NtGlobalFlag );
-        query_dword_option( hkey, L"SafeProcessSearchMode", &path_safe_mode );
-        query_dword_option( hkey, L"SafeDllSearchMode", &dll_safe_mode );
-
-        if (!query_dword_option( hkey, L"CriticalSectionTimeout", &value ))
-            NtCurrentTeb()->Peb->CriticalSectionTimeout.QuadPart = (ULONGLONG)value * -10000000;
-
-        if (!query_dword_option( hkey, L"HeapSegmentReserve", &value ))
-            NtCurrentTeb()->Peb->HeapSegmentReserve = value;
-
-        if (!query_dword_option( hkey, L"HeapSegmentCommit", &value ))
-            NtCurrentTeb()->Peb->HeapSegmentCommit = value;
-
-        if (!query_dword_option( hkey, L"HeapDeCommitTotalFreeThreshold", &value ))
-            NtCurrentTeb()->Peb->HeapDeCommitTotalFreeThreshold = value;
-
-        if (!query_dword_option( hkey, L"HeapDeCommitFreeBlockThreshold", &value ))
-            NtCurrentTeb()->Peb->HeapDeCommitFreeBlockThreshold = value;
-
-        NtClose( hkey );
-    }
-    LdrQueryImageFileExecutionOptions( &NtCurrentTeb()->Peb->ProcessParameters->ImagePathName,
-                                       L"GlobalFlag", REG_DWORD, &NtCurrentTeb()->Peb->NtGlobalFlag,
-                                       sizeof(DWORD), NULL );
-
-    if ((env_str = get_env(L"WINE_HEAP_DELAY_FREE")))
-    {
-        if (*env_str == L'1')
-        {
-            ERR("Enabling heap free delay hack.\n");
-            delay_heap_free = TRUE;
-        }
-        RtlFreeHeap( GetProcessHeap(), 0, env_str );
-    }
-    heap_set_debug_flags( GetProcessHeap() );
 }
 
 
@@ -4036,166 +4282,11 @@ BOOL WINAPI DllMain( HINSTANCE inst, DWORD reason, LPVOID reserved )
 
 
 /***********************************************************************
- *           restart_winevdm
- */
-static void restart_winevdm( RTL_USER_PROCESS_PARAMETERS *params )
-{
-    DWORD len;
-    WCHAR *appname, *cmdline;
-
-    len = wcslen(system_dir) + wcslen(L"winevdm.exe") + 1;
-    appname = RtlAllocateHeap( GetProcessHeap(), 0, len * sizeof(WCHAR) );
-    wcscpy( appname, (is_win64 || is_wow64) ? syswow64_dir : system_dir );
-    wcscat( appname, L"winevdm.exe" );
-
-    len += 16 + wcslen(params->ImagePathName.Buffer) + wcslen(params->CommandLine.Buffer);
-    cmdline = RtlAllocateHeap( GetProcessHeap(), 0, len * sizeof(WCHAR) );
-    swprintf( cmdline, len, L"%s --app-name \"%s\" %s",
-              appname, params->ImagePathName.Buffer, params->CommandLine.Buffer );
-
-    RtlInitUnicodeString( &params->ImagePathName, appname );
-    RtlInitUnicodeString( &params->CommandLine, cmdline );
-}
-
-
-/***********************************************************************
- *           process_init
- */
-static NTSTATUS process_init(void)
-{
-    RTL_USER_PROCESS_PARAMETERS *params;
-    WINE_MODREF *wm;
-    NTSTATUS status;
-    ANSI_STRING func_name;
-    INITIAL_TEB stack;
-    TEB *teb = NtCurrentTeb();
-    PEB *peb = teb->Peb;
-
-    peb->LdrData            = &ldr;
-    peb->FastPebLock        = &peb_lock;
-    peb->TlsBitmap          = &tls_bitmap;
-    peb->TlsExpansionBitmap = &tls_expansion_bitmap;
-    peb->LoaderLock         = &loader_section;
-    peb->OSMajorVersion     = 5;
-    peb->OSMinorVersion     = 1;
-    peb->OSBuildNumber      = 0xA28;
-    peb->OSPlatformId       = VER_PLATFORM_WIN32_NT;
-    peb->SessionId          = 1;
-    peb->ProcessHeap        = RtlCreateHeap( HEAP_GROWABLE, NULL, 0, 0, NULL, NULL );
-
-    RtlInitializeBitMap( &tls_bitmap, peb->TlsBitmapBits, sizeof(peb->TlsBitmapBits) * 8 );
-    RtlInitializeBitMap( &tls_expansion_bitmap, peb->TlsExpansionBitmapBits,
-                         sizeof(peb->TlsExpansionBitmapBits) * 8 );
-    RtlSetBits( peb->TlsBitmap, 0, 1 ); /* TLS index 0 is reserved and should be initialized to NULL. */
-    init_global_fls_data();
-
-    InitializeListHead( &ldr.InLoadOrderModuleList );
-    InitializeListHead( &ldr.InMemoryOrderModuleList );
-    InitializeListHead( &ldr.InInitializationOrderModuleList );
-
-#ifndef _WIN64
-    is_wow64 = !!NtCurrentTeb64();
-#endif
-
-    init_unix_codepage();
-    init_user_process_params();
-    params = peb->ProcessParameters;
-
-    load_global_options();
-    version_init();
-
-    if (!(status = load_dll( params->DllPath.Buffer, params->ImagePathName.Buffer, NULL,
-                             DONT_RESOLVE_DLL_REFERENCES, &wm )))
-    {
-        peb->ImageBaseAddress = wm->ldr.DllBase;
-        TRACE( "main exe loaded %s at %p\n", debugstr_us(&params->ImagePathName), peb->ImageBaseAddress );
-        if (wm->ldr.Flags & LDR_IMAGE_IS_DLL)
-        {
-            MESSAGE( "wine: %s is a dll, not an executable\n", debugstr_w(wm->ldr.FullDllName.Buffer) );
-            NtTerminateProcess( GetCurrentProcess(), STATUS_INVALID_IMAGE_FORMAT );
-        }
-    }
-    else
-    {
-        switch (status)
-        {
-        case STATUS_INVALID_IMAGE_NOT_MZ:
-        {
-            WCHAR *p = wcsrchr( params->ImagePathName.Buffer, '.' );
-            if (p && (!wcsicmp( p, L".com" ) || !wcsicmp( p, L".pif" )))
-            {
-                restart_winevdm( params );
-                status = STATUS_INVALID_IMAGE_WIN_16;
-            }
-            return status;
-        }
-        case STATUS_INVALID_IMAGE_WIN_16:
-        case STATUS_INVALID_IMAGE_NE_FORMAT:
-        case STATUS_INVALID_IMAGE_PROTECT:
-            restart_winevdm( params );
-            return status;
-        case STATUS_CONFLICTING_ADDRESSES:
-        case STATUS_NO_MEMORY:
-        case STATUS_INVALID_IMAGE_FORMAT:
-            return status;
-        case STATUS_INVALID_IMAGE_WIN_64:
-            ERR( "%s 64-bit application not supported in 32-bit prefix\n",
-                 debugstr_us(&params->ImagePathName) );
-            break;
-        case STATUS_DLL_NOT_FOUND:
-            ERR( "%s not found\n", debugstr_us(&params->ImagePathName) );
-            break;
-        default:
-            ERR( "failed to load %s, error %x\n", debugstr_us(&params->ImagePathName), status );
-            break;
-        }
-        NtTerminateProcess( GetCurrentProcess(), status );
-    }
-
-#ifndef _WIN64
-    if (NtCurrentTeb64())
-    {
-        PEB64 *peb64 = UlongToPtr( NtCurrentTeb64()->Peb );
-        peb64->ImageBaseAddress = PtrToUlong( peb->ImageBaseAddress );
-        peb64->OSMajorVersion   = peb->OSMajorVersion;
-        peb64->OSMinorVersion   = peb->OSMinorVersion;
-        peb64->OSBuildNumber    = peb->OSBuildNumber;
-        peb64->OSPlatformId     = peb->OSPlatformId;
-        peb64->SessionId        = peb->SessionId;
-    }
-#endif
-
-    build_ntdll_module();
-
-    if ((status = load_dll( params->DllPath.Buffer, L"C:\\windows\\system32\\kernel32.dll",
-                            NULL, 0, &wm )) != STATUS_SUCCESS)
-    {
-        MESSAGE( "wine: could not load kernel32.dll, status %x\n", status );
-        NtTerminateProcess( GetCurrentProcess(), status );
-    }
-    RtlInitAnsiString( &func_name, "BaseThreadInitThunk" );
-    if ((status = LdrGetProcedureAddress( wm->ldr.DllBase, &func_name,
-                                          0, (void **)&pBaseThreadInitThunk )) != STATUS_SUCCESS)
-    {
-        MESSAGE( "wine: could not find BaseThreadInitThunk in kernel32.dll, status %x\n", status );
-        NtTerminateProcess( GetCurrentProcess(), status );
-    }
-
-    init_locale( wm->ldr.DllBase );
-
-    RtlCreateUserStack( 0, 0, 0, 0x10000, 0x10000, &stack );
-    teb->Tib.StackBase = stack.StackBase;
-    teb->Tib.StackLimit = stack.StackLimit;
-    teb->DeallocationStack = stack.DeallocationStack;
-    return STATUS_SUCCESS;
-}
-
-/***********************************************************************
  *           __wine_set_unix_funcs
  */
 NTSTATUS CDECL __wine_set_unix_funcs( int version, const struct unix_funcs *funcs )
 {
     if (version != NTDLL_UNIXLIB_VERSION) return STATUS_REVISION_MISMATCH;
     unix_funcs = funcs;
-    return process_init();
+    return STATUS_SUCCESS;
 }

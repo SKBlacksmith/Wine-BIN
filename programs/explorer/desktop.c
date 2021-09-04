@@ -857,11 +857,7 @@ static HMODULE load_graphics_driver( const WCHAR *driver, const GUID *guid )
         name = next;
     }
 
-    if (module)
-    {
-        GetModuleFileNameW( module, buffer, MAX_PATH );
-        TRACE( "display %s driver %s\n", debugstr_guid(guid), debugstr_w(buffer) );
-    }
+    TRACE( "display %s driver %s\n", debugstr_guid(guid), debugstr_w(libname) );
 
     swprintf( key, ARRAY_SIZE(key), device_keyW, guid->Data1, guid->Data2, guid->Data3,
               guid->Data4[0], guid->Data4[1], guid->Data4[2], guid->Data4[3],
@@ -872,7 +868,7 @@ static HMODULE load_graphics_driver( const WCHAR *driver, const GUID *guid )
     {
         if (module || null_driver)
             RegSetValueExW( hkey, graphics_driverW, 0, REG_SZ,
-                            (BYTE *)buffer, (lstrlenW(buffer) + 1) * sizeof(WCHAR) );
+                            (BYTE *)libname, (lstrlenW(libname) + 1) * sizeof(WCHAR) );
         else
             RegSetValueExA( hkey, "DriverError", 0, REG_SZ, (BYTE *)error, strlen(error) + 1 );
         RegCloseKey( hkey );
@@ -963,6 +959,7 @@ void manage_desktop( WCHAR *arg )
     const WCHAR *name = NULL;
     BOOL enable_shell = FALSE;
     void (WINAPI *pShellDDEInit)( BOOL ) = NULL;
+    HMODULE shell32;
 
     /* get the rest of the command line (if any) */
     while (*p && !is_whitespace(*p)) p++;
@@ -1032,20 +1029,15 @@ void manage_desktop( WCHAR *arg )
         initialize_display_settings();
         initialize_appbar();
 
-        if (graphics_driver)
+        if (using_root) enable_shell = FALSE;
+
+        initialize_systray( graphics_driver, using_root, enable_shell );
+        if (!using_root) initialize_launchers( hwnd );
+
+        if ((shell32 = LoadLibraryW( L"shell32.dll" )) &&
+            (pShellDDEInit = (void *)GetProcAddress( shell32, (LPCSTR)188)))
         {
-            HMODULE shell32;
-
-            if (using_root) enable_shell = FALSE;
-
-            initialize_systray( graphics_driver, using_root, enable_shell );
-            if (!using_root) initialize_launchers( hwnd );
-
-            if ((shell32 = LoadLibraryW( L"shell32.dll" )) &&
-                (pShellDDEInit = (void *)GetProcAddress( shell32, (LPCSTR)188)))
-            {
-                pShellDDEInit( TRUE );
-            }
+            pShellDDEInit( TRUE );
         }
     }
 
@@ -1223,6 +1215,7 @@ static HRESULT WINAPI shellwindows_Register(IShellWindows *iface,
     window->hwnd = hwnd;
     window->class = class;
     *cookie = window->cookie = ++cookie_counter;
+    window->pidl = NULL;
 
     LeaveCriticalSection(&sw->cs);
     return S_OK;

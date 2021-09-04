@@ -91,7 +91,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH DebugActiveProcess( DWORD pid )
 
     if (!set_ntstatus( DbgUiConnectToDbg() )) return FALSE;
     if (!(process = OpenProcess( PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_SUSPEND_RESUME |
-                                 PROCESS_CREATE_THREAD, FALSE, pid )))
+                                 PROCESS_QUERY_INFORMATION | PROCESS_CREATE_THREAD, FALSE, pid )))
         return FALSE;
     status = DbgUiDebugActiveProcess( process );
     NtClose( process );
@@ -741,38 +741,6 @@ HRESULT WINAPI /* DECLSPEC_HOTPATCH */ WerUnregisterRuntimeExceptionModule( cons
  ***********************************************************************/
 
 
-typedef struct _PEB32
-{
-    BOOLEAN InheritedAddressSpace;
-    BOOLEAN ReadImageFileExecOptions;
-    BOOLEAN BeingDebugged;
-    BOOLEAN SpareBool;
-    DWORD   Mutant;
-    DWORD   ImageBaseAddress;
-    DWORD   LdrData;
-} PEB32;
-
-typedef struct _LIST_ENTRY32
-{
-    DWORD Flink;
-    DWORD Blink;
-} LIST_ENTRY32;
-
-typedef struct _PEB_LDR_DATA32
-{
-    ULONG        Length;
-    BOOLEAN      Initialized;
-    DWORD        SsHandle;
-    LIST_ENTRY32 InLoadOrderModuleList;
-} PEB_LDR_DATA32;
-
-typedef struct _UNICODE_STRING32
-{
-    USHORT Length;
-    USHORT MaximumLength;
-    DWORD  Buffer;
-} UNICODE_STRING32;
-
 typedef struct _LDR_DATA_TABLE_ENTRY32
 {
     LIST_ENTRY32        InLoadOrderModuleList;
@@ -814,7 +782,7 @@ static BOOL init_module_iterator( struct module_iterator *iter, HANDLE process )
         DWORD ldr_data32, first_module;
         PEB32 *peb32;
 
-        peb32 = (PEB32 *)(DWORD_PTR)pbi.PebBaseAddress;
+        peb32 = (PEB32 *)((char *)pbi.PebBaseAddress + 0x1000);
         if (!ReadProcessMemory( process, &peb32->LdrData, &ldr_data32, sizeof(ldr_data32), NULL ))
             return FALSE;
         ldr_data32_ptr = (PEB_LDR_DATA32 *)(DWORD_PTR) ldr_data32;
@@ -1165,7 +1133,8 @@ DWORD WINAPI DECLSPEC_HOTPATCH GetMappedFileNameW( HANDLE process, void *addr, W
         SetLastError( ERROR_INVALID_PARAMETER );
         return 0;
     }
-    if (!set_ntstatus( NtQueryVirtualMemory( process, addr, MemorySectionName, mem, sizeof(buffer), NULL )))
+    if (!set_ntstatus( NtQueryVirtualMemory( process, addr, MemoryMappedFilenameInformation,
+                                             mem, sizeof(buffer), NULL )))
         return 0;
 
     len = mem->SectionFileName.Length / sizeof(WCHAR);
@@ -1536,7 +1505,8 @@ BOOL WINAPI /* DECLSPEC_HOTPATCH */ InitializeProcessForWsWatch( HANDLE process 
 BOOL WINAPI DECLSPEC_HOTPATCH QueryWorkingSet( HANDLE process, void *buffer, DWORD size )
 {
     TRACE( "(%p, %p, %d)\n", process, buffer, size );
-    return set_ntstatus( NtQueryVirtualMemory( process, NULL, MemoryWorkingSetList, buffer, size, NULL ));
+    return set_ntstatus( NtQueryVirtualMemory( process, NULL, MemoryWorkingSetInformation,
+                                               buffer, size, NULL ));
 }
 
 

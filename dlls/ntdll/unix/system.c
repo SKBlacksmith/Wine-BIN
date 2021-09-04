@@ -41,6 +41,9 @@
 #ifdef HAVE_SYS_SYSCTL_H
 # include <sys/sysctl.h>
 #endif
+#ifdef HAVE_SYS_UTSNAME_H
+# include <sys/utsname.h>
+#endif
 #ifdef HAVE_MACHINE_CPU_H
 # include <machine/cpu.h>
 #endif
@@ -201,7 +204,7 @@ static inline void do_cpuid(unsigned int ax, unsigned int cx, unsigned int *p)
 }
 
 #ifdef __i386__
-extern int have_cpuid(void);
+extern int have_cpuid(void) DECLSPEC_HIDDEN;
 __ASM_GLOBAL_FUNC( have_cpuid,
                    "pushfl\n\t"
                    "pushfl\n\t"
@@ -245,14 +248,14 @@ static void get_cpuinfo( SYSTEM_CPU_INFORMATION *info )
     unsigned int regs[4], regs2[4], regs3[4];
 
 #if defined(__i386__)
-    info->Architecture = PROCESSOR_ARCHITECTURE_INTEL;
+    info->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_INTEL;
 #elif defined(__x86_64__)
-    info->Architecture = PROCESSOR_ARCHITECTURE_AMD64;
+    info->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_AMD64;
 #endif
 
     /* We're at least a 386 */
-    info->FeatureSet = CPU_FEATURE_VME | CPU_FEATURE_X86 | CPU_FEATURE_PGE;
-    info->Level = 3;
+    info->ProcessorFeatureBits = CPU_FEATURE_VME | CPU_FEATURE_X86 | CPU_FEATURE_PGE;
+    info->ProcessorLevel = 3;
 
     if (!have_cpuid()) return;
 
@@ -260,35 +263,35 @@ static void get_cpuinfo( SYSTEM_CPU_INFORMATION *info )
     if (regs[0]>=0x00000001)   /* Check for supported cpuid version */
     {
         do_cpuid( 0x00000001, 0, regs2 ); /* get cpu features */
-        if (regs2[3] & (1 << 3 )) info->FeatureSet |= CPU_FEATURE_PSE;
-        if (regs2[3] & (1 << 4 )) info->FeatureSet |= CPU_FEATURE_TSC;
-        if (regs2[3] & (1 << 6 )) info->FeatureSet |= CPU_FEATURE_PAE;
-        if (regs2[3] & (1 << 8 )) info->FeatureSet |= CPU_FEATURE_CX8;
-        if (regs2[3] & (1 << 11)) info->FeatureSet |= CPU_FEATURE_SEP;
-        if (regs2[3] & (1 << 12)) info->FeatureSet |= CPU_FEATURE_MTRR;
-        if (regs2[3] & (1 << 15)) info->FeatureSet |= CPU_FEATURE_CMOV;
-        if (regs2[3] & (1 << 16)) info->FeatureSet |= CPU_FEATURE_PAT;
-        if (regs2[3] & (1 << 23)) info->FeatureSet |= CPU_FEATURE_MMX;
-        if (regs2[3] & (1 << 24)) info->FeatureSet |= CPU_FEATURE_FXSR;
-        if (regs2[3] & (1 << 25)) info->FeatureSet |= CPU_FEATURE_SSE;
-        if (regs2[3] & (1 << 26)) info->FeatureSet |= CPU_FEATURE_SSE2;
-        if (regs2[2] & (1 << 0 )) info->FeatureSet |= CPU_FEATURE_SSE3;
-        if (regs2[2] & (1 << 9 )) info->FeatureSet |= CPU_FEATURE_SSSE3;
-        if (regs2[2] & (1 << 13)) info->FeatureSet |= CPU_FEATURE_CX128;
-        if (regs2[2] & (1 << 19)) info->FeatureSet |= CPU_FEATURE_SSE41;
-        if (regs2[2] & (1 << 20)) info->FeatureSet |= CPU_FEATURE_SSE42;
-        if (regs2[2] & (1 << 27)) info->FeatureSet |= CPU_FEATURE_XSAVE;
-        if (regs2[2] & (1 << 28)) info->FeatureSet |= CPU_FEATURE_AVX;
+        if (regs2[3] & (1 << 3 )) info->ProcessorFeatureBits |= CPU_FEATURE_PSE;
+        if (regs2[3] & (1 << 4 )) info->ProcessorFeatureBits |= CPU_FEATURE_TSC;
+        if (regs2[3] & (1 << 6 )) info->ProcessorFeatureBits |= CPU_FEATURE_PAE;
+        if (regs2[3] & (1 << 8 )) info->ProcessorFeatureBits |= CPU_FEATURE_CX8;
+        if (regs2[3] & (1 << 11)) info->ProcessorFeatureBits |= CPU_FEATURE_SEP;
+        if (regs2[3] & (1 << 12)) info->ProcessorFeatureBits |= CPU_FEATURE_MTRR;
+        if (regs2[3] & (1 << 15)) info->ProcessorFeatureBits |= CPU_FEATURE_CMOV;
+        if (regs2[3] & (1 << 16)) info->ProcessorFeatureBits |= CPU_FEATURE_PAT;
+        if (regs2[3] & (1 << 23)) info->ProcessorFeatureBits |= CPU_FEATURE_MMX;
+        if (regs2[3] & (1 << 24)) info->ProcessorFeatureBits |= CPU_FEATURE_FXSR;
+        if (regs2[3] & (1 << 25)) info->ProcessorFeatureBits |= CPU_FEATURE_SSE;
+        if (regs2[3] & (1 << 26)) info->ProcessorFeatureBits |= CPU_FEATURE_SSE2;
+        if (regs2[2] & (1 << 0 )) info->ProcessorFeatureBits |= CPU_FEATURE_SSE3;
+        if (regs2[2] & (1 << 9 )) info->ProcessorFeatureBits |= CPU_FEATURE_SSSE3;
+        if (regs2[2] & (1 << 13)) info->ProcessorFeatureBits |= CPU_FEATURE_CX128;
+        if (regs2[2] & (1 << 19)) info->ProcessorFeatureBits |= CPU_FEATURE_SSE41;
+        if (regs2[2] & (1 << 20)) info->ProcessorFeatureBits |= CPU_FEATURE_SSE42;
+        if (regs2[2] & (1 << 27)) info->ProcessorFeatureBits |= CPU_FEATURE_XSAVE;
+        if (regs2[2] & (1 << 28)) info->ProcessorFeatureBits |= CPU_FEATURE_AVX;
         if((regs2[3] & (1 << 26)) && (regs2[3] & (1 << 24)) && have_sse_daz_mode()) /* has SSE2 and FXSAVE/FXRSTOR */
-            info->FeatureSet |= CPU_FEATURE_DAZ;
+            info->ProcessorFeatureBits |= CPU_FEATURE_DAZ;
 
         if (regs[0] >= 0x00000007)
         {
             do_cpuid( 0x00000007, 0, regs3 ); /* get extended features */
-            if (regs3[1] & (1 << 5)) info->FeatureSet |= CPU_FEATURE_AVX2;
+            if (regs3[1] & (1 << 5)) info->ProcessorFeatureBits |= CPU_FEATURE_AVX2;
         }
 
-        if (info->FeatureSet & CPU_FEATURE_XSAVE)
+        if (info->ProcessorFeatureBits & CPU_FEATURE_XSAVE)
         {
             do_cpuid( 0x0000000d, 1, regs3 ); /* get XSAVE details */
             if (regs3[0] & 2) xstate_compaction_enabled = TRUE;
@@ -296,53 +299,53 @@ static void get_cpuinfo( SYSTEM_CPU_INFORMATION *info )
 
         if (regs[1] == AUTH && regs[3] == ENTI && regs[2] == CAMD)
         {
-            info->Level = (regs2[0] >> 8) & 0xf; /* family */
-            if (info->Level == 0xf)  /* AMD says to add the extended family to the family if family is 0xf */
-                info->Level += (regs2[0] >> 20) & 0xff;
+            info->ProcessorLevel = (regs2[0] >> 8) & 0xf; /* family */
+            if (info->ProcessorLevel == 0xf)  /* AMD says to add the extended family to the family if family is 0xf */
+                info->ProcessorLevel += (regs2[0] >> 20) & 0xff;
 
             /* repack model and stepping to make a "revision" */
-            info->Revision  = ((regs2[0] >> 16) & 0xf) << 12; /* extended model */
-            info->Revision |= ((regs2[0] >> 4 ) & 0xf) << 8;  /* model          */
-            info->Revision |= regs2[0] & 0xf;                 /* stepping       */
+            info->ProcessorRevision  = ((regs2[0] >> 16) & 0xf) << 12; /* extended model */
+            info->ProcessorRevision |= ((regs2[0] >> 4 ) & 0xf) << 8;  /* model          */
+            info->ProcessorRevision |= regs2[0] & 0xf;                 /* stepping       */
 
             do_cpuid( 0x80000000, 0, regs );  /* get vendor cpuid level */
             if (regs[0] >= 0x80000001)
             {
                 do_cpuid( 0x80000001, 0, regs2 );  /* get vendor features */
-                if (regs2[2] & (1 << 2))   info->FeatureSet |= CPU_FEATURE_VIRT;
-                if (regs2[3] & (1 << 20))  info->FeatureSet |= CPU_FEATURE_NX;
-                if (regs2[3] & (1 << 27))  info->FeatureSet |= CPU_FEATURE_TSC;
-                if (regs2[3] & (1u << 31)) info->FeatureSet |= CPU_FEATURE_3DNOW;
+                if (regs2[2] & (1 << 2))   info->ProcessorFeatureBits |= CPU_FEATURE_VIRT;
+                if (regs2[3] & (1 << 20))  info->ProcessorFeatureBits |= CPU_FEATURE_NX;
+                if (regs2[3] & (1 << 27))  info->ProcessorFeatureBits |= CPU_FEATURE_TSC;
+                if (regs2[3] & (1u << 31)) info->ProcessorFeatureBits |= CPU_FEATURE_3DNOW;
             }
         }
         else if (regs[1] == GENU && regs[3] == INEI && regs[2] == NTEL)
         {
-            info->Level = ((regs2[0] >> 8) & 0xf) + ((regs2[0] >> 20) & 0xff); /* family + extended family */
-            if(info->Level == 15) info->Level = 6;
+            info->ProcessorLevel = ((regs2[0] >> 8) & 0xf) + ((regs2[0] >> 20) & 0xff); /* family + extended family */
+            if(info->ProcessorLevel == 15) info->ProcessorLevel = 6;
 
             /* repack model and stepping to make a "revision" */
-            info->Revision  = ((regs2[0] >> 16) & 0xf) << 12; /* extended model */
-            info->Revision |= ((regs2[0] >> 4 ) & 0xf) << 8;  /* model          */
-            info->Revision |= regs2[0] & 0xf;                 /* stepping       */
+            info->ProcessorRevision  = ((regs2[0] >> 16) & 0xf) << 12; /* extended model */
+            info->ProcessorRevision |= ((regs2[0] >> 4 ) & 0xf) << 8;  /* model          */
+            info->ProcessorRevision |= regs2[0] & 0xf;                 /* stepping       */
 
-            if(regs2[2] & (1 << 5))  info->FeatureSet |= CPU_FEATURE_VIRT;
-            if(regs2[3] & (1 << 21)) info->FeatureSet |= CPU_FEATURE_DS;
+            if(regs2[2] & (1 << 5))  info->ProcessorFeatureBits |= CPU_FEATURE_VIRT;
+            if(regs2[3] & (1 << 21)) info->ProcessorFeatureBits |= CPU_FEATURE_DS;
 
             do_cpuid( 0x80000000, 0, regs );  /* get vendor cpuid level */
             if (regs[0] >= 0x80000001)
             {
                 do_cpuid( 0x80000001, 0, regs2 );  /* get vendor features */
-                if (regs2[3] & (1 << 20)) info->FeatureSet |= CPU_FEATURE_NX;
-                if (regs2[3] & (1 << 27)) info->FeatureSet |= CPU_FEATURE_TSC;
+                if (regs2[3] & (1 << 20)) info->ProcessorFeatureBits |= CPU_FEATURE_NX;
+                if (regs2[3] & (1 << 27)) info->ProcessorFeatureBits |= CPU_FEATURE_TSC;
             }
         }
         else
         {
-            info->Level = (regs2[0] >> 8) & 0xf; /* family */
+            info->ProcessorLevel = (regs2[0] >> 8) & 0xf; /* family */
 
             /* repack model and stepping to make a "revision" */
-            info->Revision = ((regs2[0] >> 4 ) & 0xf) << 8;  /* model    */
-            info->Revision |= regs2[0] & 0xf;                /* stepping */
+            info->ProcessorRevision = ((regs2[0] >> 4 ) & 0xf) << 8;  /* model    */
+            info->ProcessorRevision |= regs2[0] & 0xf;                /* stepping */
         }
     }
 }
@@ -371,18 +374,18 @@ static inline void get_cpuinfo( SYSTEM_CPU_INFORMATION *info )
             if ((s = strchr( value,'\n' ))) *s = 0;
             if (!strcmp( line, "CPU architecture" ))
             {
-                info->Level = atoi(value);
+                info->ProcessorLevel = atoi(value);
                 continue;
             }
             if (!strcmp( line, "CPU revision" ))
             {
-                info->Revision = atoi(value);
+                info->ProcessorRevision = atoi(value);
                 continue;
             }
             if (!strcmp( line, "Features" ))
             {
-                if (strstr(value, "crc32")) info->FeatureSet |= CPU_FEATURE_ARM_V8_CRC32;
-                if (strstr(value, "aes"))   info->FeatureSet |= CPU_FEATURE_ARM_V8_CRYPTO;
+                if (strstr(value, "crc32")) info->ProcessorFeatureBits |= CPU_FEATURE_ARM_V8_CRC32;
+                if (strstr(value, "aes"))   info->ProcessorFeatureBits |= CPU_FEATURE_ARM_V8_CRYPTO;
                 continue;
             }
         }
@@ -395,15 +398,15 @@ static inline void get_cpuinfo( SYSTEM_CPU_INFORMATION *info )
 
     valsize = sizeof(buf);
     if (!sysctlbyname("hw.machine_arch", &buf, &valsize, NULL, 0) && sscanf(buf, "armv%i", &value) == 1)
-        info->Level = value;
+        info->ProcessorLevel = value;
 
     valsize = sizeof(value);
     if (!sysctlbyname("hw.floatingpoint", &value, &valsize, NULL, 0))
-        info->FeatureSet |= CPU_FEATURE_ARM_VFP_32;
+        info->ProcessorFeatureBits |= CPU_FEATURE_ARM_VFP_32;
 #else
     FIXME("CPU Feature detection not implemented.\n");
 #endif
-    info->Architecture = PROCESSOR_ARCHITECTURE_ARM;
+    info->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_ARM;
 }
 
 #elif defined(__aarch64__)
@@ -430,18 +433,18 @@ static void get_cpuinfo( SYSTEM_CPU_INFORMATION *info )
             if ((s = strchr( value,'\n' ))) *s = 0;
             if (!strcmp( line, "CPU architecture" ))
             {
-                info->Level = atoi(value);
+                info->ProcessorLevel = atoi(value);
                 continue;
             }
             if (!strcmp( line, "CPU revision" ))
             {
-                info->Revision = atoi(value);
+                info->ProcessorRevision = atoi(value);
                 continue;
             }
             if (!strcmp( line, "Features" ))
             {
-                if (strstr(value, "crc32")) info->FeatureSet |= CPU_FEATURE_ARM_V8_CRC32;
-                if (strstr(value, "aes"))   info->FeatureSet |= CPU_FEATURE_ARM_V8_CRYPTO;
+                if (strstr(value, "crc32")) info->ProcessorFeatureBits |= CPU_FEATURE_ARM_V8_CRC32;
+                if (strstr(value, "aes"))   info->ProcessorFeatureBits |= CPU_FEATURE_ARM_V8_CRYPTO;
                 continue;
             }
         }
@@ -450,8 +453,8 @@ static void get_cpuinfo( SYSTEM_CPU_INFORMATION *info )
 #else
     FIXME("CPU Feature detection not implemented.\n");
 #endif
-    info->Level = max(info->Level, 8);
-    info->Architecture = PROCESSOR_ARCHITECTURE_ARM64;
+    info->ProcessorLevel = max(info->ProcessorLevel, 8);
+    info->ProcessorArchitecture = PROCESSOR_ARCHITECTURE_ARM64;
 }
 
 #endif /* End architecture specific feature detection for CPUs */
@@ -574,11 +577,12 @@ void init_cpu_info(void)
 
     fill_cpu_override(num);
 
-    NtCurrentTeb()->Peb->NumberOfProcessors = cpu_override.mapping.cpu_count
+    peb->NumberOfProcessors = cpu_override.mapping.cpu_count
             ? cpu_override.mapping.cpu_count : num;
     get_cpuinfo( &cpu_info );
     TRACE( "<- CPU arch %d, level %d, rev %d, features 0x%x\n",
-           cpu_info.Architecture, cpu_info.Level, cpu_info.Revision, cpu_info.FeatureSet );
+           cpu_info.ProcessorArchitecture, cpu_info.ProcessorLevel, cpu_info.ProcessorRevision,
+           cpu_info.ProcessorFeatureBits );
 }
 
 static BOOL grow_logical_proc_buf( SYSTEM_LOGICAL_PROCESSOR_INFORMATION **pdata, DWORD *max_len )
@@ -1167,7 +1171,7 @@ static NTSTATUS create_logical_proc_info( SYSTEM_LOGICAL_PROCESSOR_INFORMATION *
     if (relation != RelationAll)
         FIXME("Relationship filtering not implemented: 0x%x\n", relation);
 
-    lcpu_no = NtCurrentTeb()->Peb->NumberOfProcessors;
+    lcpu_no = peb->NumberOfProcessors;
 
     size = sizeof(pkgs_no);
     if (sysctlbyname("hw.packages", &pkgs_no, &size, NULL, 0))
@@ -1303,6 +1307,98 @@ static NTSTATUS create_logical_proc_info( SYSTEM_LOGICAL_PROCESSOR_INFORMATION *
     return STATUS_NOT_IMPLEMENTED;
 }
 #endif
+
+static NTSTATUS create_cpuset_info(SYSTEM_CPU_SET_INFORMATION *info)
+{
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *proc_info;
+    BYTE core_index, cache_index, max_cache_level;
+    unsigned int i, j, count;
+    BYTE *proc_info_buffer;
+    DWORD cpu_info_size;
+    ULONG64 cpu_mask;
+    NTSTATUS status;
+
+    count = peb->NumberOfProcessors;
+
+    cpu_info_size = 3 * sizeof(*proc_info);
+    if (!(proc_info_buffer = malloc(cpu_info_size)))
+        return STATUS_NO_MEMORY;
+
+    if ((status = create_logical_proc_info(NULL, (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX **)&proc_info_buffer,
+            &cpu_info_size, RelationAll)))
+    {
+        free(proc_info_buffer);
+        return status;
+    }
+
+    max_cache_level = 0;
+    proc_info = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)proc_info_buffer;
+    for (i = 0; (BYTE *)proc_info != proc_info_buffer + cpu_info_size; ++i)
+    {
+        if (proc_info->Relationship == RelationCache)
+        {
+            if (max_cache_level < proc_info->u.Cache.Level)
+                max_cache_level = proc_info->u.Cache.Level;
+        }
+        proc_info = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)((BYTE *)proc_info + proc_info->Size);
+    }
+
+    memset(info, 0, count * sizeof(*info));
+
+    core_index = 0;
+    cache_index = 0;
+    proc_info = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)proc_info_buffer;
+    for (i = 0; i < count; ++i)
+    {
+        info[i].Size = sizeof(*info);
+        info[i].Type = CpuSetInformation;
+        info[i].u.CpuSet.Id = 0x100 + i;
+        info[i].u.CpuSet.LogicalProcessorIndex = i;
+    }
+
+    for (i = 0; (BYTE *)proc_info != (BYTE *)proc_info_buffer + cpu_info_size; ++i)
+    {
+        if (proc_info->Relationship == RelationProcessorCore)
+        {
+            if (proc_info->u.Processor.GroupCount != 1)
+            {
+                FIXME("Unsupported group count %u.\n", proc_info->u.Processor.GroupCount);
+                continue;
+            }
+            cpu_mask = proc_info->u.Processor.GroupMask[0].Mask;
+            for (j = 0; j < count; ++j)
+                if (((ULONG64)1 << j) & cpu_mask)
+                {
+                    info[j].u.CpuSet.CoreIndex = core_index;
+                    info[j].u.CpuSet.EfficiencyClass = proc_info->u.Processor.EfficiencyClass;
+                }
+            ++core_index;
+        }
+        else if (proc_info->Relationship == RelationCache)
+        {
+            if (proc_info->u.Cache.Level == max_cache_level)
+            {
+                cpu_mask = proc_info->u.Cache.GroupMask.Mask;
+                for (j = 0; j < count; ++j)
+                    if (((ULONG64)1 << j) & cpu_mask)
+                        info[j].u.CpuSet.LastLevelCacheIndex = cache_index;
+            }
+            ++cache_index;
+        }
+        else if (proc_info->Relationship == RelationNumaNode)
+        {
+            cpu_mask = proc_info->u.NumaNode.GroupMask.Mask;
+            for (j = 0; j < count; ++j)
+                if (((ULONG64)1 << j) & cpu_mask)
+                    info[j].u.CpuSet.NumaNodeIndex = proc_info->u.NumaNode.NodeNumber;
+        }
+        proc_info = (SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *)((BYTE *)proc_info + proc_info->Size);
+    }
+
+    free(proc_info_buffer);
+
+    return STATUS_SUCCESS;
+}
 
 #ifdef linux
 
@@ -1947,9 +2043,7 @@ static void find_reg_tz_info(RTL_DYNAMIC_TIME_ZONE_INFORMATION *tzi, const char*
 
     sprintf( buffer, "%u", year );
     ascii_to_unicode( yearW, buffer, strlen(buffer) + 1 );
-
-    nameW.Buffer = (WCHAR *)Time_ZonesW;
-    nameW.Length = sizeof(Time_ZonesW) - sizeof(WCHAR);
+    init_unicode_string( &nameW, Time_ZonesW );
     InitializeObjectAttributes( &attr, &nameW, 0, 0, NULL );
     if (NtOpenKey( &key, KEY_READ, &attr )) return;
 
@@ -2176,6 +2270,22 @@ static void get_timezone_info( RTL_DYNAMIC_TIME_ZONE_INFORMATION *tzi )
 }
 
 
+static void read_dev_urandom( void *buf, ULONG len )
+{
+    int fd = open( "/dev/urandom", O_RDONLY );
+    if (fd != -1)
+    {
+        int ret;
+        do
+        {
+            ret = read( fd, buf, len );
+        }
+        while (ret == -1 && errno == EINTR);
+        close( fd );
+    }
+    else WARN( "can't open /dev/urandom\n" );
+}
+
 /******************************************************************************
  *              NtQuerySystemInformation  (NTDLL.@)
  */
@@ -2189,11 +2299,14 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
 
     switch (class)
     {
-    case SystemBasicInformation:
+    case SystemNativeBasicInformation:  /* 114 */
+        if (!is_win64) return STATUS_INVALID_INFO_CLASS;
+        /* fall through */
+    case SystemBasicInformation:  /* 0 */
     {
         SYSTEM_BASIC_INFORMATION sbi;
 
-        virtual_get_system_info( &sbi );
+        virtual_get_system_info( &sbi, FALSE );
         len = sizeof(sbi);
         if (size == len)
         {
@@ -2204,7 +2317,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemCpuInformation:
+    case SystemCpuInformation:  /* 1 */
         if (size >= (len = sizeof(cpu_info)))
         {
             if (!info) ret = STATUS_ACCESS_VIOLATION;
@@ -2213,7 +2326,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         else ret = STATUS_INFO_LENGTH_MISMATCH;
         break;
 
-    case SystemPerformanceInformation:
+    case SystemPerformanceInformation:  /* 2 */
     {
         SYSTEM_PERFORMANCE_INFORMATION spi;
         static BOOL fixme_written = FALSE;
@@ -2233,7 +2346,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemTimeOfDayInformation:
+    case SystemTimeOfDayInformation:  /* 3 */
     {
         struct tm *tm;
         time_t now;
@@ -2258,7 +2371,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemProcessInformation:
+    case SystemProcessInformation:  /* 5 */
     {
         unsigned int process_count, i, j;
         char *buffer = NULL;
@@ -2322,6 +2435,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
                 nt_process->dwBasePriority = server_process->priority;
                 nt_process->UniqueProcessId = UlongToHandle(server_process->pid);
                 nt_process->ParentProcessId = UlongToHandle(server_process->parent_pid);
+                nt_process->SessionId = server_process->session_id;
                 nt_process->HandleCount = server_process->handle_count;
                 get_thread_times( server_process->unix_pid, -1, &nt_process->KernelTime, &nt_process->UserTime );
                 fill_vm_counters( &nt_process->vmCounters, server_process->unix_pid );
@@ -2361,7 +2475,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemProcessorPerformanceInformation:
+    case SystemProcessorPerformanceInformation:  /* 8 */
     {
         SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION *sppi = NULL;
         unsigned int cpus = 0;
@@ -2439,7 +2553,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         {
             static int i = 1;
             unsigned int n;
-            cpus = min(NtCurrentTeb()->Peb->NumberOfProcessors, out_cpus);
+            cpus = min(peb->NumberOfProcessors, out_cpus);
             FIXME("stub info_class SYSTEM_PROCESSOR_PERFORMANCE_INFORMATION\n");
             /* many programs expect these values to change so fake change */
             for (n = 0; n < cpus; n++)
@@ -2463,7 +2577,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemModuleInformation:
+    case SystemModuleInformation:  /* 11 */
     {
         /* FIXME: return some fake info for now */
         static const char *fake_modules[] =
@@ -2474,15 +2588,15 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         };
 
         ULONG i;
-        SYSTEM_MODULE_INFORMATION *smi = info;
+        RTL_PROCESS_MODULES *smi = info;
 
-        len = offsetof( SYSTEM_MODULE_INFORMATION, Modules[ARRAY_SIZE(fake_modules)] );
+        len = offsetof( RTL_PROCESS_MODULES, Modules[ARRAY_SIZE(fake_modules)] );
         if (len <= size)
         {
             memset( smi, 0, len );
             for (i = 0; i < ARRAY_SIZE(fake_modules); i++)
             {
-                SYSTEM_MODULE *sm = &smi->Modules[i];
+                RTL_PROCESS_MODULE_INFORMATION *sm = &smi->Modules[i];
                 sm->ImageBaseAddress = (char *)0x10000000 + 0x200000 * i;
                 sm->ImageSize = 0x200000;
                 sm->LoadOrderIndex = i;
@@ -2497,42 +2611,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemModuleInformationEx:
-    {
-        /* FIXME: return some fake info for now */
-        static const char *fake_modules[] =
-        {
-            "\\SystemRoot\\system32\\ntoskrnl.exe",
-            "\\SystemRoot\\system32\\hal.dll",
-            "\\SystemRoot\\system32\\drivers\\mountmgr.sys"
-        };
-
-        ULONG i;
-        RTL_PROCESS_MODULE_INFORMATION_EX *module_info = info;
-
-        len = sizeof(*module_info) * ARRAY_SIZE(fake_modules) + sizeof(module_info->NextOffset);
-        if (len <= size)
-        {
-            memset( info, 0, len );
-            for (i = 0; i < ARRAY_SIZE(fake_modules); i++)
-            {
-                SYSTEM_MODULE *sm = &module_info[i].BaseInfo;
-                sm->ImageBaseAddress = (char *)0x10000000 + 0x200000 * i;
-                sm->ImageSize = 0x200000;
-                sm->LoadOrderIndex = i;
-                sm->LoadCount = 1;
-                strcpy( (char *)sm->Name, fake_modules[i] );
-                sm->NameOffset = strrchr( fake_modules[i], '\\' ) - fake_modules[i] + 1;
-                module_info[i].NextOffset = sizeof(*module_info);
-            }
-            module_info[ARRAY_SIZE(fake_modules)].NextOffset = 0;
-        }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
-
-        break;
-    }
-
-    case SystemHandleInformation:
+    case SystemHandleInformation:  /* 16 */
     {
         struct handle_info *handle_info;
         DWORD i, num_handles;
@@ -2583,7 +2662,176 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemExtendedHandleInformation:
+    case SystemFileCacheInformation:  /* 21 */
+    {
+        SYSTEM_CACHE_INFORMATION sci = { 0 };
+
+        len = sizeof(sci);
+        if (size >= len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else memcpy( info, &sci, len);
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        FIXME("info_class SYSTEM_CACHE_INFORMATION\n");
+        break;
+    }
+
+    case SystemInterruptInformation: /* 23 */
+    {
+        len = peb->NumberOfProcessors * sizeof(SYSTEM_INTERRUPT_INFORMATION);
+        if (size >= len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else
+            {
+#ifdef HAVE_GETRANDOM
+                int ret;
+                do
+                {
+                    ret = getrandom( info, len, 0 );
+                }
+                while (ret == -1 && errno == EINTR);
+
+                if (ret == -1 && errno == ENOSYS) read_dev_urandom( info, len );
+#else
+                read_dev_urandom( info, len );
+#endif
+            }
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
+    case SystemTimeAdjustmentInformation:  /* 28 */
+    {
+        SYSTEM_TIME_ADJUSTMENT_QUERY query = { 156250, 156250, TRUE };
+
+        len = sizeof(query);
+        if (size == len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else memcpy( info, &query, len );
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
+    case SystemKernelDebuggerInformation:  /* 35 */
+    {
+        SYSTEM_KERNEL_DEBUGGER_INFORMATION skdi;
+
+        skdi.DebuggerEnabled = FALSE;
+        skdi.DebuggerNotPresent = TRUE;
+        len = sizeof(skdi);
+        if (size >= len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else memcpy( info, &skdi, len);
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
+    case SystemRegistryQuotaInformation:  /* 37 */
+    {
+        /* Something to do with the size of the registry             *
+         * Since we don't have a size limitation, fake it            *
+         * This is almost certainly wrong.                           *
+         * This sets each of the three words in the struct to 32 MB, *
+         * which is enough to make the IE 5 installer happy.         */
+        SYSTEM_REGISTRY_QUOTA_INFORMATION srqi;
+
+        srqi.RegistryQuotaAllowed = 0x2000000;
+        srqi.RegistryQuotaUsed = 0x200000;
+        srqi.Reserved1 = (void*)0x200000;
+        len = sizeof(srqi);
+
+        if (size >= len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else
+            {
+                FIXME("SystemRegistryQuotaInformation: faking max registry size of 32 MB\n");
+                memcpy( info, &srqi, len);
+            }
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
+    case SystemCurrentTimeZoneInformation:  /* 44 */
+    {
+        RTL_DYNAMIC_TIME_ZONE_INFORMATION tz;
+
+        get_timezone_info( &tz );
+        len = sizeof(RTL_TIME_ZONE_INFORMATION);
+        if (size >= len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else memcpy( info, &tz, len);
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
+    case SystemExtendedProcessInformation:  /* 57 */
+        FIXME("SystemExtendedProcessInformation, size %u, info %p, stub!\n", size, info);
+        memset( info, 0, size );
+        ret = STATUS_SUCCESS;
+        break;
+
+    case SystemRecommendedSharedDataAlignment:  /* 58 */
+    {
+        len = sizeof(DWORD);
+        if (size >= len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else
+            {
+#ifdef __arm__
+                *((DWORD *)info) = 32;
+#else
+                *((DWORD *)info) = 64;
+#endif
+            }
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
+    case SystemEmulationBasicInformation:  /* 62 */
+    {
+        SYSTEM_BASIC_INFORMATION sbi;
+
+        virtual_get_system_info( &sbi, !!NtCurrentTeb()->WowTebOffset );
+        len = sizeof(sbi);
+        if (size == len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else memcpy( info, &sbi, len);
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
+    case SystemEmulationProcessorInformation:  /* 63 */
+        if (size >= (len = sizeof(cpu_info)))
+        {
+            SYSTEM_CPU_INFORMATION cpu = cpu_info;
+            if (is_win64)
+            {
+                if (cpu_info.ProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64)
+                    cpu.ProcessorArchitecture = PROCESSOR_ARCHITECTURE_INTEL;
+                else if (cpu_info.ProcessorArchitecture == PROCESSOR_ARCHITECTURE_ARM64)
+                    cpu.ProcessorArchitecture = PROCESSOR_ARCHITECTURE_ARM;
+            }
+            memcpy(info, &cpu, len);
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+
+    case SystemExtendedHandleInformation:  /* 64 */
     {
         struct handle_info *handle_info;
         DWORD i, num_handles;
@@ -2635,135 +2883,13 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemCacheInformation:
-    {
-        SYSTEM_CACHE_INFORMATION sci = { 0 };
-
-        len = sizeof(sci);
-        if (size >= len)
-        {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else memcpy( info, &sci, len);
-        }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
-        FIXME("info_class SYSTEM_CACHE_INFORMATION\n");
-        break;
-    }
-
-    case SystemInterruptInformation:
-    {
-        len = NtCurrentTeb()->Peb->NumberOfProcessors * sizeof(SYSTEM_INTERRUPT_INFORMATION);
-        if (size >= len)
-        {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else
-            {
-#ifdef HAVE_GETRANDOM
-                int ret;
-                do
-                {
-                    ret = getrandom( info, len, 0 );
-                }
-                while (ret == -1 && errno == EINTR);
-#else
-                int fd = open( "/dev/urandom", O_RDONLY );
-                if (fd != -1)
-                {
-                    int ret;
-                    do
-                    {
-                        ret = read( fd, info, len );
-                    }
-                    while (ret == -1 && errno == EINTR);
-                    close( fd );
-                }
-                else WARN( "can't open /dev/urandom\n" );
-#endif
-            }
-        }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
-        break;
-    }
-
-    case SystemTimeAdjustmentInformation:
-    {
-        SYSTEM_TIME_ADJUSTMENT_QUERY query = { 156250, 156250, TRUE };
-
-        len = sizeof(query);
-        if (size == len)
-        {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else memcpy( info, &query, len );
-        }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
-        break;
-    }
-
-    case SystemKernelDebuggerInformation:
-    {
-        SYSTEM_KERNEL_DEBUGGER_INFORMATION skdi;
-
-        skdi.DebuggerEnabled = FALSE;
-        skdi.DebuggerNotPresent = TRUE;
-        len = sizeof(skdi);
-        if (size >= len)
-        {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else memcpy( info, &skdi, len);
-        }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
-        break;
-    }
-
-    case SystemRegistryQuotaInformation:
-    {
-        /* Something to do with the size of the registry             *
-         * Since we don't have a size limitation, fake it            *
-         * This is almost certainly wrong.                           *
-         * This sets each of the three words in the struct to 32 MB, *
-         * which is enough to make the IE 5 installer happy.         */
-        SYSTEM_REGISTRY_QUOTA_INFORMATION srqi;
-
-        srqi.RegistryQuotaAllowed = 0x2000000;
-        srqi.RegistryQuotaUsed = 0x200000;
-        srqi.Reserved1 = (void*)0x200000;
-        len = sizeof(srqi);
-
-        if (size >= len)
-        {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else
-            {
-                FIXME("SystemRegistryQuotaInformation: faking max registry size of 32 MB\n");
-                memcpy( info, &srqi, len);
-            }
-        }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
-        break;
-    }
-
-    case SystemTimeZoneInformation:
-    {
-        RTL_DYNAMIC_TIME_ZONE_INFORMATION tz;
-
-        get_timezone_info( &tz );
-        len = sizeof(RTL_TIME_ZONE_INFORMATION);
-        if (size >= len)
-        {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else memcpy( info, &tz, len);
-        }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
-        break;
-    }
-
-    case SystemLogicalProcessorInformation:
+    case SystemLogicalProcessorInformation:  /* 73 */
     {
         SYSTEM_LOGICAL_PROCESSOR_INFORMATION *buf;
 
         /* Each logical processor may use up to 7 entries in returned table:
          * core, numa node, package, L1i, L1d, L2, L3 */
-        len = 7 * NtCurrentTeb()->Peb->NumberOfProcessors;
+        len = 7 * peb->NumberOfProcessors;
         buf = malloc( len * sizeof(*buf) );
         if (!buf)
         {
@@ -2784,26 +2910,7 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemRecommendedSharedDataAlignment:
-    {
-        len = sizeof(DWORD);
-        if (size >= len)
-        {
-            if (!info) ret = STATUS_ACCESS_VIOLATION;
-            else
-            {
-#ifdef __arm__
-                *((DWORD *)info) = 32;
-#else
-                *((DWORD *)info) = 64;
-#endif
-            }
-        }
-        else ret = STATUS_INFO_LENGTH_MISMATCH;
-        break;
-    }
-
-    case SystemFirmwareTableInformation:
+    case SystemFirmwareTableInformation:  /* 76 */
     {
         SYSTEM_FIRMWARE_TABLE_INFORMATION *sfti = info;
         len = FIELD_OFFSET(SYSTEM_FIRMWARE_TABLE_INFORMATION, TableBuffer);
@@ -2826,7 +2933,42 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemDynamicTimeZoneInformation:
+    case SystemModuleInformationEx:  /* 77 */
+    {
+        /* FIXME: return some fake info for now */
+        static const char *fake_modules[] =
+        {
+            "\\SystemRoot\\system32\\ntoskrnl.exe",
+            "\\SystemRoot\\system32\\hal.dll",
+            "\\SystemRoot\\system32\\drivers\\mountmgr.sys"
+        };
+
+        ULONG i;
+        RTL_PROCESS_MODULE_INFORMATION_EX *module_info = info;
+
+        len = sizeof(*module_info) * ARRAY_SIZE(fake_modules) + sizeof(module_info->NextOffset);
+        if (len <= size)
+        {
+            memset( info, 0, len );
+            for (i = 0; i < ARRAY_SIZE(fake_modules); i++)
+            {
+                RTL_PROCESS_MODULE_INFORMATION *sm = &module_info[i].BaseInfo;
+                sm->ImageBaseAddress = (char *)0x10000000 + 0x200000 * i;
+                sm->ImageSize = 0x200000;
+                sm->LoadOrderIndex = i;
+                sm->LoadCount = 1;
+                strcpy( (char *)sm->Name, fake_modules[i] );
+                sm->NameOffset = strrchr( fake_modules[i], '\\' ) - fake_modules[i] + 1;
+                module_info[i].NextOffset = sizeof(*module_info);
+            }
+            module_info[ARRAY_SIZE(fake_modules)].NextOffset = 0;
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+
+        break;
+    }
+
+    case SystemDynamicTimeZoneInformation:  /* 102 */
     {
         RTL_DYNAMIC_TIME_ZONE_INFORMATION tz;
 
@@ -2841,11 +2983,55 @@ NTSTATUS WINAPI NtQuerySystemInformation( SYSTEM_INFORMATION_CLASS class,
         break;
     }
 
-    case SystemExtendedProcessInformation:
-        FIXME("SystemExtendedProcessInformation, size %u, info %p, stub!\n", size, info);
-        memset( info, 0, size );
-        ret = STATUS_SUCCESS;
+    case SystemCodeIntegrityInformation:  /* 103 */
+    {
+        SYSTEM_CODEINTEGRITY_INFORMATION *integrity_info = info;
+
+        FIXME("SystemCodeIntegrityInformation, size %u, info %p, stub!\n", size, info);
+
+        len = sizeof(SYSTEM_CODEINTEGRITY_INFORMATION);
+
+        if (size < len)
+            integrity_info->CodeIntegrityOptions = CODEINTEGRITY_OPTION_ENABLED;
+        else
+            ret = STATUS_INFO_LENGTH_MISMATCH;
         break;
+    }
+
+    case SystemKernelDebuggerInformationEx:  /* 149 */
+    {
+        SYSTEM_KERNEL_DEBUGGER_INFORMATION_EX skdi;
+
+        skdi.DebuggerAllowed = FALSE;
+        skdi.DebuggerEnabled = FALSE;
+        skdi.DebuggerPresent = FALSE;
+
+        len = sizeof(skdi);
+        if (size >= len)
+        {
+            if (!info) ret = STATUS_ACCESS_VIOLATION;
+            else memcpy( info, &skdi, len );
+        }
+        else ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
+
+    case SystemCpuSetInformation:  /* 175 */
+        return NtQuerySystemInformationEx(class, NULL, 0, info, size, ret_size);
+
+    /* Wine extensions */
+
+    case SystemWineVersionInformation:  /* 1000 */
+    {
+        static const char version[] = PACKAGE_VERSION;
+        struct utsname buf;
+
+        uname( &buf );
+        len = strlen(version) + strlen(wine_build) + strlen(buf.sysname) + strlen(buf.release) + 4;
+        snprintf( info, size, "%s%c%s%c%s%c%s", version, 0, wine_build, 0, buf.sysname, 0, buf.release );
+        if (size < len) ret = STATUS_INFO_LENGTH_MISMATCH;
+        break;
+    }
 
     default:
 	FIXME( "(0x%08x,%p,0x%08x,%p) stub\n", class, info, size, ret_size );
@@ -2903,6 +3089,69 @@ NTSTATUS WINAPI NtQuerySystemInformationEx( SYSTEM_INFORMATION_CLASS class,
             else ret = STATUS_INFO_LENGTH_MISMATCH;
         }
         free( buf );
+        break;
+    }
+
+    case SystemCpuSetInformation:
+    {
+        unsigned int cpu_count = peb->NumberOfProcessors;
+        PROCESS_BASIC_INFORMATION pbi;
+        HANDLE process;
+
+        if (!query || query_len < sizeof(HANDLE))
+            return STATUS_INVALID_PARAMETER;
+
+        process = *(HANDLE *)query;
+        if (process && (ret = NtQueryInformationProcess(process, ProcessBasicInformation, &pbi, sizeof(pbi), NULL)))
+            return ret;
+
+        if (size < (len = cpu_count * sizeof(SYSTEM_CPU_SET_INFORMATION)))
+        {
+            ret = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+        if (!info)
+            return STATUS_ACCESS_VIOLATION;
+
+        if ((ret = create_cpuset_info(info)))
+            return ret;
+        break;
+    }
+
+    case SystemSupportedProcessorArchitectures:
+    {
+        HANDLE process;
+        ULONG i;
+        USHORT machine = 0;
+
+        if (!query || query_len < sizeof(HANDLE)) return STATUS_INVALID_PARAMETER;
+        process = *(HANDLE *)query;
+        if (process)
+        {
+            SERVER_START_REQ( get_process_info )
+            {
+                req->handle = wine_server_obj_handle( process );
+                if (!(ret = wine_server_call( req ))) machine = reply->machine;
+            }
+            SERVER_END_REQ;
+            if (ret) return ret;
+        }
+
+        len = (supported_machines_count + 1) * sizeof(ULONG);
+        if (size < len)
+        {
+            ret = STATUS_BUFFER_TOO_SMALL;
+            break;
+        }
+        for (i = 0; i < supported_machines_count; i++)
+        {
+            USHORT flags = 2;  /* supported (?) */
+            if (!i) flags |= 5;  /* native machine (?) */
+            if (supported_machines[i] == machine) flags |= 8;  /* current machine */
+            ((DWORD *)info)[i] = MAKELONG( supported_machines[i], flags );
+        }
+        ((DWORD *)info)[i] = 0;
+        ret = STATUS_SUCCESS;
         break;
     }
 
@@ -3202,7 +3451,7 @@ NTSTATUS WINAPI NtPowerInformation( POWER_INFORMATION_LEVEL level, void *input, 
         int i, out_cpus;
 
         if ((output == NULL) || (out_size == 0)) return STATUS_INVALID_PARAMETER;
-        out_cpus = NtCurrentTeb()->Peb->NumberOfProcessors;
+        out_cpus = peb->NumberOfProcessors;
         if ((out_size / sizeof(PROCESSOR_POWER_INFORMATION)) < out_cpus) return STATUS_BUFFER_TOO_SMALL;
 #if defined(linux)
         {

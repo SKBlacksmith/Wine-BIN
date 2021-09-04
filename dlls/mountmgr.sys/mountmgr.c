@@ -285,124 +285,48 @@ static NTSTATUS define_unix_drive( const void *in_buff, SIZE_T insize )
     }
 }
 
-/* implementation of IOCTL_MOUNTMGR_QUERY_UNIX_DRIVE */
-static NTSTATUS query_unix_drive( void *buff, SIZE_T insize,
-                                  SIZE_T outsize, IO_STATUS_BLOCK *iosb )
-{
-    const struct mountmgr_unix_drive *input = buff;
-    struct mountmgr_unix_drive *output = NULL;
-    char *device, *mount_point;
-    int letter = tolowerW( input->letter );
-    NTSTATUS status;
-    DWORD size, type = DEVICE_UNKNOWN, serial;
-    enum mountmgr_fs_type fs_type;
-    enum device_type device_type;
-    char *ptr;
-    WCHAR *label;
-
-    if (!letter)
-    {
-        if ((status = query_unix_device( input->unix_dev, &device_type, &fs_type,
-                                         &serial, &device, &mount_point, &label )))
-            return status;
-    }
-    else
-    {
-        if (letter < 'a' || letter > 'z') return STATUS_INVALID_PARAMETER;
-
-        if ((status = query_dos_device( letter - 'a', &device_type, &fs_type, &serial, &device,
-                                        &mount_point, &label )))
-            return status;
-    }
-
-    switch (device_type)
-    {
-    case DEVICE_UNKNOWN:      type = DRIVE_UNKNOWN; break;
-    case DEVICE_HARDDISK:     type = DRIVE_REMOVABLE; break;
-    case DEVICE_HARDDISK_VOL: type = DRIVE_FIXED; break;
-    case DEVICE_FLOPPY:       type = DRIVE_REMOVABLE; break;
-    case DEVICE_CDROM:        type = DRIVE_CDROM; break;
-    case DEVICE_DVD:          type = DRIVE_CDROM; break;
-    case DEVICE_NETWORK:      type = DRIVE_REMOTE; break;
-    case DEVICE_RAMDISK:      type = DRIVE_RAMDISK; break;
-    }
-
-    size = sizeof(*output);
-    if (label) size += (strlenW(label) + 1) * sizeof(WCHAR);
-    if (device) size += strlen(device) + 1;
-    if (mount_point) size += strlen(mount_point) + 1;
-
-    input = NULL;
-    output = buff;
-    output->size = size;
-    output->letter = letter;
-    output->type = type;
-    output->fs_type = fs_type;
-    output->serial = serial;
-    output->mount_point_offset = 0;
-    output->device_offset = 0;
-    output->label_offset = 0;
-
-    ptr = (char *)(output + 1);
-
-    if (label && ptr + (strlenW(label) + 1) * sizeof(WCHAR) - (char *)output <= outsize)
-    {
-        output->label_offset = ptr - (char *)output;
-        strcpyW( (WCHAR *)ptr, label );
-        ptr += (strlenW(label) + 1) * sizeof(WCHAR);
-    }
-    if (mount_point && ptr + strlen(mount_point) + 1 - (char *)output <= outsize)
-    {
-        output->mount_point_offset = ptr - (char *)output;
-        strcpy( ptr, mount_point );
-        ptr += strlen(ptr) + 1;
-    }
-    if (device && ptr + strlen(device) + 1 - (char *)output <= outsize)
-    {
-        output->device_offset = ptr - (char *)output;
-        strcpy( ptr, device );
-        ptr += strlen(ptr) + 1;
-    }
-
-    TRACE( "returning %c: dev %s mount %s type %u\n",
-           letter, debugstr_a(device), debugstr_a(mount_point), type );
-
-    iosb->Information = ptr - (char *)output;
-    if (size > outsize) status = STATUS_BUFFER_OVERFLOW;
-
-    RtlFreeHeap( GetProcessHeap(), 0, device );
-    RtlFreeHeap( GetProcessHeap(), 0, mount_point );
-    RtlFreeHeap( GetProcessHeap(), 0, label );
-    return status;
-}
-
 /* implementation of IOCTL_MOUNTMGR_QUERY_DHCP_REQUEST_PARAMS */
-static NTSTATUS query_dhcp_request_params( void *buff, SIZE_T insize,
-                                           SIZE_T outsize, IO_STATUS_BLOCK *iosb )
+static void WINAPI query_dhcp_request_params( TP_CALLBACK_INSTANCE *instance, void *context )
 {
-    struct mountmgr_dhcp_request_params *query = buff;
-    ULONG i, offset;
+    IRP *irp = context;
+    struct mountmgr_dhcp_request_params *query = irp->AssociatedIrp.SystemBuffer;
+    IO_STACK_LOCATION *irpsp = IoGetCurrentIrpStackLocation( irp );
+    SIZE_T insize = irpsp->Parameters.DeviceIoControl.InputBufferLength;
+    SIZE_T outsize = irpsp->Parameters.DeviceIoControl.OutputBufferLength;
+    ULONG i, offset = 0;
 
     /* sanity checks */
-    if (FIELD_OFFSET(struct mountmgr_dhcp_request_params, params[query->count]) > insize ||
-        !memchrW( query->adapter, 0, ARRAY_SIZE(query->adapter) )) return STATUS_INVALID_PARAMETER;
+    if (FIELD_OFFSET(struct mountmgr_dhcp_request_params, params[query->count]) > insize)
+    {
+        irp->IoStatus.u.Status = STATUS_INVALID_PARAMETER;
+        goto err;
+    }
+
     for (i = 0; i < query->count; i++)
-        if (query->params[i].offset + query->params[i].size > insize) return STATUS_INVALID_PARAMETER;
+        if (query->params[i].offset + query->params[i].size > insize)
+        {
+            irp->IoStatus.u.Status = STATUS_INVALID_PARAMETER;
+            goto err;
+        }
+
 
     offset = FIELD_OFFSET(struct mountmgr_dhcp_request_params, params[query->count]);
     for (i = 0; i < query->count; i++)
     {
-        offset += get_dhcp_request_param( query->adapter, &query->params[i], buff, offset, outsize - offset );
+        offset += get_dhcp_request_param( &query->adapter, &query->params[i], (char *)query, offset, outsize - offset );
         if (offset > outsize)
         {
             if (offset >= sizeof(query->size)) query->size = offset;
-            iosb->Information = sizeof(query->size);
-            return STATUS_MORE_ENTRIES;
+            offset = sizeof(query->size);
+            irp->IoStatus.u.Status = STATUS_MORE_ENTRIES;
+            goto err;
         }
     }
+    irp->IoStatus.u.Status = STATUS_SUCCESS;
 
-    iosb->Information = offset;
-    return STATUS_SUCCESS;
+err:
+    irp->IoStatus.Information = offset;
+    IoCompleteRequest( irp, IO_NO_INCREMENT );
 }
 
 /* implementation of Wine extension to use host APIs to find symbol file by GUID */
@@ -1020,10 +944,10 @@ static NTSTATUS WINAPI mountmgr_ioctl( DEVICE_OBJECT *device, IRP *irp )
             status = STATUS_INVALID_PARAMETER;
             break;
         }
-        status = query_dhcp_request_params( irp->AssociatedIrp.SystemBuffer,
-                                            irpsp->Parameters.DeviceIoControl.InputBufferLength,
-                                            irpsp->Parameters.DeviceIoControl.OutputBufferLength,
-                                            &irp->IoStatus );
+
+        if (TrySubmitThreadpoolCallback( query_dhcp_request_params, irp, NULL ))
+            return (irp->IoStatus.u.Status = STATUS_PENDING);
+        status = STATUS_NO_MEMORY;
         break;
 #ifdef __APPLE__
     case IOCTL_MOUNTMGR_QUERY_SYMBOL_FILE:

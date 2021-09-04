@@ -251,9 +251,8 @@ static void update_x11_clipping( X11DRV_PDEVICE *physDev, HRGN rgn )
     }
     else if ((data = X11DRV_GetRegionData( rgn, 0 )))
     {
-        fs_hack_rgndata_user_to_real(data);
         XSetClipRectangles( gdi_display, physDev->gc, physDev->dc_rect.left, physDev->dc_rect.top,
-                            (XRectangle *)data->Buffer, data->rdh.nCount, Unsorted );
+                            (XRectangle *)data->Buffer, data->rdh.nCount, YXBanded );
         HeapFree( GetProcessHeap(), 0, data );
     }
 }
@@ -1075,7 +1074,7 @@ BOOL CDECL X11DRV_PaintRgn( PHYSDEV dev, HRGN hrgn )
 /**********************************************************************
  *          X11DRV_Polygon
  */
-BOOL CDECL X11DRV_Polygon( PHYSDEV dev, const POINT* pt, INT count )
+static BOOL X11DRV_Polygon( PHYSDEV dev, const POINT* pt, INT count )
 {
     X11DRV_PDEVICE *physDev = get_x11drv_dev( dev );
     int i;
@@ -1123,6 +1122,8 @@ BOOL CDECL X11DRV_PolyPolygon( PHYSDEV dev, const POINT* pt, const INT* counts, 
     DWORD total = 0, max = 0, pos, i;
     POINT *points;
     BOOL ret = FALSE;
+
+    if (polygons == 1) return X11DRV_Polygon( dev, pt, *counts );
 
     for (i = 0; i < polygons; i++)
     {

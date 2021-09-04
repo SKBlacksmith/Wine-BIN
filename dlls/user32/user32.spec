@@ -445,6 +445,7 @@
 @ stdcall InsertMenuItemA(long long long ptr)
 @ stdcall InsertMenuItemW(long long long ptr)
 @ stdcall InsertMenuW(long long long long ptr)
+@ stdcall InternalGetWindowIcon(ptr long)
 @ stdcall InternalGetWindowText(long ptr long)
 @ stdcall IntersectRect(ptr ptr ptr)
 @ stdcall InvalidateRect(long ptr long)
@@ -611,7 +612,7 @@
 @ stdcall RegisterTasklist (long)
 @ stdcall RegisterTouchHitTestingWindow(long long)
 @ stdcall RegisterTouchWindow(long long)
-# @ stub RegisterUserApiHook
+@ stdcall RegisterUserApiHook(ptr ptr)
 @ stdcall RegisterWindowMessageA(str)
 @ stdcall RegisterWindowMessageW(wstr)
 @ stdcall ReleaseCapture()
@@ -783,7 +784,7 @@
 # @ stub UnregisterMessagePumpHook
 @ stdcall UnregisterPowerSettingNotification(ptr)
 @ stdcall UnregisterTouchWindow(long)
-# @ stub UnregisterUserApiHook
+@ stdcall UnregisterUserApiHook()
 @ stdcall UpdateLayeredWindow(long long ptr ptr long ptr long ptr long)
 @ stdcall UpdateLayeredWindowIndirect(long ptr)
 @ stub UpdatePerUserSystemParameters
@@ -834,5 +835,5 @@
 # All functions must be prefixed with '__wine_' (for internal functions)
 # or 'wine_' (for user-visible functions) to avoid namespace conflicts.
 #
-@ cdecl __wine_send_input(long ptr long)
+@ cdecl __wine_send_input(long ptr ptr)
 @ cdecl __wine_set_pixel_format(long long)

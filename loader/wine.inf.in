@@ -30,7 +30,7 @@ signature="$CHICAGO$"
 RegisterDlls=RegisterDllsSection
 WineFakeDlls=FakeDllsWin32,FakeDlls
 UpdateInis=SystemIni
-CopyFiles=ColorFiles,InfFiles,NlsFiles,SortFiles
+CopyFiles=ColorFiles,EtcFiles,InfFiles,NlsFiles,SortFiles
 AddReg=\
     Classes,\
     ContentIndex,\
@@ -54,7 +54,7 @@ AddReg=\
 RegisterDlls=RegisterDllsSection
 WineFakeDlls=FakeDllsWin32,FakeDlls
 UpdateInis=SystemIni
-CopyFiles=ColorFiles,InfFiles,NlsFiles,SortFiles
+CopyFiles=ColorFiles,EtcFiles,InfFiles,NlsFiles,SortFiles
 AddReg=\
     Classes,\
     ContentIndex,\
@@ -67,6 +67,7 @@ AddReg=\
     Misc,\
     Nls,\
     OLE,\
+    Packages,\
     Printing,\
     Services, \
     SessionMgr,\
@@ -74,14 +75,15 @@ AddReg=\
     Timezones,\
     VersionInfo,\
     LicenseInformation, \
-    SteamClient
+    SteamClient, \
+    NVIDIANGX
 
 [DefaultInstall.ntamd64]
 RegisterDlls=RegisterDllsSection
 WineFakeDlls=FakeDllsWin64,FakeDlls
 WinePreInstall=Wow64
 UpdateInis=SystemIni
-CopyFiles=ColorFiles,InfFiles,NlsFiles,SortFiles
+CopyFiles=ColorFiles,EtcFiles,InfFiles,NlsFiles,SortFiles
 AddReg=\
     Classes,\
     ContentIndex,\
@@ -95,6 +97,7 @@ AddReg=\
     Misc,\
     Nls,\
     OLE,\
+    Packages.ntamd64,\
     Printing,\
     Services, \
     SessionMgr,\
@@ -102,14 +105,15 @@ AddReg=\
     Timezones,\
     VersionInfo.ntamd64,\
     LicenseInformation, \
-    SteamClient.ntamd64
+    SteamClient.ntamd64, \
+    NVIDIANGX
 
 [DefaultInstall.ntarm64]
 RegisterDlls=RegisterDllsSection
 WineFakeDlls=FakeDllsWin64,FakeDlls
 WinePreInstall=Wow64
 UpdateInis=SystemIni
-CopyFiles=ColorFiles,InfFiles,NlsFiles,SortFiles
+CopyFiles=ColorFiles,EtcFiles,InfFiles,NlsFiles,SortFiles
 AddReg=\
     Classes,\
     ContentIndex,\
@@ -123,6 +127,7 @@ AddReg=\
     Misc,\
     Nls,\
     OLE,\
+    Packages.ntarm64,\
     Printing,\
     Services, \
     SessionMgr,\
@@ -142,10 +147,12 @@ AddReg=\
     DirectX,\
     MCI,\
     Misc,\
+    Packages.wow64,\
     Tapi,\
     VersionInfo.ntamd64,\
     LicenseInformation, \
-    SteamClient.ntamd64
+    SteamClient.ntamd64, \
+    NVIDIANGX
 
 [Wow64Install.ntarm64]
 WineFakeDlls=FakeDllsWin32
@@ -168,6 +175,7 @@ AddService=Schedule,0,TaskSchedulerService
 AddService=Winmgmt,0,WinmgmtService
 AddService=wuauserv,0,wuauService
 AddService=NDIS,0x800,NDISService
+AddService=nsiproxy,0x800,NsiProxyService
 
 [DefaultInstall.NT.Services]
 AddService=BITS,0,BITSService
@@ -187,6 +195,7 @@ AddService=Schedule,0,TaskSchedulerService
 AddService=Winmgmt,0,WinmgmtService
 AddService=wuauserv,0,wuauService
 AddService=NDIS,0x800,NDISService
+AddService=nsiproxy,0x800,NsiProxyService
 
 [DefaultInstall.ntamd64.Services]
 AddService=BITS,0,BITSService
@@ -206,6 +215,7 @@ AddService=Schedule,0,TaskSchedulerService
 AddService=Winmgmt,0,WinmgmtService
 AddService=wuauserv,0,wuauService
 AddService=NDIS,0x800,NDISService
+AddService=nsiproxy,0x800,NsiProxyService
 
 [DefaultInstall.ntarm64.Services]
 AddService=BITS,0,BITSService
@@ -225,6 +235,7 @@ AddService=Schedule,0,TaskSchedulerService
 AddService=Winmgmt,0,WinmgmtService
 AddService=wuauserv,0,wuauService
 AddService=NDIS,0x800,NDISService
+AddService=nsiproxy,0x800,NsiProxyService
 
 [Strings]
 MciExtStr="Software\Microsoft\Windows NT\CurrentVersion\MCI Extensions"
@@ -233,6 +244,7 @@ CurrentVersion="Software\Microsoft\Windows\CurrentVersion"
 CurrentVersionNT="Software\Microsoft\Windows NT\CurrentVersion"
 FontSubStr="Software\Microsoft\Windows NT\CurrentVersion\FontSubstitutes"
 Control="System\CurrentControlSet\Control"
+Packages="Software\Classes\Local Settings\Software\Microsoft\Windows\CurrentVersion\AppModel\PackageRepository\Packages"
 FontsNT="Software\Microsoft\Windows NT\CurrentVersion\Fonts"
 
 [Classes]
@@ -250,7 +262,7 @@ HKCR,.wri,,2,"wrifile"
 HKCR,*\shellex\ContextMenuHandlers,,16
 HKCR,chm.file,,2,"Compiled HTML Help File"
 HKCR,chm.file\DefaultIcon,,2,"%10%\hh.exe,0"
-HKCR,chm.file\shell\open\command,,2,"%10%\hh.exe %1"
+HKCR,chm.file\shell\open\command,,2,"""%10%\hh.exe"" ""%1"""
 HKCR,cplfile,,2,"Control Panel Item"
 HKCR,cplfile\shell\cplopen,,2,"Open with Control Panel"
 HKCR,cplfile\shell\cplopen\command,,2,"rundll32.exe shell32.dll,Control_RunDLL ""%1"",%*"
@@ -263,13 +275,13 @@ HKCR,folder\shell\open\ddeexec,"NoActivateHandler",2,""
 HKCR,folder\shell\open\ddeexec\application,,2,"Folders"
 HKCR,folder\shellex\ContextMenuHandlers,,16
 HKCR,hlpfile,,2,"Help File"
-HKCR,hlpfile\shell\open\command,,2,"%11%\winhlp32.exe %1"
-HKCR,htmlfile\shell\open\command,,2,"""%11%\winebrowser.exe"" %1"
+HKCR,hlpfile\shell\open\command,,2,"""%11%\winhlp32.exe"" ""%1"""
+HKCR,htmlfile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
 HKCR,inffile,,2,"Setup Information"
 HKCR,inffile\shell\install\command,,2,"%11%\rundll32.exe setupapi,InstallHinfSection DefaultInstall 132 %1"
 HKCR,inifile,,2,"Configuration Settings"
-HKCR,inifile\shell\open\command,,2,"%11%\notepad.exe %1"
-HKCR,inifile\shell\print\command,,2,"%11%\notepad.exe /p %1"
+HKCR,inifile\shell\open\command,,2,"""%11%\notepad.exe"" ""%1"""
+HKCR,inifile\shell\print\command,,2,"""%11%\notepad.exe"" /p ""%1"""
 HKCR,lnkfile,,2,"Shortcut"
 HKCR,lnkfile,"NeverShowExt",2,""
 HKCR,lnkfile,"IsShortcut",2,"yes"
@@ -286,21 +298,21 @@ HKCR,Msi.Patch,,2,"Windows Installer Patch"
 HKCR,Msi.Patch\DefaultIcon,,2,"msiexec.exe"
 HKCR,Msi.Patch\shell\Open\command,,2,"%11%\msiexec.exe /p ""%1"""
 HKCR,pdffile,,2,"PDF Document"
-HKCR,pdffile\shell\open\command,,2,"""%11%\winebrowser.exe"" %1"
+HKCR,pdffile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
 HKCR,rtffile,,2,"Rich Text Document"
-HKCR,rtffile\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" %1"
-HKCR,rtffile\shell\print\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" /p %1"
+HKCR,rtffile\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" ""%1"""
+HKCR,rtffile\shell\print\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" /p ""%1"""
 HKCR,txtfile,,2,"Text Document"
-HKCR,txtfile\shell\open\command,,2,"%11%\notepad.exe %1"
-HKCR,txtfile\shell\print\command,,2,"%11%\notepad.exe /p %1"
-HKCR,wrifile\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" %1"
-HKCR,wrifile\shell\print\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" /p %1"
+HKCR,txtfile\shell\open\command,,2,"""%11%\notepad.exe"" ""%1"""
+HKCR,txtfile\shell\print\command,,2,"""%11%\notepad.exe"" /p ""%1"""
+HKCR,wrifile\shell\open\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" ""%1"""
+HKCR,wrifile\shell\print\command,,2,"""%16422%\Windows NT\Accessories\wordpad.exe"" /p ""%1"""
 HKCR,xmlfile,,2,"XML Document"
-HKCR,xmlfile\shell\open\command,,2,"""%11%\winebrowser.exe"" %1"
-HKCR,ftp\shell\open\command,,2,"""%11%\winebrowser.exe"" %1"
-HKCR,http\shell\open\command,,2,"""%11%\winebrowser.exe"" %1"
-HKCR,https\shell\open\command,,2,"""%11%\winebrowser.exe"" %1"
-HKCR,mailto\shell\open\command,,2,"%11%\winebrowser %1"
+HKCR,xmlfile\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+HKCR,ftp\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+HKCR,http\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+HKCR,https\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
+HKCR,mailto\shell\open\command,,2,"""%11%\winebrowser.exe"" ""%1"""
 HKCR,steam\shell\open\command,,,"""%16426%\Steam\Steam.exe"" -- ""%1"""
 
 HKCR,MIME\Database\Charset\_iso-2022-jp$ESC,"Codepage",0x10003,932
@@ -621,14 +633,12 @@ HKLM,%Control%\Session Manager,HeapDeCommitFreeBlockThreshold,0x00040002,0
 HKLM,%Control%\Session Manager,HeapDeCommitTotalFreeThreshold,0x00040002,0
 HKLM,%Control%\Session Manager,HeapSegmentCommit,0x00040002,0
 HKLM,%Control%\Session Manager,HeapSegmentReserve,0x00040002,0
-HKLM,%Control%\Session Manager\Environment,"ComSpec",0x00020000,"%11%\cmd.exe"
-HKLM,%Control%\Session Manager\Environment,"PATH",0x00020002,"%11%;%10%;%11%\wbem;%11%\WindowsPowershell\v1.0"
-HKLM,%Control%\Session Manager\Environment,"PATHEXT",,".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH"
-HKLM,%Control%\Session Manager\Environment,"SystemDrive",2,"c:"
-HKLM,%Control%\Session Manager\Environment,"SYSTEMROOT",,"%10%"
-HKLM,%Control%\Session Manager\Environment,"TEMP",0x00020002,"%10%\temp"
-HKLM,%Control%\Session Manager\Environment,"TMP",0x00020002,"%10%\temp"
-HKLM,%Control%\Session Manager\Environment,"windir",0x00020000,"%10%"
+HKLM,%Control%\Session Manager\Environment,"ComSpec",0x00020000,"%SystemRoot%\system32\cmd.exe"
+HKLM,%Control%\Session Manager\Environment,"PATH",0x00020002,"%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\system32\wbem;%SystemRoot%\system32\WindowsPowershell\v1.0"
+HKLM,%Control%\Session Manager\Environment,"PATHEXT",,".com;.exe;.bat;.cmd;.vbs;.vbe;.js;.jse;.wsf;.wsh"
+HKLM,%Control%\Session Manager\Environment,"TEMP",0x00020002,"%SystemRoot%\temp"
+HKLM,%Control%\Session Manager\Environment,"TMP",0x00020002,"%SystemRoot%\temp"
+HKLM,%Control%\Session Manager\Environment,"windir",0x00020000,"%SystemRoot%"
 HKLM,%Control%\Session Manager\Environment,"winsysdir",,"%11%"
 HKLM,%Control%\Session Manager\Memory Management,PagingFiles,,"%24%\pagefile.sys 27 77"
 HKLM,%Control%\Session Manager\Memory Management,WriteWatch,0x00040002,1
@@ -700,11 +710,6 @@ HKLM,%MciExtStr%,"wmx",,"MPEGVideo"
 HKLM,%MciExtStr%,"wvx",,"MPEGVideo"
 
 [Misc]
-HKLM,Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.Gaming.Input.Gamepad,"DllPath",2,"Windows.Gaming.Input.dll"
-HKLM,Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.Gaming.Input.RawGameController,"DllPath",2,"Windows.Gaming.Input.dll"
-HKLM,Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.Media.SpeechSynthesis.SpeechSynthesizer,"DllPath",2,"Windows.Media.Speech.dll"
-HKLM,Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.Media.Devices.MediaDevice,"DllPath",2,"Windows.Media.Devices.dll"
-HKLM,Software\Microsoft\WindowsRuntime\ActivatableClassId\Windows.System.UserProfile.GlobalizationPreferences,"DllPath",2,"Windows.Globalization.dll"
 HKLM,Software\Borland\Database Engine\Settings\SYSTEM\INIT,SHAREDMEMLOCATION,,9000
 HKLM,Software\Clients\Mail,,2,"Native Mail Client"
 HKLM,Software\Clients\Mail\Native Mail Client,,2,"Native Mail Client"
@@ -744,6 +749,7 @@ HKLM,Software\Registered Applications,,16
 HKLM,System\CurrentControlSet\Control\hivelist,,16
 HKLM,System\CurrentControlSet\Control\Lsa,"Security Packages",0x10002,kerberos,schannel
 HKLM,System\CurrentControlSet\Control\Lsa\Kerberos,,16
+HKLM,System\CurrentControlSet\Control\Lsa\MSV1_0,,16
 HKLM,System\CurrentControlSet\Control\SecurityProviders\Schannel\Protocols\SSL 2.0\Client,"DisabledByDefault",0x10003,1
 HKLM,System\CurrentControlSet\Control\ServiceGroupOrder,"List",0x00010000,"TDI"
 HKLM,System\CurrentControlSet\Control\TimeZoneInformation,"StandardName",2,""
@@ -1104,6 +1110,18 @@ HKLM,System\CurrentControlSet\Control\Nls\Locale\Alternate Sorts,"00030404",,"9"
 [OLE]
 HKLM,"Software\Microsoft\OLE","EnableDCOM",,"Y"
 HKLM,"Software\Microsoft\OLE","EnableRemoteConnect",,"N"
+
+[Packages]
+HKLM,"%Packages%\Microsoft.VCLibs.140.00_14.0.29231.0_x86__8wekyb3d8bbwe","Path",0x00020002,"%SystemRoot%\system32"
+
+[Packages.ntamd64]
+HKLM,"%Packages%\Microsoft.VCLibs.140.00_14.0.29231.0_x64__8wekyb3d8bbwe","Path",0x00020002,"%SystemRoot%\system32"
+
+[Packages.wow64]
+HKLM,"%Packages%\Microsoft.VCLibs.140.00_14.0.29231.0_x86__8wekyb3d8bbwe","Path",0x00020002,"%SystemRoot%\syswow64"
+
+[Packages.arm64]
+HKLM,"%Packages%\Microsoft.VCLibs.140.00_14.0.29231.0_arm64__8wekyb3d8bbwe","Path",0x00020002,"%SystemRoot%\system32"
 
 [Printing]
 HKLM,%Control%\Print\Monitors\Local Port,"Driver",2,"localspl.dll"
@@ -2602,7 +2620,9 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 11,,ddhelp.exe
 11,,dosx.exe
 11,,dsound.vxd
+11,,start.exe
 11,,winhlp32.exe
+52,win40\0,wineps16.drv,wineps16.drv16
 
 ; 64bit-only fake dlls
 [FakeDllsWin64]
@@ -2624,19 +2644,6 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 10,syswow64,stdole2.tlb
 11,,iexplore.exe
 11,,winetest.exe,-
-12,,fltmgr.sys,-
-12,,hidclass.sys,-
-12,,http.sys,-
-12,,ksecdd.sys,-
-12,,mountmgr.sys,-
-12,,ndis.sys,-
-12,,netio.sys,-
-12,,scsiport.sys,-
-12,,tdi.sys,-
-12,,usbd.sys,-
-12,,winebus.sys,-
-12,,winehid.sys,-
-12,,wineusb.sys,-
 ; skip .NET fake dlls in Wine Mono package
 11,,aspnet_regiis.exe,-
 11,,ngen.exe,-
@@ -2646,6 +2653,11 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 11,,regasm.exe,-
 11,,servicemodelreg.exe,-
 11,,presentationfontcache.exe,-
+; some programs are 64-bit only
+11,,conhost.exe,-
+11,,services.exe,-
+11,,spoolsv.exe,-
+11,,winemenubuilder.exe,-
 ; registration order matters for these
 11,,msxml.dll
 11,,msxml2.dll
@@ -2659,6 +2671,9 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 16427,System\OLE DB,oledb32.dll
 16427,System\OLE DB,msdaps.dll
 16427,System\ADO,msado15.dll
+66000,3,wineps.drv
+12,,*.sys,-
+11,,*.msstyles,-
 11,,*
 
 [FakeDlls]
@@ -2679,19 +2694,8 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 11,,iexplore.exe
 11,,notepad.exe
 11,,winetest.exe,-
-12,,fltmgr.sys
-12,,hidclass.sys
-12,,http.sys
-12,,ksecdd.sys
-12,,mountmgr.sys
-12,,ndis.sys
-12,,netio.sys
-12,,scsiport.sys
-12,,tdi.sys
-12,,usbd.sys
-12,,winebus.sys
-12,,winehid.sys
-12,,wineusb.sys
+; themes
+10,resources\themes\light,light.msstyles
 ; skip .NET fake dlls in Wine Mono package
 11,,aspnet_regiis.exe,-
 11,,ngen.exe,-
@@ -2726,6 +2730,8 @@ HKLM,%CurrentVersion%\Telephony\Country List\998,"SameAreaRule",,"G"
 16427,System\OLE DB,oledb32.dll
 16427,System\OLE DB,msdaps.dll
 16427,System\ADO,msado15.dll
+66000,3,wineps.drv
+12,,*.sys
 11,,*
 
 [SystemIni]
@@ -3800,6 +3806,7 @@ ErrorControl=1
 LoadOrderGroup="System Bus Extender"
 
 [NDISService]
+AddReg=NDISServiceKeys
 Description="NDIS service"
 DisplayName="NDIS"
 ServiceBinary="%12%\ndis.sys"
@@ -3807,6 +3814,22 @@ ServiceType=1
 StartType=2
 ErrorControl=1
 LoadOrderGroup="System Bus Extender"
+
+[NDISServiceKeys]
+HKR,,"Tag",0x10001,2
+
+[NsiProxyService]
+AddReg=NsiProxyServiceKeys
+Description="NSI proxy service"
+DisplayName="NSI Proxy"
+ServiceBinary="%12%\nsiproxy.sys"
+ServiceType=1
+StartType=2
+ErrorControl=1
+LoadOrderGroup="System Bus Extender"
+
+[NsiProxyServiceKeys]
+HKR,,"Tag",0x10001,1
 
 [RpcSsService]
 Description="RPC service"
@@ -3935,15 +3958,13 @@ ErrorControl=1
 [Services]
 HKLM,"System\CurrentControlSet\Services\Eventlog\Application",,16
 HKLM,"System\CurrentControlSet\Services\Eventlog\System","Sources",0x10000,""
-HKLM,"System\CurrentControlSet\Services\Tcpip\Parameters","DataBasePath",2,"%11%\drivers"
+HKLM,"System\CurrentControlSet\Services\Tcpip\Parameters","DataBasePath",,"%12%\etc"
 HKLM,"System\CurrentControlSet\Services\VxD\MSTCP",,16
 HKLM,"System\CurrentControlSet\Services\Winsock\Parameters",,16
 HKLM,"System\CurrentControlSet\Services\Winsock2\Parameters\Protocol_Catalog9\Catalog_Entries",,16
 
 [VersionInfo]
 HKLM,%CurrentVersionNT%,"CurrentVersion",2,"10.0"
-HKLM,%CurrentVersionNT%,"CurrentMajorVersionNumber",0x10001,10
-HKLM,%CurrentVersionNT%,"CurrentMinorVersionNumber",0x10001,0
 HKLM,%CurrentVersionNT%,"CSDVersion",2,""
 HKLM,%CurrentVersionNT%,"CurrentBuild",2,"17763"
 HKLM,%CurrentVersionNT%,"CurrentBuildNumber",2,"17763"
@@ -4055,12 +4076,37 @@ HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-SpiderSolitaire-EnableGa
 HKLM,Software\Wine\LicenseInformation,"Shell-PremiumInBoxGames-Chess-EnableGame",0x10001,0x00000001
 
 [ColorFiles]
-srgb color space profile.icm,"@mscms.dll,-1"
+srgb color space profile.icm,"@%11%\mscms.dll,-1"
+
+[EtcFiles]
+hosts,"@%11%\ws2_32.dll,-1"
+networks,"@%11%\ws2_32.dll,-2"
+protocol,"@%11%\ws2_32.dll,-3"
+services,"@%11%\ws2_32.dll,-4"
 
 [InfFiles]
-winebus.inf,"@winebus.sys,-1"
-winehid.inf,"@winehid.sys,-1"
-wineusb.inf,"@wineusb.sys,-1"
+winebus.inf,"@%12%\winebus.sys,-1"
+winehid.inf,"@%12%\winehid.sys,-1"
+wineusb.inf,"@%12%\wineusb.sys,-1"
+
+[SteamClient]
+HKCU,Software\Valve\Steam,"SteamPath",,"%16422%\Steam"
+HKCU,Software\Valve\Steam,"SteamExe",,"%16422%\Steam\Steam.exe"
+HKCU,Software\Valve\Steam\ActiveProcess,"PID",0x10001,0x0000fffe
+HKCU,Software\Valve\Steam\ActiveProcess,"SteamClientDll",,"%16422%\Steam\steamclient.dll"
+HKCU,Software\Valve\Steam\ActiveProcess,"SteamPath",,"%16422%\Steam"
+
+[SteamClient.ntamd64]
+HKCU,Software\Valve\Steam,"SteamPath",,"%16422%\Steam"
+HKCU,Software\Valve\Steam,"SteamExe",,"%16422%\Steam\Steam.exe"
+HKCU,Software\Valve\Steam\ActiveProcess,"PID",0x10001,0x0000fffe
+HKCU,Software\Valve\Steam\ActiveProcess,"SteamClientDll",,"%16426%\Steam\steamclient.dll"
+HKCU,Software\Valve\Steam\ActiveProcess,"SteamClientDll64",,"%16426%\Steam\steamclient64.dll"
+HKCU,Software\Valve\Steam\ActiveProcess,"SteamPath",,"%16426%\Steam"
+HKLM,Software\Wow6432Node\Valve\Steam,"InstallPath",,"%16422%\Steam"
+
+[NVIDIANGX]
+HKLM,Software\NVIDIA Corporation\Global\NGXCore,"FullPath",,"C:\Windows\System32"
 
 [NlsFiles]
 c_037.nls
@@ -4094,6 +4140,7 @@ c_1361.nls
 c_20127.nls
 c_20866.nls
 c_20932.nls
+c_20949.nls
 c_21866.nls
 c_28591.nls
 c_28592.nls
@@ -4109,6 +4156,7 @@ c_28605.nls
 c_437.nls
 c_500.nls
 c_708.nls
+c_720.nls
 c_737.nls
 c_775.nls
 c_850.nls
@@ -4145,95 +4193,7 @@ SortFiles = nls
 
 [DestinationDirs]
 ColorFiles = 23
+EtcFiles  = 12,etc
 InfFiles  = 17
 NlsFiles  = 11
 SortFiles = 10,globalization\sorting
-
-[SteamClient]
-HKCU,Software\Valve\Steam,"SteamPath",,"%16422%\Steam"
-HKCU,Software\Valve\Steam,"SteamExe",,"%16422%\Steam\Steam.exe"
-HKCU,Software\Valve\Steam\ActiveProcess,"PID",0x10001,0x0000fffe
-HKCU,Software\Valve\Steam\ActiveProcess,"SteamClientDll",,"%16422%\Steam\steamclient.dll"
-HKCU,Software\Valve\Steam\ActiveProcess,"SteamPath",,"%16422%\Steam"
-;;Likely want *80 and *90 too, but those require removing Wine's manifest files.
-HKCU,Software\Wine\DllOverrides,"atl100",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcp100",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcr100",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcomp100",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"atl110",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcp110",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcr110",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcomp110",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"atl120",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcp120",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcr120",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcomp120",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-conio-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-heap-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-locale-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-math-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-runtime-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-stdio-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-time-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"atl140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"concrt140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcp140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcr140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"ucrtbase",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcomp140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcruntime140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"atiadlxx",,"disabled"
-
-[SteamClient.ntamd64]
-HKCU,Software\Valve\Steam,"SteamPath",,"%16422%\Steam"
-HKCU,Software\Valve\Steam,"SteamExe",,"%16422%\Steam\Steam.exe"
-HKCU,Software\Valve\Steam\ActiveProcess,"PID",0x10001,0x0000fffe
-HKCU,Software\Valve\Steam\ActiveProcess,"SteamClientDll",,"%16426%\Steam\steamclient.dll"
-HKCU,Software\Valve\Steam\ActiveProcess,"SteamClientDll64",,"%16426%\Steam\steamclient64.dll"
-HKCU,Software\Valve\Steam\ActiveProcess,"SteamPath",,"%16426%\Steam"
-HKLM,Software\Wow6432Node\Valve\Steam,"InstallPath",,"%16422%\Steam"
-HKLM,Software\Khronos\OpenXR\1,"ActiveRuntime",,"C:\openxr\wineopenxr64.json"
-HKCU,Software\Wine\AppDefaults\NewColossus_x64vk.exe\DllOverrides,"amd_ags_x64",0x2,"builtin,native"
-HKCU,Software\Wine\AppDefaults\RDR2.exe\DllOverrides,"amd_ags_x64",0x2,"builtin,native"
-HKCU,Software\Wine\AppDefaults\DarkSoulsIII.exe\X11 Driver,"LimitNumberOfResolutions",0x2,"32"
-HKCU,Software\Wine\AppDefaults\sekiro.exe\X11 Driver,"LimitNumberOfResolutions",0x2,"32"
-HKCU,Software\Wine\AppDefaults\NieRAutomata.exe\X11 Driver,"LimitNumberOfResolutions",0x2,"32"
-HKCU,Software\Wine\AppDefaults\SpellForce.exe\X11 Driver,"LimitNumberOfResolutions",0x2,"16"
-HKCU,Software\Wine\AppDefaults\s2_sp64_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\Wine\AppDefaults\s2_mp64_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\Wine\AppDefaults\h1_sp64_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\Wine\AppDefaults\h1_mp64_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\Wine\AppDefaults\iw7_ship.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\Wine\AppDefaults\BlackOps3.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\Wine\AppDefaults\NFS16.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\Wine\AppDefaults\ShadowOfWar.exe\DllOverrides,"atiadlxx",,"builtin"
-HKCU,Software\Wine\AppDefaults\ShadowOfWar.exe\DllOverrides,"amd_ags_x64",,""
-HKCU,Software\Wine\AppDefaults\DIRT5.exe\DllOverrides,"atiadlxx",,"builtin"
-;;Likely want *80 and *90 too, but those require removing Wine's manifest files.
-HKCU,Software\Wine\DllOverrides,"atl100",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcp100",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcr100",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcomp100",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"atl110",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcp110",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcr110",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcomp110",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"atl120",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcp120",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcr120",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcomp120",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-conio-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-heap-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-locale-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-math-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-runtime-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-stdio-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"api-ms-win-crt-time-l1-1-0",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"atl140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"concrt140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcp140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"msvcr140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"ucrtbase",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcomp140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"vcruntime140",0x2,"native,builtin"
-HKCU,Software\Wine\DllOverrides,"atiadlxx",,"disabled"

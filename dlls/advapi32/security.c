@@ -101,7 +101,7 @@ static const AccountSid ACCOUNT_SIDS[] = {
     { WinBuiltinPreWindows2000CompatibleAccessSid, L"Pre-Windows 2000 Compatible Access", L"BUILTIN", SidTypeAlias },
     { WinBuiltinRemoteDesktopUsersSid, L"Remote Desktop Users", L"BUILTIN", SidTypeAlias },
     { WinBuiltinNetworkConfigurationOperatorsSid, L"Network Configuration Operators", L"BUILTIN", SidTypeAlias },
-    { WinNTLMAuthenticationSid, L"NTML Authentication", L"NT AUTHORITY", SidTypeWellKnownGroup },
+    { WinNTLMAuthenticationSid, L"NTLM Authentication", L"NT AUTHORITY", SidTypeWellKnownGroup },
     { WinDigestAuthenticationSid, L"Digest Authentication", L"NT AUTHORITY", SidTypeWellKnownGroup },
     { WinSChannelAuthenticationSid, L"SChannel Authentication", L"NT AUTHORITY", SidTypeWellKnownGroup },
     { WinThisOrganizationSid, L"This Organization", L"NT AUTHORITY", SidTypeWellKnownGroup },
@@ -2314,8 +2314,7 @@ DWORD WINAPI SetEntriesInAclW( ULONG count, PEXPLICIT_ACCESSW pEntries,
                             add = FALSE;
                         break;
                     case ACCESS_DENIED_ACE_TYPE:
-                        if (EqualSid(ppsid[j], &((ACCESS_DENIED_ACE *)old_ace_header)->SidStart))
-                            add = FALSE;
+                        /* REVOKE_ACCESS does not affect ACCESS_DENIED_ACE. */
                         break;
                     case SYSTEM_AUDIT_ACE_TYPE:
                         if (EqualSid(ppsid[j], &((SYSTEM_AUDIT_ACE *)old_ace_header)->SidStart))

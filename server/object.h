@@ -219,7 +219,6 @@ extern struct keyed_event *create_keyed_event( struct object *root, const struct
                                                unsigned int attr, const struct security_descriptor *sd );
 extern struct event *get_event_obj( struct process *process, obj_handle_t handle, unsigned int access );
 extern struct keyed_event *get_keyed_event_obj( struct process *process, obj_handle_t handle, unsigned int access );
-extern void pulse_event( struct event *event );
 extern void set_event( struct event *event );
 extern void reset_event( struct event *event );
 
@@ -243,9 +242,26 @@ extern void generate_startup_debug_events( struct process *process );
 
 /* registry functions */
 
-extern unsigned int get_prefix_cpu_mask(void);
+extern unsigned int supported_machines_count;
+extern unsigned short supported_machines[8];
+extern unsigned short native_machine;
 extern void init_registry(void);
 extern void flush_registry(void);
+
+static inline int is_machine_32bit( unsigned short machine )
+{
+    return machine == IMAGE_FILE_MACHINE_I386 || machine == IMAGE_FILE_MACHINE_ARMNT;
+}
+static inline int is_machine_64bit( unsigned short machine )
+{
+    return machine == IMAGE_FILE_MACHINE_AMD64 || machine == IMAGE_FILE_MACHINE_ARM64;
+}
+static inline int is_machine_supported( unsigned short machine )
+{
+    unsigned int i;
+    for (i = 0; i < supported_machines_count; i++) if (supported_machines[i] == machine) return 1;
+    return 0;
+}
 
 /* signal functions */
 
@@ -267,10 +283,6 @@ extern struct object *get_root_directory(void);
 extern struct object *get_directory_obj( struct process *process, obj_handle_t handle );
 extern int directory_link_name( struct object *obj, struct object_name *name, struct object *parent );
 extern void init_directories( struct fd *intl_fd );
-
-/* thread functions */
-
-extern void init_threading(void);
 
 /* symbolic link functions */
 

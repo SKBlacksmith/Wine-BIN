@@ -72,20 +72,17 @@
 #include "winternl.h"
 #include "ddk/d3dkmthk.h"
 
-#include "gdi_private.h"
+#include "ntgdi_private.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(bitmap);
 
 
-static HGDIOBJ DIB_SelectObject( HGDIOBJ handle, HDC hdc );
 static INT DIB_GetObject( HGDIOBJ handle, INT count, LPVOID buffer );
 static BOOL DIB_DeleteObject( HGDIOBJ handle );
 
 static const struct gdi_obj_funcs dib_funcs =
 {
-    DIB_SelectObject,  /* pSelectObject */
-    DIB_GetObject,     /* pGetObjectA */
     DIB_GetObject,     /* pGetObjectW */
     NULL,              /* pUnrealizeObject */
     DIB_DeleteObject   /* pDeleteObject */
@@ -264,7 +261,7 @@ static int fill_color_table_from_palette( BITMAPINFO *info, HDC hdc )
     if (!palette) return 0;
 
     memset( palEntry, 0, sizeof(palEntry) );
-    if (!GetPaletteEntries( palette, 0, colors, palEntry ))
+    if (!get_palette_entries( palette, 0, colors, palEntry ))
         return 0;
 
     for (i = 0; i < colors; i++)
@@ -288,7 +285,7 @@ BOOL fill_color_table_from_pal_colors( BITMAPINFO *info, HDC hdc )
 
     if (!colors) return TRUE;
     if (!(palette = GetCurrentObject( hdc, OBJ_PAL ))) return FALSE;
-    if (!(count = GetPaletteEntries( palette, 0, colors, entries ))) return FALSE;
+    if (!(count = get_palette_entries( palette, 0, colors, entries ))) return FALSE;
 
     for (i = 0; i < colors; i++, index++)
     {
@@ -332,8 +329,8 @@ static BOOL build_rle_bitmap( BITMAPINFO *info, struct gdi_image_bits *bits, HRG
 
     if (clip)
     {
-        *clip = CreateRectRgn( 0, 0, 0, 0 );
-        run   = CreateRectRgn( 0, 0, 0, 0 );
+        *clip = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+        run   = NtGdiCreateRectRgn( 0, 0, 0, 0 );
         if (!*clip || !run) goto fail;
     }
 
@@ -377,8 +374,8 @@ static BOOL build_rle_bitmap( BITMAPINFO *info, struct gdi_image_bits *bits, HRG
             {
                 if(left != right && clip)
                 {
-                    SetRectRgn( run, left, y, right, y + 1 );
-                    CombineRgn( *clip, run, *clip, RGN_OR );
+                    NtGdiSetRectRgn( run, left, y, right, y + 1 );
+                    NtGdiCombineRgn( *clip, run, *clip, RGN_OR );
                 }
                 switch (data)
                 {
@@ -495,7 +492,7 @@ INT CDECL nulldrv_StretchDIBits( PHYSDEV dev, INT xDst, INT yDst, INT widthDst, 
     dst.width  = rect.right - rect.left;
     dst.height = rect.bottom - rect.top;
 
-    if (dc->layout & LAYOUT_RTL && rop & NOMIRRORBITMAP)
+    if (dc->attr->layout & LAYOUT_RTL && rop & NOMIRRORBITMAP)
     {
         dst.x += dst.width;
         dst.width = -dst.width;
@@ -565,7 +562,7 @@ INT CDECL nulldrv_StretchDIBits( PHYSDEV dev, INT xDst, INT yDst, INT widthDst, 
 
     if (!intersect_vis_rectangles( &dst, &src )) goto done;
 
-    if (clip) OffsetRgn( clip, dst.x - src.x, dst.y - src.y );
+    if (clip) NtGdiOffsetRgn( clip, dst.x - src.x, dst.y - src.y );
 
     dev = GET_DC_PHYSDEV( dc, pPutImage );
     copy_bitmapinfo( dst_info, src_info );
@@ -595,7 +592,7 @@ INT CDECL nulldrv_StretchDIBits( PHYSDEV dev, INT xDst, INT yDst, INT widthDst, 
     if (err == ERROR_TRANSFORM_NOT_SUPPORTED)
     {
         copy_bitmapinfo( src_info, dst_info );
-        err = stretch_bits( src_info, &src, dst_info, &dst, &src_bits, dc->stretchBltMode );
+        err = stretch_bits( src_info, &src, dst_info, &dst, &src_bits, dc->attr->stretch_blt_mode );
         if (!err) err = dev->funcs->pPutImage( dev, NULL, dst_info, &src_bits, &src, &dst, rop );
     }
     if (err) ret = 0;
@@ -607,12 +604,12 @@ done:
 }
 
 /***********************************************************************
- *           StretchDIBits   (GDI32.@)
+ *           NtGdiStretchDIBitsInternal   (win32u.@)
  */
-INT WINAPI DECLSPEC_HOTPATCH StretchDIBits( HDC hdc, INT xDst, INT yDst, INT widthDst, INT heightDst,
-                                            INT xSrc, INT ySrc, INT widthSrc, INT heightSrc,
-                                            const void *bits, const BITMAPINFO *bmi, UINT coloruse,
-                                            DWORD rop )
+INT WINAPI NtGdiStretchDIBitsInternal( HDC hdc, INT xDst, INT yDst, INT widthDst, INT heightDst,
+                                       INT xSrc, INT ySrc, INT widthSrc, INT heightSrc,
+                                       const void *bits, const BITMAPINFO *bmi, UINT coloruse,
+                                       DWORD rop, UINT max_info, UINT max_bits, HANDLE xform )
 {
     char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
     BITMAPINFO *info = (BITMAPINFO *)buffer;
@@ -695,7 +692,7 @@ INT WINAPI SetDIBits( HDC hdc, HBITMAP hbitmap, UINT startscan,
 
     if (coloruse == DIB_PAL_COLORS && !fill_color_table_from_pal_colors( src_info, hdc )) return 0;
 
-    if (!(bitmap = GDI_GetObjPtr( hbitmap, OBJ_BITMAP ))) return 0;
+    if (!(bitmap = GDI_GetObjPtr( hbitmap, NTGDI_OBJ_BITMAP ))) return 0;
 
     if (src_info->bmiHeader.biCompression == BI_RLE4 || src_info->bmiHeader.biCompression == BI_RLE8)
     {
@@ -849,7 +846,7 @@ INT CDECL nulldrv_SetDIBitsToDevice( PHYSDEV dev, INT x_dst, INT y_dst, DWORD cx
     dst.y = pt.y;
     dst.width = cx;
     dst.height = cy;
-    if (dc->layout & LAYOUT_RTL) dst.x -= cx - 1;
+    if (dc->attr->layout & LAYOUT_RTL) dst.x -= cx - 1;
 
     rect.left = dst.x;
     rect.top = dst.y;
@@ -862,7 +859,7 @@ INT CDECL nulldrv_SetDIBitsToDevice( PHYSDEV dev, INT x_dst, INT y_dst, DWORD cx
     src.visrect = dst.visrect = rect;
     offset_rect( &src.visrect, src.x - dst.x, src.y - dst.y );
     if (is_rect_empty( &dst.visrect )) goto done;
-    if (clip) OffsetRgn( clip, dst.x - src.x, dst.y - src.y );
+    if (clip) NtGdiOffsetRgn( clip, dst.x - src.x, dst.y - src.y );
 
     dev = GET_DC_PHYSDEV( dc, pPutImage );
     copy_bitmapinfo( dst_info, src_info );
@@ -881,12 +878,13 @@ done:
 }
 
 /***********************************************************************
- *           SetDIBitsToDevice   (GDI32.@)
+ *           NtGdiSetDIBitsToDeviceInternal   (win32u.@)
  */
-INT WINAPI SetDIBitsToDevice(HDC hdc, INT xDest, INT yDest, DWORD cx,
-                           DWORD cy, INT xSrc, INT ySrc, UINT startscan,
-                           UINT lines, LPCVOID bits, const BITMAPINFO *bmi,
-                           UINT coloruse )
+INT WINAPI NtGdiSetDIBitsToDeviceInternal( HDC hdc, INT xDest, INT yDest, DWORD cx,
+                                           DWORD cy, INT xSrc, INT ySrc, UINT startscan,
+                                           UINT lines, const void *bits, const BITMAPINFO *bmi,
+                                           UINT coloruse, UINT max_bits, UINT max_info,
+                                           BOOL xform_coords, HANDLE xform )
 {
     char buffer[FIELD_OFFSET( BITMAPINFO, bmiColors[256] )];
     BITMAPINFO *info = (BITMAPINFO *)buffer;
@@ -912,10 +910,7 @@ INT WINAPI SetDIBitsToDevice(HDC hdc, INT xDest, INT yDest, DWORD cx,
     return ret;
 }
 
-/***********************************************************************
- *           SetDIBColorTable    (GDI32.@)
- */
-UINT WINAPI SetDIBColorTable( HDC hdc, UINT startpos, UINT entries, const RGBQUAD *colors )
+UINT set_dib_dc_color_table( HDC hdc, UINT startpos, UINT entries, const RGBQUAD *colors )
 {
     DC * dc;
     UINT i, result = 0;
@@ -923,7 +918,7 @@ UINT WINAPI SetDIBColorTable( HDC hdc, UINT startpos, UINT entries, const RGBQUA
 
     if (!(dc = get_dc_ptr( hdc ))) return 0;
 
-    if ((bitmap = GDI_GetObjPtr( dc->hBitmap, OBJ_BITMAP )))
+    if ((bitmap = GDI_GetObjPtr( dc->hBitmap, NTGDI_OBJ_BITMAP )))
     {
         if (startpos < bitmap->dib.dsBmih.biClrUsed)
         {
@@ -940,10 +935,10 @@ UINT WINAPI SetDIBColorTable( HDC hdc, UINT startpos, UINT entries, const RGBQUA
 
         if (result)  /* update colors of selected objects */
         {
-            SetTextColor( hdc, dc->textColor );
-            SetBkColor( hdc, dc->backgroundColor );
-            SelectObject( hdc, dc->hPen );
-            SelectObject( hdc, dc->hBrush );
+            SetTextColor( hdc, dc->attr->text_color );
+            SetBkColor( hdc, dc->attr->background_color );
+            NtGdiSelectPen( hdc, dc->hPen );
+            NtGdiSelectBrush( hdc, dc->hBrush );
         }
     }
     release_dc_ptr( dc );
@@ -951,10 +946,7 @@ UINT WINAPI SetDIBColorTable( HDC hdc, UINT startpos, UINT entries, const RGBQUA
 }
 
 
-/***********************************************************************
- *           GetDIBColorTable    (GDI32.@)
- */
-UINT WINAPI GetDIBColorTable( HDC hdc, UINT startpos, UINT entries, RGBQUAD *colors )
+UINT get_dib_dc_color_table( HDC hdc, UINT startpos, UINT entries, RGBQUAD *colors )
 {
     DC * dc;
     BITMAPOBJ *bitmap;
@@ -962,7 +954,7 @@ UINT WINAPI GetDIBColorTable( HDC hdc, UINT startpos, UINT entries, RGBQUAD *col
 
     if (!(dc = get_dc_ptr( hdc ))) return 0;
 
-    if ((bitmap = GDI_GetObjPtr( dc->hBitmap, OBJ_BITMAP )))
+    if ((bitmap = GDI_GetObjPtr( dc->hBitmap, NTGDI_OBJ_BITMAP )))
     {
         if (startpos < bitmap->dib.dsBmih.biClrUsed)
         {
@@ -1243,7 +1235,7 @@ INT WINAPI DECLSPEC_HOTPATCH GetDIBits(
         return 0;
     }
     update_dc( dc );
-    if (!(bmp = GDI_GetObjPtr( hbitmap, OBJ_BITMAP )))
+    if (!(bmp = GDI_GetObjPtr( hbitmap, NTGDI_OBJ_BITMAP )))
     {
         release_dc_ptr( dc );
 	return 0;
@@ -1572,7 +1564,7 @@ HBITMAP WINAPI DECLSPEC_HOTPATCH CreateDIBSection(HDC hdc, const BITMAPINFO *bmi
 
     if (!bmp->dib.dsBm.bmBits) goto error;
 
-    if (!(ret = alloc_gdi_handle( bmp, OBJ_BITMAP, &dib_funcs ))) goto error;
+    if (!(ret = alloc_gdi_handle( &bmp->obj, NTGDI_OBJ_BITMAP, &dib_funcs ))) goto error;
 
     if (bits) *bits = bmp->dib.dsBm.bmBits;
     return ret;
@@ -1587,9 +1579,9 @@ error:
 
 
 /***********************************************************************
- *           D3DKMTCreateDCFromMemory    (GDI32.@)
+ *           NtGdiDdDDICreateDCFromMemory    (win32u.@)
  */
-NTSTATUS WINAPI D3DKMTCreateDCFromMemory( D3DKMT_CREATEDCFROMMEMORY *desc )
+NTSTATUS WINAPI NtGdiDdDDICreateDCFromMemory( D3DKMT_CREATEDCFROMMEMORY *desc )
 {
     const struct d3dddi_format_info
     {
@@ -1639,7 +1631,8 @@ NTSTATUS WINAPI D3DKMTCreateDCFromMemory( D3DKMT_CREATEDCFROMMEMORY *desc )
         !desc->Pitch || desc->Pitch < get_dib_stride( desc->Width, format->bit_count ) ||
         !desc->Height || desc->Height > UINT_MAX / desc->Pitch) return STATUS_INVALID_PARAMETER;
 
-    if (!desc->hDeviceDc || !(dc = CreateCompatibleDC( desc->hDeviceDc ))) return STATUS_INVALID_PARAMETER;
+    if (!desc->hDeviceDc || !(dc = NtGdiCreateCompatibleDC( desc->hDeviceDc )))
+        return STATUS_INVALID_PARAMETER;
 
     if (!(bmp = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*bmp) ))) goto error;
 
@@ -1684,25 +1677,25 @@ NTSTATUS WINAPI D3DKMTCreateDCFromMemory( D3DKMT_CREATEDCFROMMEMORY *desc )
         }
     }
 
-    if (!(bitmap = alloc_gdi_handle( bmp, OBJ_BITMAP, &dib_funcs ))) goto error;
+    if (!(bitmap = alloc_gdi_handle( &bmp->obj, NTGDI_OBJ_BITMAP, &dib_funcs ))) goto error;
 
     desc->hDc = dc;
     desc->hBitmap = bitmap;
-    SelectObject( dc, bitmap );
+    NtGdiSelectBitmap( dc, bitmap );
     return STATUS_SUCCESS;
 
 error:
     if (bmp) HeapFree( GetProcessHeap(), 0, bmp->color_table );
     HeapFree( GetProcessHeap(), 0, bmp );
-    DeleteDC( dc );
+    NtGdiDeleteObjectApp( dc );
     return STATUS_INVALID_PARAMETER;
 }
 
 
 /***********************************************************************
- *           D3DKMTDestroyDCFromMemory    (GDI32.@)
+ *           NtGdiDdDDIDestroyDCFromMemory    (win32u.@)
  */
-NTSTATUS WINAPI D3DKMTDestroyDCFromMemory( const D3DKMT_DESTROYDCFROMMEMORY *desc )
+NTSTATUS WINAPI NtGdiDdDDIDestroyDCFromMemory( const D3DKMT_DESTROYDCFROMMEMORY *desc )
 {
     if (!desc) return STATUS_INVALID_PARAMETER;
 
@@ -1711,70 +1704,9 @@ NTSTATUS WINAPI D3DKMTDestroyDCFromMemory( const D3DKMT_DESTROYDCFROMMEMORY *des
     if (GetObjectType( desc->hDc ) != OBJ_MEMDC ||
         GetObjectType( desc->hBitmap ) != OBJ_BITMAP) return STATUS_INVALID_PARAMETER;
     DeleteObject( desc->hBitmap );
-    DeleteDC( desc->hDc );
+    NtGdiDeleteObjectApp( desc->hDc );
 
     return STATUS_SUCCESS;
-}
-
-
-/***********************************************************************
- *           DIB_SelectObject
- */
-static HGDIOBJ DIB_SelectObject( HGDIOBJ handle, HDC hdc )
-{
-    HGDIOBJ ret;
-    BITMAPOBJ *bitmap;
-    DC *dc;
-    PHYSDEV physdev;
-
-    if (!(dc = get_dc_ptr( hdc ))) return 0;
-
-    if (GetObjectType( hdc ) != OBJ_MEMDC)
-    {
-        ret = 0;
-        goto done;
-    }
-    ret = dc->hBitmap;
-    if (handle == dc->hBitmap) goto done;  /* nothing to do */
-
-    if (!(bitmap = GDI_GetObjPtr( handle, OBJ_BITMAP )))
-    {
-        ret = 0;
-        goto done;
-    }
-
-    if (GDI_get_ref_count( handle ))
-    {
-        WARN( "Bitmap already selected in another DC\n" );
-        GDI_ReleaseObj( handle );
-        ret = 0;
-        goto done;
-    }
-
-    physdev = GET_DC_PHYSDEV( dc, pSelectBitmap );
-    if (!physdev->funcs->pSelectBitmap( physdev, handle ))
-    {
-        GDI_ReleaseObj( handle );
-        ret = 0;
-    }
-    else
-    {
-        dc->hBitmap = handle;
-        GDI_inc_ref_count( handle );
-        dc->dirty = 0;
-        dc->vis_rect.left   = 0;
-        dc->vis_rect.top    = 0;
-        dc->vis_rect.right  = bitmap->dib.dsBm.bmWidth;
-        dc->vis_rect.bottom = bitmap->dib.dsBm.bmHeight;
-        dc->device_rect = dc->vis_rect;
-        GDI_ReleaseObj( handle );
-        DC_InitDC( dc );
-        GDI_dec_ref_count( ret );
-    }
-
- done:
-    release_dc_ptr( dc );
-    return ret;
 }
 
 
@@ -1784,7 +1716,7 @@ static HGDIOBJ DIB_SelectObject( HGDIOBJ handle, HDC hdc )
 static INT DIB_GetObject( HGDIOBJ handle, INT count, LPVOID buffer )
 {
     INT ret = 0;
-    BITMAPOBJ *bmp = GDI_GetObjPtr( handle, OBJ_BITMAP );
+    BITMAPOBJ *bmp = GDI_GetObjPtr( handle, NTGDI_OBJ_BITMAP );
 
     if (!bmp) return 0;
 

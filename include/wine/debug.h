@@ -143,12 +143,12 @@ struct __wine_debug_channel
 
 #endif  /* !__GNUC__ && !__SUNPRO_C */
 
+extern int WINAPI __wine_dbg_write( const char *str, unsigned int len );
 extern unsigned char __cdecl __wine_dbg_get_channel_flags( struct __wine_debug_channel *channel );
 extern const char * __cdecl __wine_dbg_strdup( const char *str );
 extern int __cdecl __wine_dbg_output( const char *str );
 extern int __cdecl __wine_dbg_header( enum __wine_debug_class cls, struct __wine_debug_channel *channel,
                                       const char *function );
-extern void __cdecl __wine_set_unix_env( const char *var, const char *val );
 
 /*
  * Exported definitions and macros

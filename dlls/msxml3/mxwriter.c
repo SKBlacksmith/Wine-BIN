@@ -20,12 +20,8 @@
  */
 
 #define COBJMACROS
-#include "config.h"
 
 #include <stdarg.h>
-#ifdef HAVE_LIBXML2
-# include <libxml/parser.h>
-#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -34,9 +30,9 @@
 #include "msxml6.h"
 
 #include "wine/debug.h"
-#include "wine/list.h"
+#include "wine/unicode.h"
 
-#include "msxml_private.h"
+#include "msxml_dispex.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 
@@ -258,7 +254,7 @@ static xml_encoding parse_encoding_name(const WCHAR *encoding)
     {
         n = (min+max)/2;
 
-        c = strcmpiW(xml_encoding_map[n].encoding, encoding);
+        c = lstrcmpiW(xml_encoding_map[n].encoding, encoding);
         if (!c)
             return xml_encoding_map[n].enc;
 
@@ -347,7 +343,7 @@ static HRESULT write_output_buffer(mxwriter *writer, const WCHAR *data, int len)
     if (!len || !*data)
         return S_OK;
 
-    src_len = len == -1 ? strlenW(data) : len;
+    src_len = len == -1 ? lstrlenW(data) : len;
     if (writer->dest)
     {
         buff = &buffer->encoded;
@@ -2159,8 +2155,8 @@ static HRESULT WINAPI VBSAXContentHandler_startElement(IVBSAXContentHandler *ifa
 
     TRACE("(%p)->(%p %p %p %p)\n", This, namespaceURI, localName, QName, attrs);
 
-    if (!namespaceURI || !localName || !QName)
-        return E_POINTER;
+    if (!namespaceURI || !*namespaceURI || !localName || !QName)
+        return E_INVALIDARG;
 
     TRACE("(%s %s %s)\n", debugstr_w(*namespaceURI), debugstr_w(*localName), debugstr_w(*QName));
 

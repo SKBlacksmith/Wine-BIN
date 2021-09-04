@@ -27,10 +27,7 @@
 #include "initguid.h"
 #include "gst_guids.h"
 
-static HINSTANCE winegstreamer_instance;
-LONG object_locks;
-
-WINE_DEFAULT_DEBUG_CHANNEL(gstreamer);
+WINE_DEFAULT_DEBUG_CHANNEL(quartz);
 
 const struct unix_funcs *unix_funcs = NULL;
 
@@ -38,18 +35,10 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
 {
     if (reason == DLL_PROCESS_ATTACH)
     {
-        winegstreamer_instance = instance;
         DisableThreadLibraryCalls(instance);
         __wine_init_unix_lib(instance, reason, NULL, &unix_funcs);
     }
     return TRUE;
-}
-
-HRESULT WINAPI DllCanUnloadNow(void)
-{
-    TRACE(".\n");
-
-    return object_locks ? S_FALSE : S_OK;
 }
 
 struct class_factory
@@ -112,11 +101,6 @@ static HRESULT WINAPI class_factory_CreateInstance(IClassFactory *iface, IUnknow
 static HRESULT WINAPI class_factory_LockServer(IClassFactory *iface, BOOL lock)
 {
     TRACE("iface %p, lock %d.\n", iface, lock);
-
-    if (lock)
-        InterlockedIncrement(&object_locks);
-    else
-        InterlockedDecrement(&object_locks);
     return S_OK;
 }
 
@@ -171,9 +155,9 @@ static BOOL CALLBACK init_gstreamer_proc(INIT_ONCE *once, void *param, void **ct
     /* Unloading glib is a bad idea.. it installs atexit handlers,
      * so never unload the dll after loading */
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
-            (LPCWSTR)winegstreamer_instance, &handle);
+            (LPCWSTR)init_gstreamer_proc, &handle);
     if (!handle)
-        ERR("Failed to pin module %p.\n", winegstreamer_instance);
+        ERR("Failed to pin module.\n");
 
     return TRUE;
 }
@@ -323,10 +307,7 @@ HRESULT WINAPI DllRegisterServer(void)
 
     init_gstreamer();
 
-    if (FAILED(hr = mfplat_DllRegisterServer()))
-        return hr;
-
-    if (FAILED(hr = __wine_register_resources(winegstreamer_instance)))
+    if (FAILED(hr = __wine_register_resources()))
         return hr;
 
     if (FAILED(hr = CoCreateInstance(&CLSID_FilterMapper2, NULL, CLSCTX_INPROC_SERVER,
@@ -352,7 +333,7 @@ HRESULT WINAPI DllUnregisterServer(void)
 
     TRACE(".\n");
 
-    if (FAILED(hr = __wine_unregister_resources(winegstreamer_instance)))
+    if (FAILED(hr = __wine_unregister_resources()))
         return hr;
 
     if (FAILED(hr = CoCreateInstance(&CLSID_FilterMapper2, NULL, CLSCTX_INPROC_SERVER,

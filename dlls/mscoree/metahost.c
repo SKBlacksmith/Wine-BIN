@@ -89,6 +89,7 @@ MonoImage* (CDECL *mono_assembly_get_image)(MonoAssembly *assembly);
 MonoAssembly* (CDECL *mono_assembly_load_from)(MonoImage *image, const char *fname, MonoImageOpenStatus *status);
 const char* (CDECL *mono_assembly_name_get_name)(MonoAssemblyName *aname);
 const char* (CDECL *mono_assembly_name_get_culture)(MonoAssemblyName *aname);
+WORD (CDECL *mono_assembly_name_get_version)(MonoAssemblyName *aname, WORD *minor, WORD *build, WORD *revision);
 MonoAssembly* (CDECL *mono_assembly_open)(const char *filename, MonoImageOpenStatus *status);
 void (CDECL *mono_callspec_set_assembly)(MonoAssembly *assembly);
 MonoClass* (CDECL *mono_class_from_mono_type)(MonoType *type);
@@ -106,6 +107,7 @@ MonoImage* (CDECL *mono_image_open_from_module_handle)(HMODULE module_handle, ch
 static void (CDECL *mono_install_assembly_preload_hook)(MonoAssemblyPreLoadFunc func, void *user_data);
 int (CDECL *mono_jit_exec)(MonoDomain *domain, MonoAssembly *assembly, int argc, char *argv[]);
 MonoDomain* (CDECL *mono_jit_init_version)(const char *domain_name, const char *runtime_version);
+static void (CDECL *mono_jit_set_aot_mode)(MonoAotMode mode);
 static int (CDECL *mono_jit_set_trace_options)(const char* options);
 void* (CDECL *mono_marshal_get_vtfixup_ftnptr)(MonoImage *image, DWORD token, WORD type);
 MonoDomain* (CDECL *mono_object_get_domain)(MonoObject *obj);
@@ -158,6 +160,8 @@ static HRESULT load_mono(LPCWSTR mono_path)
     WCHAR mono_dll_path[MAX_PATH+16];
     WCHAR mono_lib_path[MAX_PATH+4], mono_etc_path[MAX_PATH+4];
     char mono_lib_path_a[MAX_PATH], mono_etc_path_a[MAX_PATH];
+    int aot_size;
+    char aot_setting[256];
     int trace_size;
     char trace_setting[256];
     int verbose_size;
@@ -196,6 +200,7 @@ static HRESULT load_mono(LPCWSTR mono_path)
         LOAD_MONO_FUNCTION(mono_assembly_load_from);
         LOAD_MONO_FUNCTION(mono_assembly_name_get_name);
         LOAD_MONO_FUNCTION(mono_assembly_name_get_culture);
+        LOAD_MONO_FUNCTION(mono_assembly_name_get_version);
         LOAD_MONO_FUNCTION(mono_assembly_open);
         LOAD_MONO_FUNCTION(mono_config_parse);
         LOAD_MONO_FUNCTION(mono_class_from_mono_type);
@@ -239,6 +244,7 @@ static HRESULT load_mono(LPCWSTR mono_path)
 
         LOAD_OPT_MONO_FUNCTION(mono_callspec_set_assembly, NULL);
         LOAD_OPT_MONO_FUNCTION(mono_image_open_from_module_handle, image_open_module_handle_dummy);
+        LOAD_OPT_MONO_FUNCTION(mono_jit_set_aot_mode, NULL);
         LOAD_OPT_MONO_FUNCTION(mono_profiler_create, NULL);
         LOAD_OPT_MONO_FUNCTION(mono_profiler_install, NULL);
         LOAD_OPT_MONO_FUNCTION(mono_profiler_set_runtime_shutdown_begin_callback, NULL);
@@ -276,6 +282,30 @@ static HRESULT load_mono(LPCWSTR mono_path)
         mono_config_parse(NULL);
 
         mono_install_assembly_preload_hook(mono_assembly_preload_hook_fn, NULL);
+
+        aot_size = GetEnvironmentVariableA("WINE_MONO_AOT", aot_setting, sizeof(aot_setting));
+
+        if (aot_size)
+        {
+            MonoAotMode mode;
+            if (strcmp(aot_setting, "interp") == 0)
+                mode = MONO_AOT_MODE_INTERP_ONLY;
+            else if (strcmp(aot_setting, "none") == 0)
+                mode = MONO_AOT_MODE_NONE;
+            else
+            {
+                ERR("unknown WINE_MONO_AOT setting, valid settings are interp and none\n");
+                mode = MONO_AOT_MODE_NONE;
+            }
+            if (mono_jit_set_aot_mode != NULL)
+            {
+                mono_jit_set_aot_mode(mode);
+            }
+            else
+            {
+                ERR("mono_jit_set_aot_mode export not found\n");
+            }
+        }
 
         trace_size = GetEnvironmentVariableA("WINE_MONO_TRACE", trace_setting, sizeof(trace_setting));
 
@@ -1525,8 +1555,9 @@ static DWORD get_basename_search_flags(const char *basename, MonoAssemblyName *a
         return reg_entry.flags;
     }
 
-    if (strcmp(basename, "Microsoft.Xna.Framework.*") == 0)
-        /* XNA redist is broken in Wine Mono, use FNA instead. */
+    if (strcmp(basename, "Microsoft.Xna.Framework.*") == 0 &&
+        mono_assembly_name_get_version(aname, NULL, NULL, NULL) == 4)
+        /* Use FNA as a replacement for XNA4. */
         return 0;
 
     return ASSEMBLY_SEARCH_UNDEFINED;
@@ -1807,7 +1838,7 @@ static MonoAssembly* CDECL mono_assembly_preload_hook_fn(MonoAssemblyName *aname
         TRACE("skipping Windows GAC search due to override setting\n");
 
 done:
-    if (cultureW) HeapFree(GetProcessHeap(), 0, cultureW);
+    HeapFree(GetProcessHeap(), 0, cultureW);
     mono_free(stringname);
 
     return result;

@@ -37,11 +37,11 @@ C_SRCS = \
 	printf.c \
 	process.c \
 	scanf.c \
+	sincos.c \
 	string.c \
 	thread.c \
 	time.c \
 	undname.c \
-	unixlib.c \
 	wcs.c
 
 RC_SRCS = version.rc

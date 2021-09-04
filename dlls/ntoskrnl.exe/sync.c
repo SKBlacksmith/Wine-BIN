@@ -19,23 +19,12 @@
  */
 
 #include <limits.h>
-#include <stdarg.h>
-
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
-#include "windef.h"
-#include "winbase.h"
-#include "winternl.h"
-#include "ddk/ntddk.h"
-#include "ddk/wdm.h"
-#include "ddk/ntifs.h"
-
-#include "wine/asm.h"
-#include "wine/debug.h"
-#include "wine/heap.h"
-#include "wine/server.h"
 
 #include "ntoskrnl_private.h"
+#include "ddk/ntddk.h"
+
+#include "wine/heap.h"
+#include "wine/server.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ntoskrnl);
 
@@ -534,7 +523,7 @@ NTSTATUS WINAPI KeDelayExecutionThread( KPROCESSOR_MODE mode, BOOLEAN alertable,
 /***********************************************************************
  *           KeInitializeSpinLock   (NTOSKRNL.EXE.@)
  */
-void WINAPI KeInitializeSpinLock( KSPIN_LOCK *lock )
+void WINAPI NTOSKRNL_KeInitializeSpinLock( KSPIN_LOCK *lock )
 {
     TRACE("lock %p.\n", lock);
     *lock = 0;
@@ -1372,4 +1361,51 @@ BOOLEAN WINAPI KeSetTimer(KTIMER *timer, LARGE_INTEGER duetime, KDPC *dpc)
     TRACE("timer %p, duetime %I64x, dpc %p.\n", timer, duetime.QuadPart, dpc);
 
     return KeSetTimerEx(timer, duetime, 0, dpc);
+}
+
+void WINAPI KeInitializeDeviceQueue( KDEVICE_QUEUE *queue )
+{
+    TRACE( "queue %p.\n", queue );
+
+    KeInitializeSpinLock( &queue->Lock );
+    InitializeListHead( &queue->DeviceListHead );
+    queue->Busy = FALSE;
+    queue->Type = IO_TYPE_DEVICE_QUEUE;
+    queue->Size = sizeof(*queue);
+}
+
+BOOLEAN WINAPI KeInsertDeviceQueue( KDEVICE_QUEUE *queue, KDEVICE_QUEUE_ENTRY *entry )
+{
+    BOOL insert;
+    KIRQL irql;
+
+    TRACE( "queue %p, entry %p.\n", queue, entry );
+
+    KeAcquireSpinLock( &queue->Lock, &irql );
+    insert = entry->Inserted = queue->Busy;
+    if (insert) InsertTailList( &queue->DeviceListHead, &entry->DeviceListEntry );
+    queue->Busy = TRUE;
+    KeReleaseSpinLock( &queue->Lock, irql );
+
+    return insert;
+}
+
+KDEVICE_QUEUE_ENTRY *WINAPI KeRemoveDeviceQueue( KDEVICE_QUEUE *queue )
+{
+    KDEVICE_QUEUE_ENTRY *entry = NULL;
+    KIRQL irql;
+
+    TRACE( "queue %p.\n", queue );
+
+    KeAcquireSpinLock( &queue->Lock, &irql );
+    if (IsListEmpty( &queue->DeviceListHead )) queue->Busy = FALSE;
+    else
+    {
+        entry = CONTAINING_RECORD( RemoveHeadList( &queue->DeviceListHead ),
+                                   KDEVICE_QUEUE_ENTRY, DeviceListEntry );
+        entry->Inserted = FALSE;
+    }
+    KeReleaseSpinLock( &queue->Lock, irql );
+
+    return entry;
 }

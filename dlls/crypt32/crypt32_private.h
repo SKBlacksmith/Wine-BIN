@@ -21,6 +21,8 @@
 
 #include "wine/list.h"
 
+BOOL CNG_ImportPubKey(CERT_PUBLIC_KEY_INFO *pubKeyInfo, BCRYPT_KEY_HANDLE *key) DECLSPEC_HIDDEN;
+
 /* a few asn.1 tags we need */
 #define ASN_BOOL            (ASN_UNIVERSAL | ASN_PRIMITIVE | 0x01)
 #define ASN_BITSTRING       (ASN_UNIVERSAL | ASN_PRIMITIVE | 0x03)
@@ -39,6 +41,11 @@
 #define ASN_GENERALSTRING   (ASN_UNIVERSAL | ASN_PRIMITIVE | 0x1b)
 #define ASN_UNIVERSALSTRING (ASN_UNIVERSAL | ASN_PRIMITIVE | 0x1c)
 #define ASN_BMPSTRING       (ASN_UNIVERSAL | ASN_PRIMITIVE | 0x1e)
+
+/* Copies `len` bytes from `src` to `dst`,
+ * reversing the order of the bytes
+ */
+void CRYPT_CopyReversed(BYTE *dst, const BYTE *src, size_t len);
 
 BOOL CRYPT_EncodeLen(DWORD len, BYTE *pbEncoded, DWORD *pcbEncoded) DECLSPEC_HIDDEN;
 

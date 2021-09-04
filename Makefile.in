@@ -32,6 +32,7 @@ nlsdir          = ${datadir}/wine/nls
 dlldir          = ${libdir}/wine
 srcdir          = @srcdir@
 SHELL           = /bin/sh
+ARCH            = @ARCH@
 CC              = @CC@
 CXX             = @CXX@
 CPPBIN          = @CPPBIN@
@@ -86,12 +87,11 @@ DISABLED_SUBDIRS    = @DISABLED_SUBDIRS@
 CONFIGURE_TARGETS   = @CONFIGURE_TARGETS@
 TOP_INSTALL_LIB     = @TOP_INSTALL_LIB@
 TOP_INSTALL_DEV     = @TOP_INSTALL_DEV@
-XAUDIO_NATIVE_SWITCH = @XAUDIO_NATIVE_SWITCH@
 @ALL_VARS_RULES@
 @SET_MAKE@
 
 all: wine
-	@echo "Wine Crossroads build complete."
+	@echo "Wine build complete."
 
 # Rules for re-running configure
 
@@ -117,7 +117,7 @@ install-manpages:: manpages
 # Rules for generated source files
 
 dlls/ntdll/unix/version.c: dummy
-	@version=`(GIT_DIR=$(srcdir)/.git git describe HEAD 2>/dev/null || echo "wine-$(PACKAGE_VERSION)") | sed -n -e '$$s/\(.*\)/const char wine_build[] = "\1";/p'` && (echo $$version | cmp -s - $@) || echo $$version >$@ || ($(RM) $@ && exit 1)
+	@version=`(echo "wine-6.16.r0.g8e2df64cf89") | sed -n -e '$$s/\(.*\)/const char wine_build[] = "\1  ( TkG Plain Esync )";/p'` && (echo $$version | cmp -s - $@) || echo $$version >$@ || ($(RM) $@ && exit 1)
 
 programs/winetest/build.rc: dummy
 	@build="STRINGTABLE { 1 \"`GIT_DIR=$(srcdir)/.git git rev-parse HEAD 2>/dev/null`\" }" && (echo $$build | cmp -s - $@) || echo $$build >$@ || (rm -f $@ && exit 1)
