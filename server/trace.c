@@ -1433,6 +1433,24 @@ static void dump_varargs_poll_socket_output( const char *prefix, data_size_t siz
     fputc( '}', stderr );
 }
 
+static void dump_varargs_cpu_topology_override( const char *prefix, data_size_t size )
+{
+    const struct cpu_topology_override *cpu_topology = cur_data;
+    unsigned int i;
+
+    if (size < sizeof(*cpu_topology))
+        return;
+
+    fprintf( stderr,"%s{", prefix );
+    for (i = 0; i < cpu_topology->cpu_count; ++i)
+    {
+        if (i) fputc( ',', stderr );
+        fprintf( stderr, "%u", cpu_topology->host_cpu_id[i] );
+    }
+    fputc( '}', stderr );
+    remove_data( size );
+}
+
 typedef void (*dump_func)( const void *req );
 
 /* Everything below this line is generated automatically by tools/make_requests */
@@ -1503,7 +1521,8 @@ static void dump_get_startup_info_reply( const struct get_startup_info_reply *re
 
 static void dump_init_process_done_request( const struct init_process_done_request *req )
 {
-    dump_uint64( " teb=", &req->teb );
+    dump_varargs_cpu_topology_override( " cpu_override=", cur_size );
+    dump_uint64( ", teb=", &req->teb );
     dump_uint64( ", peb=", &req->peb );
     dump_uint64( ", ldt_copy=", &req->ldt_copy );
 }
@@ -2018,7 +2037,6 @@ static void dump_alloc_file_handle_reply( const struct alloc_file_handle_reply *
 static void dump_get_handle_unix_name_request( const struct get_handle_unix_name_request *req )
 {
     fprintf( stderr, " handle=%04x", req->handle );
-    fprintf( stderr, ", nofollow=%d", req->nofollow );
 }
 
 static void dump_get_handle_unix_name_reply( const struct get_handle_unix_name_reply *req )
@@ -3192,12 +3210,6 @@ static void dump_set_window_region_request( const struct set_window_region_reque
 {
     fprintf( stderr, " window=%08x", req->window );
     fprintf( stderr, ", redraw=%d", req->redraw );
-    dump_varargs_rectangles( ", region=", cur_size );
-}
-
-static void dump_set_layer_region_request( const struct set_layer_region_request *req )
-{
-    fprintf( stderr, " window=%08x", req->window );
     dump_varargs_rectangles( ", region=", cur_size );
 }
 
@@ -4820,7 +4832,6 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_surface_region_request,
     (dump_func)dump_get_window_region_request,
     (dump_func)dump_set_window_region_request,
-    (dump_func)dump_set_layer_region_request,
     (dump_func)dump_get_update_region_request,
     (dump_func)dump_update_window_zorder_request,
     (dump_func)dump_redraw_window_request,
@@ -5107,7 +5118,6 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_visible_region_reply,
     (dump_func)dump_get_surface_region_reply,
     (dump_func)dump_get_window_region_reply,
-    NULL,
     NULL,
     (dump_func)dump_get_update_region_reply,
     NULL,
@@ -5396,7 +5406,6 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "get_surface_region",
     "get_window_region",
     "set_window_region",
-    "set_layer_region",
     "get_update_region",
     "update_window_zorder",
     "redraw_window",

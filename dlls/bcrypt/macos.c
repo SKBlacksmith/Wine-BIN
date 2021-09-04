@@ -278,12 +278,6 @@ static NTSTATUS CDECL key_asymmetric_decrypt( struct key *key, UCHAR *input, ULO
     return STATUS_NOT_IMPLEMENTED;
 }
 
-static NTSTATUS CDECL key_secret_agreement( struct key *priv_key, struct key *peer_key, struct secret *secret )
-{
-    FIXME( "not implemented on Mac\n" );
-    return STATUS_NOT_IMPLEMENTED;
-}
-
 static const struct key_funcs key_funcs =
 {
     key_set_property,
@@ -305,26 +299,14 @@ static const struct key_funcs key_funcs =
     key_export_ecc,
     key_import_dsa_capi,
     key_import_ecc,
-    key_import_rsa,
-    key_secret_agreement,
-    NULL
+    key_import_rsa
 };
 
-const struct key_funcs * macos_lib_init( DWORD reason )
+NTSTATUS CDECL __wine_init_unix_lib( HMODULE module, DWORD reason, const void *ptr_in, void *ptr_out )
 {
-    if (reason != DLL_PROCESS_ATTACH) return NULL;
-    return &key_funcs;
+    if (reason != DLL_PROCESS_ATTACH) return STATUS_SUCCESS;
+    *(const struct key_funcs **)ptr_out = &key_funcs;
+    return STATUS_SUCCESS;
 }
 
-#else
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
-#include "windef.h"
-#include "winbase.h"
-#include "winternl.h"
-
-const struct key_funcs * macos_lib_init( DWORD reason )
-{
-    return NULL;
-}
 #endif
