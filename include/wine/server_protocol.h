@@ -4899,7 +4899,7 @@ struct get_kernel_object_handle_reply
 struct make_process_system_request
 {
     struct request_header __header;
-    char __pad_12[4];
+    obj_handle_t handle;
 };
 struct make_process_system_reply
 {
