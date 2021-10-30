@@ -20,6 +20,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
@@ -182,12 +185,10 @@ static HRESULT WINAPI ISF_Desktop_fnParseDisplayName (IShellFolder2 * iface,
     else if (PathGetDriveNumberW (lpszDisplayName) >= 0)
     {
         /* it's a filesystem path with a drive. Let MyComputer/UnixDosFolder parse it */
-        pidlTemp = _ILCreateMyComputer ();
-        szNext = lpszDisplayName;
-    }
-    else if (!wcsncmp( lpszDisplayName, L"\\\\?\\unix\\", 9 ))
-    {
-        pidlTemp = _ILCreateGuid(PT_GUID, &CLSID_UnixDosFolder);
+        if (UNIXFS_is_rooted_at_desktop()) 
+            pidlTemp = _ILCreateGuid(PT_GUID, &CLSID_UnixDosFolder);
+        else
+            pidlTemp = _ILCreateMyComputer ();
         szNext = lpszDisplayName;
     }
     else if (PathIsUNCW(lpszDisplayName))
@@ -278,11 +279,19 @@ static HRESULT WINAPI ISF_Desktop_fnParseDisplayName (IShellFolder2 * iface,
 
 static void add_shell_namespace_extensions(IEnumIDListImpl *list, HKEY root)
 {
-    WCHAR guid[39], clsidkeyW[60];
+    static const WCHAR Desktop_NameSpaceW[] = { 'S','O','F','T','W','A','R','E','\\',
+        'M','i','c','r','o','s','o','f','t','\\','W','i','n','d','o','w','s','\\',
+        'C','u','r','r','e','n','t','V','e','r','s','i','o','n','\\',
+        'E','x','p','l','o','r','e','r','\\','D','e','s','k','t','o','p','\\',
+        'N','a','m','e','s','p','a','c','e','\0' };
+    static const WCHAR clsidfmtW[] = {'C','L','S','I','D','\\','%','s','\\',
+        'S','h','e','l','l','F','o','l','d','e','r',0};
+    static const WCHAR attributesW[] = {'A','t','t','r','i','b','u','t','e','s',0};
+    WCHAR guid[39], clsidkeyW[ARRAY_SIZE(clsidfmtW) + 39];
     DWORD size, i = 0;
     HKEY hkey;
 
-    if (RegOpenKeyExW(root, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Desktop\\Namespace", 0, KEY_READ, &hkey))
+    if (RegOpenKeyExW(root, Desktop_NameSpaceW, 0, KEY_READ, &hkey))
         return;
 
     size = ARRAY_SIZE(guid);
@@ -291,8 +300,8 @@ static void add_shell_namespace_extensions(IEnumIDListImpl *list, HKEY root)
         DWORD attributes, value_size = sizeof(attributes);
 
         /* Check if extension is configured as nonenumerable */
-        swprintf(clsidkeyW, ARRAY_SIZE(clsidkeyW), L"CLSID\\%s\\ShellFolder", guid);
-        RegGetValueW(HKEY_CLASSES_ROOT, clsidkeyW, L"Attributes", RRF_RT_REG_DWORD | RRF_ZEROONFAILURE,
+        sprintfW(clsidkeyW, clsidfmtW, guid);
+        RegGetValueW(HKEY_CLASSES_ROOT, clsidkeyW, attributesW, RRF_RT_REG_DWORD | RRF_ZEROONFAILURE,
             NULL, &attributes, &value_size);
 
         if (!(attributes & SFGAO_NONENUMERATED))
@@ -361,7 +370,7 @@ static HRESULT WINAPI ISF_Desktop_fnBindToObject (IShellFolder2 * iface,
     TRACE ("(%p)->(pidl=%p,%p,%s,%p)\n",
            This, pidl, pbcReserved, shdebugstr_guid (riid), ppvOut);
 
-    return SHELL32_BindToChild( This->pidlRoot, &CLSID_ShellFSFolder, This->sPathTarget, pidl, riid, ppvOut );
+    return SHELL32_BindToChild( This->pidlRoot, This->sPathTarget, pidl, riid, ppvOut );
 }
 
 /**************************************************************************
@@ -591,7 +600,7 @@ static HRESULT WINAPI ISF_Desktop_fnGetDisplayNameOf (IShellFolder2 * iface,
     {
         if ((GET_SHGDN_RELATION (dwFlags) == SHGDN_NORMAL) &&
             (GET_SHGDN_FOR (dwFlags) & SHGDN_FORPARSING))
-            lstrcpyW(pszPath, This->sPathTarget);
+            strcpyW(pszPath, This->sPathTarget);
         else
             HCR_GetClassNameW(&CLSID_ShellDesktop, pszPath, MAX_PATH);
     }
@@ -619,13 +628,21 @@ static HRESULT WINAPI ISF_Desktop_fnGetDisplayNameOf (IShellFolder2 * iface,
                 else
                 {
                     /* get the "WantsFORPARSING" flag from the registry */
+                    static const WCHAR clsidW[] =
+                     { 'C','L','S','I','D','\\',0 };
+                    static const WCHAR shellfolderW[] =
+                     { '\\','s','h','e','l','l','f','o','l','d','e','r',0 };
+                    static const WCHAR wantsForParsingW[] =
+                     { 'W','a','n','t','s','F','o','r','P','a','r','s','i','n',
+                     'g',0 };
                     WCHAR szRegPath[100];
                     LONG r;
 
-                    lstrcpyW (szRegPath, L"CLSID\\");
+                    lstrcpyW (szRegPath, clsidW);
                     SHELL32_GUIDToStringW (clsid, &szRegPath[6]);
-                    lstrcatW (szRegPath, L"\\shellfolder");
-                    r = SHGetValueW(HKEY_CLASSES_ROOT, szRegPath, L"WantsForParsing", NULL, NULL, NULL);
+                    lstrcatW (szRegPath, shellfolderW);
+                    r = SHGetValueW(HKEY_CLASSES_ROOT, szRegPath,
+                                    wantsForParsingW, NULL, NULL, NULL);
                     if (r == ERROR_SUCCESS)
                         bWantsForParsing = TRUE;
                     else
@@ -785,6 +802,8 @@ static HRESULT WINAPI ISF_Desktop_fnGetDetailsOf (IShellFolder2 * iface,
 {
     IDesktopFolderImpl *This = impl_from_IShellFolder2(iface);
 
+    HRESULT hr = S_OK;
+
     TRACE ("(%p)->(%p %i %p)\n", This, pidl, iColumn, psd);
 
     if (!psd || iColumn >= ARRAY_SIZE(desktop_header))
@@ -793,7 +812,29 @@ static HRESULT WINAPI ISF_Desktop_fnGetDetailsOf (IShellFolder2 * iface,
     if (!pidl)
         return SHELL32_GetColumnDetails(desktop_header, iColumn, psd);
 
-    return shellfolder_get_file_details( iface, pidl, desktop_header, iColumn, psd );
+    /* the data from the pidl */
+    psd->str.uType = STRRET_CSTR;
+    switch (iColumn)
+    {
+    case 0:        /* name */
+        hr = IShellFolder2_GetDisplayNameOf(iface, pidl,
+                   SHGDN_NORMAL | SHGDN_INFOLDER, &psd->str);
+        break;
+    case 1:        /* size */
+        _ILGetFileSize (pidl, psd->str.u.cStr, MAX_PATH);
+        break;
+    case 2:        /* type */
+        _ILGetFileType (pidl, psd->str.u.cStr, MAX_PATH);
+        break;
+    case 3:        /* date */
+        _ILGetFileDate (pidl, psd->str.u.cStr, MAX_PATH);
+        break;
+    case 4:        /* attributes */
+        _ILGetFileAttributes (pidl, psd->str.u.cStr, MAX_PATH);
+        break;
+    }
+
+    return hr;
 }
 
 static HRESULT WINAPI ISF_Desktop_fnMapColumnToSCID(IShellFolder2 *iface, UINT column, SHCOLUMNID *scid)
@@ -915,7 +956,7 @@ HRESULT WINAPI ISF_Desktop_Constructor (
     {
         IDesktopFolderImpl *sf;
 
-        if (!SHGetSpecialFolderPathW( 0, szMyPath, CSIDL_DESKTOPDIRECTORY, FALSE ))
+        if (!SHGetSpecialFolderPathW( 0, szMyPath, CSIDL_DESKTOPDIRECTORY, TRUE ))
             return E_UNEXPECTED;
 
         sf = LocalAlloc( LMEM_ZEROINIT, sizeof (IDesktopFolderImpl) );

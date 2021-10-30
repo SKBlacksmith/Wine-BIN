@@ -246,8 +246,10 @@ static HRESULT WINAPI d3d9_surface_LockRect(IDirect3DSurface9 *iface,
     if (rect)
         wined3d_box_set(&box, rect->left, rect->top, rect->right, rect->bottom, 0, 1);
 
+    wined3d_mutex_lock();
     hr = wined3d_resource_map(wined3d_texture_get_resource(surface->wined3d_texture), surface->sub_resource_idx,
             &map_desc, rect ? &box : NULL, wined3dmapflags_from_d3dmapflags(flags, 0));
+    wined3d_mutex_unlock();
 
     if (SUCCEEDED(hr))
     {
@@ -399,7 +401,7 @@ static const struct wined3d_parent_ops d3d9_view_wined3d_parent_ops =
 struct d3d9_device *d3d9_surface_get_device(const struct d3d9_surface *surface)
 {
     IDirect3DDevice9Ex *device;
-    device = surface->texture ? &surface->texture->parent_device->IDirect3DDevice9Ex_iface : surface->parent_device;
+    device = surface->texture ? surface->texture->parent_device : surface->parent_device;
     return impl_from_IDirect3DDevice9Ex(device);
 }
 

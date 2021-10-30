@@ -87,15 +87,15 @@
 @ cdecl _wsystem(wstr) ucrtbase._wsystem
 @ cdecl abort() ucrtbase.abort
 @ cdecl exit(long) ucrtbase.exit
-@ cdecl feclearexcept(long) ucrtbase.feclearexcept
+@ stub feclearexcept
 @ cdecl fegetenv(ptr) ucrtbase.fegetenv
-@ cdecl fegetexceptflag(ptr long) ucrtbase.fegetexceptflag
+@ stub fegetexceptflag
 @ cdecl fegetround() ucrtbase.fegetround
 @ stub feholdexcept
 @ cdecl fesetenv(ptr) ucrtbase.fesetenv
-@ cdecl fesetexceptflag(ptr long) ucrtbase.fesetexceptflag
+@ stub fesetexceptflag
 @ cdecl fesetround(long) ucrtbase.fesetround
-@ cdecl fetestexcept(long) ucrtbase.fetestexcept
+@ stub fetestexcept
 @ cdecl perror(str) ucrtbase.perror
 @ cdecl quick_exit(long) ucrtbase.quick_exit
 @ cdecl raise(long) ucrtbase.raise

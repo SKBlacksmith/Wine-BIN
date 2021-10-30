@@ -20,10 +20,14 @@
 
 #define COBJMACROS
 
+#include "config.h"
+
 #include <stdarg.h>
-#include <libxml/parser.h>
-#include <libxml/xmlerror.h>
-#include <libxml/HTMLtree.h>
+#ifdef HAVE_LIBXML2
+# include <libxml/parser.h>
+# include <libxml/xmlerror.h>
+# include <libxml/HTMLtree.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -34,6 +38,8 @@
 #include "msxml_private.h"
 
 #include "wine/debug.h"
+
+#ifdef HAVE_LIBXML2
 
 WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 
@@ -732,3 +738,5 @@ IUnknown* create_attribute( xmlNodePtr attribute, BOOL floating )
 
     return (IUnknown*)&This->IXMLDOMAttribute_iface;
 }
+
+#endif

@@ -21,7 +21,7 @@
 #include "qcap_private.h"
 #include "winternl.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+WINE_DEFAULT_DEBUG_CHANNEL(qcap);
 
 static const struct video_capture_funcs *capture_funcs;
 
@@ -107,6 +107,7 @@ static void vfw_capture_destroy(struct strmbase_filter *iface)
     strmbase_source_cleanup(&filter->source);
     strmbase_filter_cleanup(&filter->filter);
     free(filter);
+    ObjectRefCount(FALSE);
 }
 
 static HRESULT vfw_capture_query_interface(struct strmbase_filter *iface, REFIID iid, void **out)
@@ -189,7 +190,18 @@ static DWORD WINAPI stream_thread(void *arg)
 static HRESULT vfw_capture_init_stream(struct strmbase_filter *iface)
 {
     struct vfw_capture *filter = impl_from_strmbase_filter(iface);
+    ALLOCATOR_PROPERTIES req_props, ret_props;
     HRESULT hr;
+
+    req_props.cBuffers = 3;
+    req_props.cbBuffer = get_image_size(filter);
+    req_props.cbAlign = 1;
+    req_props.cbPrefix = 0;
+    if (FAILED(hr = IMemAllocator_SetProperties(filter->source.pAllocator, &req_props, &ret_props)))
+    {
+        ERR("Failed to set allocator properties (buffer size %u), hr %#x.\n", req_props.cbBuffer, hr);
+        return hr;
+    }
 
     if (FAILED(hr = IMemAllocator_Commit(filter->source.pAllocator)))
         ERR("Failed to commit allocator, hr %#x.\n", hr);
@@ -334,7 +346,7 @@ static HRESULT WINAPI AMStreamConfig_GetFormat(IAMStreamConfig *iface, AM_MEDIA_
     if (!(*mt = CoTaskMemAlloc(sizeof(**mt))))
         return E_OUTOFMEMORY;
 
-    EnterCriticalSection(&filter->filter.filter_cs);
+    EnterCriticalSection(&filter->filter.csFilter);
 
     if (filter->source.pin.peer)
     {
@@ -355,7 +367,7 @@ static HRESULT WINAPI AMStreamConfig_GetFormat(IAMStreamConfig *iface, AM_MEDIA_
         }
     }
 
-    LeaveCriticalSection(&filter->filter.filter_cs);
+    LeaveCriticalSection(&filter->filter.csFilter);
 
     if (SUCCEEDED(hr))
         strmbase_dump_media_type(*mt);
@@ -678,19 +690,20 @@ static HRESULT source_query_interface(struct strmbase_pin *iface, REFIID iid, vo
 }
 
 static HRESULT WINAPI VfwPin_DecideBufferSize(struct strmbase_source *iface,
-        IMemAllocator *allocator, ALLOCATOR_PROPERTIES *req_props)
+        IMemAllocator *pAlloc, ALLOCATOR_PROPERTIES *ppropInputRequest)
 {
-    struct vfw_capture *filter = impl_from_strmbase_pin(&iface->pin);
-    ALLOCATOR_PROPERTIES ret_props;
+    ALLOCATOR_PROPERTIES actual;
 
-    if (!req_props->cBuffers)
-        req_props->cBuffers = 3;
-    if (!req_props->cbBuffer)
-        req_props->cbBuffer = get_image_size(filter);
-    if (!req_props->cbAlign)
-        req_props->cbAlign = 1;
+    /* What we put here doesn't matter, the
+       driver function should override it then commit */
+    if (!ppropInputRequest->cBuffers)
+        ppropInputRequest->cBuffers = 3;
+    if (!ppropInputRequest->cbBuffer)
+        ppropInputRequest->cbBuffer = 230400;
+    if (!ppropInputRequest->cbAlign)
+        ppropInputRequest->cbAlign = 1;
 
-    return IMemAllocator_SetProperties(allocator, req_props, &ret_props);
+    return IMemAllocator_SetProperties(pAlloc, ppropInputRequest, &actual);
 }
 
 static const struct strmbase_source_ops source_ops =
@@ -860,6 +873,7 @@ HRESULT vfw_capture_create(IUnknown *outer, IUnknown **out)
     object->state_cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": vfw_capture.state_cs");
 
     TRACE("Created VFW capture filter %p.\n", object);
+    ObjectRefCount(TRUE);
     *out = &object->filter.IUnknown_inner;
     return S_OK;
 }

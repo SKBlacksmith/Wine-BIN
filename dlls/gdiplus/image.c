@@ -2195,10 +2195,8 @@ GpStatus WINGDIPAPI GdipGetImageDimension(GpImage *image, REAL *width,
         return InvalidParameter;
 
     if(image->type == ImageTypeMetafile){
-        *height = units_to_pixels(((GpMetafile*)image)->bounds.Height, ((GpMetafile*)image)->unit,
-                                  image->yres, ((GpMetafile*)image)->printer_display);
-        *width = units_to_pixels(((GpMetafile*)image)->bounds.Width, ((GpMetafile*)image)->unit,
-                                 image->xres, ((GpMetafile*)image)->printer_display);
+        *height = units_to_pixels(((GpMetafile*)image)->bounds.Height, ((GpMetafile*)image)->unit, image->yres);
+        *width = units_to_pixels(((GpMetafile*)image)->bounds.Width, ((GpMetafile*)image)->unit, image->xres);
     }
     else if(image->type == ImageTypeBitmap){
         *height = ((GpBitmap*)image)->height;
@@ -2239,7 +2237,6 @@ GpStatus WINGDIPAPI GdipGetImageGraphicsContext(GpImage *image,
         if (stat == Ok)
         {
             (*graphics)->image = image;
-            (*graphics)->image_type = image->type;
             (*graphics)->xres = image->xres;
             (*graphics)->yres = image->yres;
         }
@@ -2260,8 +2257,7 @@ GpStatus WINGDIPAPI GdipGetImageHeight(GpImage *image, UINT *height)
         return InvalidParameter;
 
     if(image->type == ImageTypeMetafile)
-        *height = units_to_pixels(((GpMetafile*)image)->bounds.Height, ((GpMetafile*)image)->unit,
-                                  image->yres, ((GpMetafile*)image)->printer_display);
+        *height = units_to_pixels(((GpMetafile*)image)->bounds.Height, ((GpMetafile*)image)->unit, image->yres);
     else if(image->type == ImageTypeBitmap)
         *height = ((GpBitmap*)image)->height;
     else
@@ -2370,8 +2366,7 @@ GpStatus WINGDIPAPI GdipGetImageWidth(GpImage *image, UINT *width)
         return InvalidParameter;
 
     if(image->type == ImageTypeMetafile)
-        *width = units_to_pixels(((GpMetafile*)image)->bounds.Width, ((GpMetafile*)image)->unit,
-                                 image->xres, ((GpMetafile*)image)->printer_display);
+        *width = units_to_pixels(((GpMetafile*)image)->bounds.Width, ((GpMetafile*)image)->unit, image->xres);
     else if(image->type == ImageTypeBitmap)
         *width = ((GpBitmap*)image)->width;
     else
@@ -2467,7 +2462,7 @@ GpStatus WINGDIPAPI GdipGetPropertyIdList(GpImage *image, UINT num, PROPID *list
             list[i] = 0;
             continue;
         }
-        list[i] = id.uiVal;
+        list[i] = id.u.uiVal;
     }
 
     IWICEnumMetadataItem_Release(enumerator);
@@ -2484,25 +2479,25 @@ static UINT propvariant_size(PROPVARIANT *value)
     case VT_I1:
     case VT_UI1:
         if (!(value->vt & VT_VECTOR)) return 1;
-        return value->caub.cElems;
+        return value->u.caub.cElems;
     case VT_I2:
     case VT_UI2:
         if (!(value->vt & VT_VECTOR)) return 2;
-        return value->caui.cElems * 2;
+        return value->u.caui.cElems * 2;
     case VT_I4:
     case VT_UI4:
     case VT_R4:
         if (!(value->vt & VT_VECTOR)) return 4;
-        return value->caul.cElems * 4;
+        return value->u.caul.cElems * 4;
     case VT_I8:
     case VT_UI8:
     case VT_R8:
         if (!(value->vt & VT_VECTOR)) return 8;
-        return value->cauh.cElems * 8;
+        return value->u.cauh.cElems * 8;
     case VT_LPSTR:
-        return value->pszVal ? strlen(value->pszVal) + 1 : 0;
+        return value->u.pszVal ? strlen(value->u.pszVal) + 1 : 0;
     case VT_BLOB:
-        return value->blob.cbSize;
+        return value->u.blob.cbSize;
     default:
         FIXME("not supported variant type %d\n", value->vt);
         return 0;
@@ -2545,7 +2540,7 @@ GpStatus WINGDIPAPI GdipGetPropertyItemSize(GpImage *image, PROPID propid, UINT 
     if (!reader) return PropertyNotFound;
 
     id.vt = VT_UI2;
-    id.uiVal = propid;
+    id.u.uiVal = propid;
     hr = IWICMetadataReader_GetValue(reader, NULL, &id, &value);
     if (FAILED(hr)) return PropertyNotFound;
 
@@ -2610,38 +2605,38 @@ static GpStatus propvariant_to_item(PROPVARIANT *value, PropertyItem *item,
     case VT_I1:
     case VT_UI1:
         if (!(value->vt & VT_VECTOR))
-            *(BYTE *)item->value = value->bVal;
+            *(BYTE *)item->value = value->u.bVal;
         else
-            memcpy(item->value, value->caub.pElems, item_size);
+            memcpy(item->value, value->u.caub.pElems, item_size);
         break;
     case VT_I2:
     case VT_UI2:
         if (!(value->vt & VT_VECTOR))
-            *(USHORT *)item->value = value->uiVal;
+            *(USHORT *)item->value = value->u.uiVal;
         else
-            memcpy(item->value, value->caui.pElems, item_size);
+            memcpy(item->value, value->u.caui.pElems, item_size);
         break;
     case VT_I4:
     case VT_UI4:
     case VT_R4:
         if (!(value->vt & VT_VECTOR))
-            *(ULONG *)item->value = value->ulVal;
+            *(ULONG *)item->value = value->u.ulVal;
         else
-            memcpy(item->value, value->caul.pElems, item_size);
+            memcpy(item->value, value->u.caul.pElems, item_size);
         break;
     case VT_I8:
     case VT_UI8:
     case VT_R8:
         if (!(value->vt & VT_VECTOR))
-            *(ULONGLONG *)item->value = value->uhVal.QuadPart;
+            *(ULONGLONG *)item->value = value->u.uhVal.QuadPart;
         else
-            memcpy(item->value, value->cauh.pElems, item_size);
+            memcpy(item->value, value->u.cauh.pElems, item_size);
         break;
     case VT_LPSTR:
-        memcpy(item->value, value->pszVal, item_size);
+        memcpy(item->value, value->u.pszVal, item_size);
         break;
     case VT_BLOB:
-        memcpy(item->value, value->blob.pBlobData, item_size);
+        memcpy(item->value, value->u.blob.pBlobData, item_size);
         break;
     default:
         FIXME("not supported variant type %d\n", value->vt);
@@ -2698,7 +2693,7 @@ GpStatus WINGDIPAPI GdipGetPropertyItem(GpImage *image, PROPID propid, UINT size
     if (!reader) return PropertyNotFound;
 
     id.vt = VT_UI2;
-    id.uiVal = propid;
+    id.u.uiVal = propid;
     hr = IWICMetadataReader_GetValue(reader, NULL, &id, &value);
     if (FAILED(hr)) return PropertyNotFound;
 
@@ -2851,7 +2846,7 @@ GpStatus WINGDIPAPI GdipGetAllPropertyItems(GpImage *image, UINT size,
         {
             item = heap_alloc(item_size + sizeof(*item));
 
-            propvariant_to_item(&value, item, item_size + sizeof(*item), id.uiVal);
+            propvariant_to_item(&value, item, item_size + sizeof(*item), id.u.uiVal);
             buf[i].id = item->id;
             buf[i].type = item->type;
             buf[i].length = item_size;
@@ -3040,12 +3035,12 @@ static BOOL get_bool_property(IWICMetadataReader *reader, const GUID *guid, cons
     PropVariantInit(&value);
 
     id.vt = VT_LPWSTR;
-    id.pwszVal = CoTaskMemAlloc((lstrlenW(prop_name) + 1) * sizeof(WCHAR));
-    if (!id.pwszVal) return FALSE;
-    lstrcpyW(id.pwszVal, prop_name);
+    id.u.pwszVal = CoTaskMemAlloc((lstrlenW(prop_name) + 1) * sizeof(WCHAR));
+    if (!id.u.pwszVal) return FALSE;
+    lstrcpyW(id.u.pwszVal, prop_name);
     hr = IWICMetadataReader_GetValue(reader, NULL, &id, &value);
     if (hr == S_OK && value.vt == VT_BOOL)
-        ret = value.boolVal;
+        ret = value.u.boolVal;
 
     PropVariantClear(&id);
     PropVariantClear(&value);
@@ -3067,9 +3062,9 @@ static PropertyItem *get_property(IWICMetadataReader *reader, const GUID *guid, 
     PropVariantInit(&value);
 
     id.vt = VT_LPWSTR;
-    id.pwszVal = CoTaskMemAlloc((lstrlenW(prop_name) + 1) * sizeof(WCHAR));
-    if (!id.pwszVal) return NULL;
-    lstrcpyW(id.pwszVal, prop_name);
+    id.u.pwszVal = CoTaskMemAlloc((lstrlenW(prop_name) + 1) * sizeof(WCHAR));
+    if (!id.u.pwszVal) return NULL;
+    lstrcpyW(id.u.pwszVal, prop_name);
     hr = IWICMetadataReader_GetValue(reader, NULL, &id, &value);
     if (hr == S_OK)
     {
@@ -3415,7 +3410,7 @@ static ULONG get_ulong_by_index(IWICMetadataReader* reader, ULONG index)
         switch (value.vt)
         {
         case VT_UI4:
-            result = value.ulVal;
+            result = value.u.ulVal;
             break;
         default:
             ERR("unhandled case %u\n", value.vt);
@@ -3477,7 +3472,7 @@ static void png_metadata_reader(GpBitmap *bitmap, IWICBitmapDecoder *decoder, UI
                             if (name.vt == VT_LPSTR)
                             {
                                 for (j = 0; j < ARRAY_SIZE(keywords); j++)
-                                    if (!strcmp(keywords[j].name, name.pszVal))
+                                    if (!strcmp(keywords[j].name, name.u.pszVal))
                                         break;
                                 if (j < ARRAY_SIZE(keywords) && !keywords[j].seen)
                                 {

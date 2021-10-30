@@ -741,13 +741,8 @@
 # or 'wine_' (for user-visible functions) to avoid namespace conflicts.
 
 # DOS support
-2000 pascal -register __wine_call_int_handler(word) __wine_call_int_handler16
-@ stdcall -arch=win32 __wine_call_int_handler16(long ptr)
+@ cdecl -arch=win32 __wine_call_int_handler(ptr long)
 
 # VxDs
 @ cdecl -arch=win32 -private __wine_vxd_open(wstr long ptr)
 @ cdecl -arch=win32 -private __wine_vxd_get_proc(long)
-
-# Snoop support
-2001 pascal -register __wine_snoop_entry()
-2002 pascal -register __wine_snoop_return()

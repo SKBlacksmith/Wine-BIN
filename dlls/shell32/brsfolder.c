@@ -98,6 +98,12 @@ static void FillTreeView(browse_info*, LPSHELLFOLDER,
 static HTREEITEM InsertTreeViewItem( browse_info*, IShellFolder *,
                LPCITEMIDLIST, LPCITEMIDLIST, IEnumIDList*, HTREEITEM);
 
+static const WCHAR szBrowseFolderInfo[] = {
+    '_','_','W','I','N','E','_',
+    'B','R','S','F','O','L','D','E','R','D','L','G','_',
+    'I','N','F','O',0
+};
+
 static inline DWORD BrowseFlagsToSHCONTF(UINT ulFlags)
 {
     return SHCONTF_FOLDERS | (ulFlags & BIF_BROWSEINCLUDEFILES ? SHCONTF_NONFOLDERS : 0);
@@ -586,11 +592,11 @@ static LRESULT BrsFolder_Treeview_Rename(browse_info *info, NMTVDISPINFOW *pnmtv
     item_data = (LPTV_ITEMDATA)item.lParam;
 
     SHGetPathFromIDListW(item_data->lpifq, old_path);
-    if(!(p = wcsrchr(old_path, '\\')))
+    if(!(p = strrchrW(old_path, '\\')))
         return 0;
     p = new_path+(p-old_path+1);
     memcpy(new_path, old_path, (p-new_path)*sizeof(WCHAR));
-    lstrcpyW(p, pnmtv->item.pszText);
+    strcpyW(p, pnmtv->item.pszText);
 
     if(!MoveFileW(old_path, new_path))
         return 0;
@@ -705,7 +711,7 @@ static BOOL BrsFolder_OnCreate( HWND hWnd, browse_info *info )
     LPBROWSEINFOW lpBrowseInfo = info->lpBrowseInfo;
 
     info->hWnd = hWnd;
-    SetPropW( hWnd, L"__WINE_BRSFOLDERDLG_INFO", info );
+    SetPropW( hWnd, szBrowseFolderInfo, info );
 
     if (lpBrowseInfo->ulFlags & BIF_NEWDIALOGSTYLE)
         FIXME("flags BIF_NEWDIALOGSTYLE partially implemented\n");
@@ -818,7 +824,7 @@ static HRESULT BrsFolder_NewFolder(browse_info *info)
         goto cleanup;
     }
 
-    len = lstrlenW(name);
+    len = strlenW(name);
     if(len<MAX_PATH)
         name[len++] = '\\';
     hr = ISFHelper_GetUniqueName(sfhelper, &name[len], MAX_PATH-len);
@@ -1102,7 +1108,7 @@ static INT_PTR CALLBACK BrsFolderDlgProc( HWND hWnd, UINT msg, WPARAM wParam,
     if (msg == WM_INITDIALOG)
         return BrsFolder_OnCreate( hWnd, (browse_info*) lParam );
 
-    info = GetPropW( hWnd, L"__WINE_BRSFOLDERDLG_INFO" );
+    info = GetPropW( hWnd, szBrowseFolderInfo );
     if (!info)
         return FALSE;
 
@@ -1159,6 +1165,11 @@ static INT_PTR CALLBACK BrsFolderDlgProc( HWND hWnd, UINT msg, WPARAM wParam,
     }
     return FALSE;
 }
+
+static const WCHAR swBrowseTemplateName[] = {
+    'S','H','B','R','S','F','O','R','F','O','L','D','E','R','_','M','S','G','B','O','X',0};
+static const WCHAR swNewBrowseTemplateName[] = {
+    'S','H','N','E','W','B','R','S','F','O','R','F','O','L','D','E','R','_','M','S','G','B','O','X',0};
 
 /*************************************************************************
  * SHBrowseForFolderA [SHELL32.@]
@@ -1233,9 +1244,9 @@ LPITEMIDLIST WINAPI SHBrowseForFolderW (LPBROWSEINFOW lpbi)
     hr = OleInitialize(NULL);
 
     if (lpbi->ulFlags & BIF_NEWDIALOGSTYLE)
-        templateName = L"SHNEWBRSFORFOLDER_MSGBOX";
+        templateName = swNewBrowseTemplateName;
     else
-        templateName = L"SHBRSFORFOLDER_MSGBOX";
+        templateName = swBrowseTemplateName;
     r = DialogBoxParamW( shell32_hInstance, templateName, lpbi->hwndOwner,
 	                 BrsFolderDlgProc, (LPARAM)&info );
     if (SUCCEEDED(hr)) 

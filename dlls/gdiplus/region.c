@@ -332,7 +332,11 @@ GpStatus WINGDIPAPI GdipCombineRegionRectI(GpRegion *region,
     if (!rect)
         return InvalidParameter;
 
-    set_rect(&rectf, rect->X, rect->Y, rect->Width, rect->Height);
+    rectf.X = (REAL)rect->X;
+    rectf.Y = (REAL)rect->Y;
+    rectf.Height = (REAL)rect->Height;
+    rectf.Width = (REAL)rect->Width;
+
     return GdipCombineRegionRect(region, &rectf, mode);
 }
 
@@ -488,7 +492,11 @@ GpStatus WINGDIPAPI GdipCreateRegionRectI(GDIPCONST GpRect *rect,
 
     TRACE("%p, %p\n", rect, region);
 
-    set_rect(&rectf, rect->X, rect->Y, rect->Width, rect->Height);
+    rectf.X = (REAL)rect->X;
+    rectf.Y = (REAL)rect->Y;
+    rectf.Width = (REAL)rect->Width;
+    rectf.Height = (REAL)rect->Height;
+
     return GdipCreateRegionRect(&rectf, region);
 }
 

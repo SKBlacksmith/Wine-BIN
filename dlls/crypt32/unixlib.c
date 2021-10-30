@@ -84,7 +84,7 @@ static void gnutls_log( int level, const char *msg )
     TRACE( "<%d> %s", level, msg );
 }
 
-static BOOL gnutls_initialize(void)
+BOOL gnutls_initialize(void)
 {
     const char *env_str;
     int ret;
@@ -146,7 +146,7 @@ fail:
     return FALSE;
 }
 
-static void gnutls_uninitialize(void)
+void gnutls_uninitialize(void)
 {
     pgnutls_global_deinit();
     dlclose( libgnutls_handle );
@@ -580,35 +580,26 @@ static void load_root_certs(void)
     DWORD i;
 
 #ifdef HAVE_SECURITY_SECURITY_H
-    const SecTrustSettingsDomain domains[] = {
-        kSecTrustSettingsDomainSystem,
-        kSecTrustSettingsDomainAdmin,
-        kSecTrustSettingsDomainUser
-    };
     OSStatus status;
-    CFArrayRef certs;
-    DWORD domain;
+    CFArrayRef rootCerts;
 
-    for (domain = 0; domain < ARRAY_SIZE(domains); domain++)
+    status = SecTrustCopyAnchorCertificates(&rootCerts);
+    if (status == noErr)
     {
-        status = SecTrustSettingsCopyCertificates(domains[domain], &certs);
-        if (status == noErr)
+        for (i = 0; i < CFArrayGetCount(rootCerts); i++)
         {
-            for (i = 0; i < CFArrayGetCount(certs); i++)
+            SecCertificateRef cert = (SecCertificateRef)CFArrayGetValueAtIndex(rootCerts, i);
+            CFDataRef certData;
+            if ((status = SecKeychainItemExport(cert, kSecFormatX509Cert, 0, NULL, &certData)) == noErr)
             {
-                SecCertificateRef cert = (SecCertificateRef)CFArrayGetValueAtIndex(certs, i);
-                CFDataRef certData;
-                if ((status = SecItemExport(cert, kSecFormatX509Cert, 0, NULL, &certData)) == noErr)
-                {
-                    BYTE *data = add_cert( CFDataGetLength(certData) );
-                    if (data) memcpy( data, CFDataGetBytePtr(certData), CFDataGetLength(certData) );
-                    CFRelease(certData);
-                }
-                else
-                    WARN("could not export certificate %d to X509 format: 0x%08x\n", i, (unsigned int)status);
+                BYTE *data = add_cert( CFDataGetLength(certData) );
+                if (data) memcpy( data, CFDataGetBytePtr(certData), CFDataGetLength(certData) );
+                CFRelease(certData);
             }
-            CFRelease(certs);
+            else
+                WARN("could not export certificate %d to X509 format: 0x%08x\n", i, (unsigned int)status);
         }
+        CFRelease(rootCerts);
     }
 #endif
 

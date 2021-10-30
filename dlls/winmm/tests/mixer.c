@@ -983,7 +983,7 @@ static void mixer_testsA(void)
     MMRESULT rc;
     UINT ndev, d;
 
-    trace("--- Testing ANSI functions ---\n");
+    trace("--- Testing ASCII functions ---\n");
 
     ndev=mixerGetNumDevs();
     trace("found %d Mixer devices\n",ndev);

@@ -324,18 +324,14 @@ GpStatus hresult_to_status(HRESULT res)
 }
 
 /* converts a given unit to its value in pixels */
-REAL units_to_pixels(REAL units, GpUnit unit, REAL dpi, BOOL printer_display)
+REAL units_to_pixels(REAL units, GpUnit unit, REAL dpi)
 {
     switch (unit)
     {
     case UnitPixel:
     case UnitWorld:
-        return units;
     case UnitDisplay:
-        if (printer_display)
-            return units * dpi / 100.0;
-        else
-            return units;
+        return units;
     case UnitPoint:
         return units * dpi / point_per_inch;
     case UnitInch:
@@ -351,18 +347,14 @@ REAL units_to_pixels(REAL units, GpUnit unit, REAL dpi, BOOL printer_display)
 }
 
 /* converts value in pixels to a given unit */
-REAL pixels_to_units(REAL pixels, GpUnit unit, REAL dpi, BOOL printer_display)
+REAL pixels_to_units(REAL pixels, GpUnit unit, REAL dpi)
 {
     switch (unit)
     {
     case UnitPixel:
     case UnitWorld:
-        return pixels;
     case UnitDisplay:
-        if (printer_display)
-            return pixels * 100.0 / dpi;
-        else
-            return pixels;
+        return pixels;
     case UnitPoint:
         return pixels * point_per_inch / dpi;
     case UnitInch:
@@ -377,10 +369,10 @@ REAL pixels_to_units(REAL pixels, GpUnit unit, REAL dpi, BOOL printer_display)
     }
 }
 
-REAL units_scale(GpUnit from, GpUnit to, REAL dpi, BOOL printer_display)
+REAL units_scale(GpUnit from, GpUnit to, REAL dpi)
 {
-    REAL pixels = units_to_pixels(1.0, from, dpi, printer_display);
-    return pixels_to_units(pixels, to, dpi, printer_display);
+    REAL pixels = units_to_pixels(1.0, from, dpi);
+    return pixels_to_units(pixels, to, dpi);
 }
 
 /* Calculates Bezier points from cardinal spline points. */

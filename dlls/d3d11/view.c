@@ -18,7 +18,6 @@
  */
 
 #define NONAMELESSUNION
-#define WINE_NO_NAMELESS_EXTENSION
 #include "d3d11_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3d11);
@@ -963,7 +962,9 @@ static ULONG STDMETHODCALLTYPE d3d11_depthstencil_view_AddRef(ID3D11DepthStencil
     if (refcount == 1)
     {
         ID3D11Device2_AddRef(view->device);
+        wined3d_mutex_lock();
         wined3d_rendertarget_view_incref(view->wined3d_view);
+        wined3d_mutex_unlock();
     }
 
     return refcount;
@@ -979,7 +980,11 @@ static ULONG STDMETHODCALLTYPE d3d11_depthstencil_view_Release(ID3D11DepthStenci
     if (!refcount)
     {
         ID3D11Device2 *device = view->device;
+
+        wined3d_mutex_lock();
         wined3d_rendertarget_view_decref(view->wined3d_view);
+        wined3d_mutex_unlock();
+
         ID3D11Device2_Release(device);
     }
 
@@ -1401,7 +1406,9 @@ static ULONG STDMETHODCALLTYPE d3d11_rendertarget_view_AddRef(ID3D11RenderTarget
     if (refcount == 1)
     {
         ID3D11Device2_AddRef(view->device);
+        wined3d_mutex_lock();
         wined3d_rendertarget_view_incref(view->wined3d_view);
+        wined3d_mutex_unlock();
     }
 
     return refcount;
@@ -1417,7 +1424,11 @@ static ULONG STDMETHODCALLTYPE d3d11_rendertarget_view_Release(ID3D11RenderTarge
     if (!refcount)
     {
         ID3D11Device2 *device = view->device;
+
+        wined3d_mutex_lock();
         wined3d_rendertarget_view_decref(view->wined3d_view);
+        wined3d_mutex_unlock();
+
         ID3D11Device2_Release(device);
     }
 
@@ -1843,7 +1854,9 @@ static ULONG STDMETHODCALLTYPE d3d11_shader_resource_view_AddRef(ID3D11ShaderRes
     if (refcount == 1)
     {
         ID3D11Device2_AddRef(view->device);
+        wined3d_mutex_lock();
         wined3d_shader_resource_view_incref(view->wined3d_view);
+        wined3d_mutex_unlock();
     }
 
     return refcount;
@@ -1859,7 +1872,11 @@ static ULONG STDMETHODCALLTYPE d3d11_shader_resource_view_Release(ID3D11ShaderRe
     if (!refcount)
     {
         ID3D11Device2 *device = view->device;
+
+        wined3d_mutex_lock();
         wined3d_shader_resource_view_decref(view->wined3d_view);
+        wined3d_mutex_unlock();
+
         ID3D11Device2_Release(device);
     }
 
@@ -2322,7 +2339,9 @@ static ULONG STDMETHODCALLTYPE d3d11_unordered_access_view_AddRef(ID3D11Unordere
     if (refcount == 1)
     {
         ID3D11Device2_AddRef(view->device);
+        wined3d_mutex_lock();
         wined3d_unordered_access_view_incref(view->wined3d_view);
+        wined3d_mutex_unlock();
     }
 
     return refcount;
@@ -2338,7 +2357,11 @@ static ULONG STDMETHODCALLTYPE d3d11_unordered_access_view_Release(ID3D11Unorder
     if (!refcount)
     {
         ID3D11Device2 *device = view->device;
+
+        wined3d_mutex_lock();
         wined3d_unordered_access_view_decref(view->wined3d_view);
+        wined3d_mutex_unlock();
+
         ID3D11Device2_Release(device);
     }
 

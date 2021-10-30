@@ -18,6 +18,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -28,6 +30,8 @@
 #include "resource.h"
 #include "winternl.h"
 #include "wine/debug.h"
+#include "wine/exception.h"
+#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(winedbg);
 
@@ -242,7 +246,7 @@ static DWORD dbg_handle_exception(const EXCEPTION_RECORD* rec, BOOL first_chance
     case EXCEPTION_SINGLE_STEP:
         is_debug = TRUE;
         break;
-    case EXCEPTION_WINE_NAME_THREAD:
+    case EXCEPTION_NAME_THREAD:
         pThreadName = (const THREADNAME_INFO*)(rec->ExceptionInformation);
         if (pThreadName->dwThreadID == -1)
             pThread = dbg_curr_thread;
@@ -292,23 +296,34 @@ static DWORD dbg_handle_exception(const EXCEPTION_RECORD* rec, BOOL first_chance
 
 static BOOL tgt_process_active_close_process(struct dbg_process* pcs, BOOL kill);
 
-void fetch_module_name(void* name_addr, void* mod_addr, WCHAR* buffer, size_t bufsz)
+static void fetch_module_name(void* name_addr, BOOL unicode, void* mod_addr,
+                              WCHAR* buffer, size_t bufsz, BOOL is_pcs)
 {
+    static const WCHAR pcspid[] = {'P','r','o','c','e','s','s','_','%','0','8','x',0};
     static const WCHAR dlladdr[] = {'D','L','L','_','%','0','8','l','x',0};
 
-    memory_get_string_indirect(dbg_curr_process, name_addr, TRUE, buffer, bufsz);
-    if (!buffer[0] && !GetModuleFileNameExW(dbg_curr_process->handle, mod_addr, buffer, bufsz))
+    memory_get_string_indirect(dbg_curr_process, name_addr, unicode, buffer, bufsz);
+    if (!buffer[0] &&
+        !GetModuleFileNameExW(dbg_curr_process->handle, mod_addr, buffer, bufsz))
     {
-        if (GetMappedFileNameW( dbg_curr_process->handle, mod_addr, buffer, bufsz ))
+        if (is_pcs)
         {
-            /* FIXME: proper NT->Dos conversion */
-            static const WCHAR nt_prefixW[] = {'\\','?','?','\\'};
+            HMODULE h;
+            WORD (WINAPI *gpif)(HANDLE, LPWSTR, DWORD);
 
-            if (!wcsncmp( buffer, nt_prefixW, 4 ))
-                memmove( buffer, buffer + 4, (lstrlenW(buffer + 4) + 1) * sizeof(WCHAR) );
+            /* On Windows, when we get the process creation debug event for a process
+             * created by winedbg, the modules' list is not initialized yet. Hence,
+             * GetModuleFileNameExA (on the main module) will generate an error.
+             * Psapi (starting on XP) provides GetProcessImageFileName() which should
+             * give us the expected result
+             */
+            if (!(h = GetModuleHandleA("psapi")) ||
+                !(gpif = (void*)GetProcAddress(h, "GetProcessImageFileNameW")) ||
+                !(gpif)(dbg_curr_process->handle, buffer, bufsz))
+                snprintfW(buffer, bufsz, pcspid, dbg_curr_pid);
         }
         else
-            swprintf(buffer, bufsz, dlladdr, (ULONG_PTR)mod_addr);
+            snprintfW(buffer, bufsz, dlladdr, (ULONG_PTR)mod_addr);
     }
 }
 
@@ -318,7 +333,7 @@ static unsigned dbg_handle_debug_event(DEBUG_EVENT* de)
         char	bufferA[256];
         WCHAR	buffer[256];
     } u;
-    DWORD size, cont = DBG_CONTINUE;
+    DWORD       cont = DBG_CONTINUE;
 
     dbg_curr_pid = de->dwProcessId;
     dbg_curr_tid = de->dwThreadId;
@@ -368,12 +383,10 @@ static unsigned dbg_handle_debug_event(DEBUG_EVENT* de)
             WINE_ERR("Couldn't create process\n");
             break;
         }
-        size = ARRAY_SIZE(u.buffer);
-        if (!QueryFullProcessImageNameW( dbg_curr_process->handle, 0, u.buffer, &size ))
-        {
-            static const WCHAR pcspid[] = {'P','r','o','c','e','s','s','_','%','0','8','x',0};
-            swprintf( u.buffer, ARRAY_SIZE(u.buffer), pcspid, dbg_curr_pid);
-        }
+        fetch_module_name(de->u.CreateProcessInfo.lpImageName,
+                          de->u.CreateProcessInfo.fUnicode,
+                          de->u.CreateProcessInfo.lpBaseOfImage,
+                          u.buffer, ARRAY_SIZE(u.buffer), TRUE);
 
         WINE_TRACE("%04x:%04x: create process '%s'/%p @%p (%u<%u>)\n",
                    de->dwProcessId, de->dwThreadId,
@@ -465,8 +478,10 @@ static unsigned dbg_handle_debug_event(DEBUG_EVENT* de)
             WINE_ERR("Unknown thread\n");
             break;
         }
-        fetch_module_name(de->u.LoadDll.lpImageName, de->u.LoadDll.lpBaseOfDll,
-                          u.buffer, ARRAY_SIZE(u.buffer));
+        fetch_module_name(de->u.LoadDll.lpImageName,
+                          de->u.LoadDll.fUnicode,
+                          de->u.LoadDll.lpBaseOfDll,
+                          u.buffer, ARRAY_SIZE(u.buffer), FALSE);
 
         WINE_TRACE("%04x:%04x: loads DLL %s @%p (%u<%u>)\n",
                    de->dwProcessId, de->dwThreadId,
@@ -663,7 +678,7 @@ static BOOL str2int(const char* str, DWORD_PTR* val)
 {
     char*   ptr;
 
-    *val = strtol(str, &ptr, 0);
+    *val = strtol(str, &ptr, 10);
     return str < ptr && !*ptr;
 }
 

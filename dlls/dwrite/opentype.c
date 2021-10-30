@@ -21,7 +21,9 @@
 #define COBJMACROS
 #define NONAMELESSUNION
 
+#include "config.h"
 #include "dwrite_private.h"
+#include "winternl.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dwrite);
 
@@ -44,7 +46,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(dwrite);
 #define MS_CBLC_TAG DWRITE_MAKE_OPENTYPE_TAG('C','B','L','C')
 #define MS_CMAP_TAG DWRITE_MAKE_OPENTYPE_TAG('c','m','a','p')
 #define MS_META_TAG DWRITE_MAKE_OPENTYPE_TAG('m','e','t','a')
-#define MS_KERN_TAG DWRITE_MAKE_OPENTYPE_TAG('k','e','r','n')
 
 /* 'sbix' formats */
 #define MS_PNG__TAG DWRITE_MAKE_OPENTYPE_TAG('p','n','g',' ')
@@ -319,23 +320,21 @@ enum OS2_FSSELECTION {
     OS2_FSSELECTION_OBLIQUE          = 1 << 9
 };
 
-struct name_record
-{
+typedef struct {
     WORD platformID;
     WORD encodingID;
     WORD languageID;
     WORD nameID;
     WORD length;
     WORD offset;
-};
+} TT_NameRecord;
 
-struct name_header
-{
+typedef struct {
     WORD format;
     WORD count;
     WORD stringOffset;
-    struct name_record records[1];
-};
+    TT_NameRecord nameRecord[1];
+} TT_NAME_V0;
 
 struct vdmx_header
 {
@@ -398,7 +397,7 @@ struct ot_script
     WORD default_langsys;
     WORD langsys_count;
     struct ot_langsys_record langsys[1];
-};
+} OT_Script;
 
 struct ot_script_record
 {
@@ -469,17 +468,10 @@ enum gsub_gpos_lookup_flags
     LOOKUP_FLAG_IGNORE_BASE = 0x2,
     LOOKUP_FLAG_IGNORE_LIGATURES = 0x4,
     LOOKUP_FLAG_IGNORE_MARKS = 0x8,
-    LOOKUP_FLAG_IGNORE_MASK = 0xe, /* Combined LOOKUP_FLAG_IGNORE_* flags. */
+    LOOKUP_FLAG_IGNORE_MASK = 0xe,
 
     LOOKUP_FLAG_USE_MARK_FILTERING_SET = 0x10,
     LOOKUP_FLAG_MARK_ATTACHMENT_TYPE = 0xff00,
-};
-
-enum attach_type
-{
-    GLYPH_ATTACH_NONE = 0,
-    GLYPH_ATTACH_MARK,
-    GLYPH_ATTACH_CURSIVE,
 };
 
 enum glyph_prop_flags
@@ -487,14 +479,6 @@ enum glyph_prop_flags
     GLYPH_PROP_BASE = LOOKUP_FLAG_IGNORE_BASE,
     GLYPH_PROP_LIGATURE = LOOKUP_FLAG_IGNORE_LIGATURES,
     GLYPH_PROP_MARK = LOOKUP_FLAG_IGNORE_MARKS,
-
-    GLYPH_PROP_ZWNJ = 0x10,
-    GLYPH_PROP_ZWJ = 0x20,
-    GLYPH_PROP_IGNORABLE = 0x40,
-    GLYPH_PROP_HIDDEN = 0x80,
-
-    GLYPH_PROP_MARK_ATTACH_CLASS_MASK = 0xff00, /* Used with LOOKUP_FLAG_MARK_ATTACHMENT_TYPE. */
-    GLYPH_PROP_ATTACH_TYPE_MASK = 0xff0000,
 };
 
 enum gpos_lookup_type
@@ -800,18 +784,24 @@ struct ot_gpos_mark_to_mark_format1
     WORD mark2_array;
 };
 
-struct kern_header
-{
-    WORD version;
-    WORD table_count;
-};
+typedef struct {
+    WORD SubstFormat;
+    WORD Coverage;
+    WORD DeltaGlyphID;
+} GSUB_SingleSubstFormat1;
 
-struct kern_subtable_header
-{
-    WORD version;
-    WORD length;
-    WORD coverage;
-};
+typedef struct {
+    WORD SubstFormat;
+    WORD Coverage;
+    WORD GlyphCount;
+    WORD Substitute[1];
+} GSUB_SingleSubstFormat2;
+
+typedef struct {
+    WORD SubstFormat;
+    WORD ExtensionLookupType;
+    DWORD ExtensionOffset;
+} GSUB_ExtensionPosFormat1;
 
 #include "poppack.h"
 
@@ -1572,7 +1562,7 @@ struct cmap_format4_compare_context
     unsigned int ch;
 };
 
-static int __cdecl cmap_format4_compare_range(const void *a, const void *b)
+static int cmap_format4_compare_range(const void *a, const void *b)
 {
     const struct cmap_format4_compare_context *key = a;
     const UINT16 *end = b;
@@ -1657,7 +1647,7 @@ static unsigned int opentype_cmap_format6_10_get_ranges(const struct dwrite_cmap
     return 1;
 }
 
-static int __cdecl cmap_format12_13_compare_group(const void *a, const void *b)
+static int cmap_format12_13_compare_group(const void *a, const void *b)
 {
     const unsigned int *ch = a;
     const UINT32 *group = b;
@@ -1735,7 +1725,7 @@ UINT16 opentype_cmap_get_glyph(const struct dwrite_cmap *cmap, unsigned int ch)
     return glyph;
 }
 
-static int __cdecl cmap_header_compare(const void *a, const void *b)
+static int cmap_header_compare(const void *a, const void *b)
 {
     const UINT16 *key = a;
     const UINT16 *record = b;
@@ -2163,7 +2153,7 @@ void opentype_get_font_properties(struct file_stream_desc *stream_desc, struct d
         IDWriteFontFileStream_ReleaseFileFragment(stream_desc->stream, colr.context);
     }
 
-    TRACE("stretch %d, weight %d, style %d\n", props->stretch, props->weight, props->style);
+    TRACE("stretch=%d, weight=%d, style %d\n", props->stretch, props->weight, props->style);
 
     if (os2.data)
         IDWriteFontFileStream_ReleaseFileFragment(stream_desc->stream, os2.context);
@@ -2252,8 +2242,9 @@ static UINT get_name_record_codepage(enum OPENTYPE_PLATFORM_ID platform, USHORT 
 
 static void get_name_record_locale(enum OPENTYPE_PLATFORM_ID platform, USHORT lang_id, WCHAR *locale, USHORT locale_len)
 {
-    switch (platform)
-    {
+    static const WCHAR enusW[] = {'e','n','-','U','S',0};
+
+    switch (platform) {
     case OPENTYPE_PLATFORM_MAC:
     {
         const char *locale_name = NULL;
@@ -2268,48 +2259,28 @@ static void get_name_record_locale(enum OPENTYPE_PLATFORM_ID platform, USHORT la
         if (locale_name)
             MultiByteToWideChar(CP_ACP, 0, name_mac_langid_to_locale[lang_id], -1, locale, locale_len);
         else
-            wcscpy(locale, L"en-US");
+            strcpyW(locale, enusW);
         break;
     }
     case OPENTYPE_PLATFORM_WIN:
-        if (!LCIDToLocaleName(MAKELCID(lang_id, SORT_DEFAULT), locale, locale_len, 0))
-        {
+        if (!LCIDToLocaleName(MAKELCID(lang_id, SORT_DEFAULT), locale, locale_len, 0)) {
             FIXME("failed to get locale name for lcid=0x%08x\n", MAKELCID(lang_id, SORT_DEFAULT));
-            wcscpy(locale, L"en-US");
+            strcpyW(locale, enusW);
         }
         break;
     case OPENTYPE_PLATFORM_UNICODE:
-        wcscpy(locale, L"en-US");
+        strcpyW(locale, enusW);
         break;
     default:
         FIXME("unknown platform %d\n", platform);
     }
 }
 
-static BOOL opentype_is_english_namerecord(const struct dwrite_fonttable *table, unsigned int idx)
+static BOOL opentype_decode_namerecord(const TT_NAME_V0 *header, BYTE *storage_area, USHORT recid, IDWriteLocalizedStrings *strings)
 {
-    const struct name_header *header = (const struct name_header *)table->data;
-    const struct name_record *record;
-
-    record = &header->records[idx];
-
-    return GET_BE_WORD(record->platformID) == OPENTYPE_PLATFORM_MAC &&
-            GET_BE_WORD(record->languageID) == TT_NAME_MAC_LANGID_ENGLISH;
-}
-
-static BOOL opentype_decode_namerecord(const struct dwrite_fonttable *table, unsigned int idx,
-        IDWriteLocalizedStrings *strings)
-{
+    const TT_NameRecord *record = &header->nameRecord[recid];
     USHORT lang_id, length, offset, encoding, platform;
-    const struct name_header *header = (const struct name_header *)table->data;
-    const struct name_record *record;
-    unsigned int i, string_offset;
     BOOL ret = FALSE;
-    const void *name;
-
-    string_offset = table_read_be_word(table, FIELD_OFFSET(struct name_header, stringOffset));
-
-    record = &header->records[idx];
 
     platform = GET_BE_WORD(record->platformID);
     lang_id = GET_BE_WORD(record->languageID);
@@ -2317,11 +2288,7 @@ static BOOL opentype_decode_namerecord(const struct dwrite_fonttable *table, uns
     offset = GET_BE_WORD(record->offset);
     encoding = GET_BE_WORD(record->encodingID);
 
-    if (!(name = table_read_ensure(table, string_offset + offset, length)))
-        return FALSE;
-
-    if (lang_id < 0x8000)
-    {
+    if (lang_id < 0x8000) {
         WCHAR locale[LOCALE_NAME_MAX_LENGTH];
         WCHAR *name_string;
         UINT codepage;
@@ -2329,17 +2296,17 @@ static BOOL opentype_decode_namerecord(const struct dwrite_fonttable *table, uns
         codepage = get_name_record_codepage(platform, encoding);
         get_name_record_locale(platform, lang_id, locale, ARRAY_SIZE(locale));
 
-        if (codepage)
-        {
-            DWORD len = MultiByteToWideChar(codepage, 0, name, length, NULL, 0);
+        if (codepage) {
+            DWORD len = MultiByteToWideChar(codepage, 0, (LPSTR)(storage_area + offset), length, NULL, 0);
             name_string = heap_alloc(sizeof(WCHAR) * (len+1));
-            MultiByteToWideChar(codepage, 0, name, length, name_string, len);
+            MultiByteToWideChar(codepage, 0, (LPSTR)(storage_area + offset), length, name_string, len);
             name_string[len] = 0;
         }
-        else
-        {
+        else {
+            int i;
+
             length /= sizeof(WCHAR);
-            name_string = heap_strdupnW(name, length);
+            name_string = heap_strdupnW((LPWSTR)(storage_area + offset), length);
             for (i = 0; i < length; i++)
                 name_string[i] = GET_BE_WORD(name_string[i]);
         }
@@ -2347,8 +2314,7 @@ static BOOL opentype_decode_namerecord(const struct dwrite_fonttable *table, uns
         TRACE("string %s for locale %s found\n", debugstr_w(name_string), debugstr_w(locale));
         add_localizedstring(strings, locale, name_string);
         heap_free(name_string);
-
-        ret = !wcscmp(locale, L"en-US");
+        ret = TRUE;
     }
     else
         FIXME("handle NAME format 1\n");
@@ -2356,45 +2322,45 @@ static BOOL opentype_decode_namerecord(const struct dwrite_fonttable *table, uns
     return ret;
 }
 
-static HRESULT opentype_get_font_strings_from_id(const struct dwrite_fonttable *table, enum OPENTYPE_STRING_ID id,
-        IDWriteLocalizedStrings **strings)
+static HRESULT opentype_get_font_strings_from_id(const void *table_data, enum OPENTYPE_STRING_ID id, IDWriteLocalizedStrings **strings)
 {
-    int i, count, candidate_mac, candidate_mac_en, candidate_unicode;
-    const struct name_record *records;
-    BOOL has_english;
+    int i, count, candidate_mac, candidate_unicode;
+    const TT_NAME_V0 *header;
+    BYTE *storage_area = 0;
     WORD format;
+    BOOL exists;
     HRESULT hr;
 
-    if (!table->data)
+    if (!table_data)
         return E_FAIL;
 
-    if (FAILED(hr = create_localizedstrings(strings)))
-        return hr;
+    hr = create_localizedstrings(strings);
+    if (FAILED(hr)) return hr;
 
-    format = table_read_be_word(table, FIELD_OFFSET(struct name_header, format));
+    header = table_data;
+    format = GET_BE_WORD(header->format);
 
-    if (format != 0 && format != 1)
+    switch (format) {
+    case 0:
+    case 1:
+        break;
+    default:
         FIXME("unsupported NAME format %d\n", format);
-
-    count = table_read_be_word(table, FIELD_OFFSET(struct name_header, count));
-
-    if (!(records = table_read_ensure(table, FIELD_OFFSET(struct name_header, records),
-                count * sizeof(struct name_record))))
-    {
-        count = 0;
     }
 
-    has_english = FALSE;
-    candidate_unicode = candidate_mac = candidate_mac_en = -1;
+    storage_area = (LPBYTE)table_data + GET_BE_WORD(header->stringOffset);
+    count = GET_BE_WORD(header->count);
 
-    for (i = 0; i < count; i++)
-    {
-        unsigned short platform;
+    exists = FALSE;
+    candidate_unicode = candidate_mac = -1;
+    for (i = 0; i < count; i++) {
+        const TT_NameRecord *record = &header->nameRecord[i];
+        USHORT platform;
 
-        if (GET_BE_WORD(records[i].nameID) != id)
+        if (GET_BE_WORD(record->nameID) != id)
             continue;
 
-        platform = GET_BE_WORD(records[i].platformID);
+        platform = GET_BE_WORD(record->platformID);
         switch (platform)
         {
             /* Skip Unicode or Mac entries for now, fonts tend to duplicate those
@@ -2408,11 +2374,10 @@ static HRESULT opentype_get_font_strings_from_id(const struct dwrite_fonttable *
             case OPENTYPE_PLATFORM_MAC:
                 if (candidate_mac == -1)
                     candidate_mac = i;
-                if (candidate_mac_en == -1 && opentype_is_english_namerecord(table, i))
-                    candidate_mac_en = i;
                 break;
             case OPENTYPE_PLATFORM_WIN:
-                has_english |= opentype_decode_namerecord(table, i, *strings);
+                if (opentype_decode_namerecord(header, storage_area, i, *strings))
+                    exists = TRUE;
                 break;
             default:
                 FIXME("platform %i not supported\n", platform);
@@ -2420,34 +2385,36 @@ static HRESULT opentype_get_font_strings_from_id(const struct dwrite_fonttable *
         }
     }
 
-    if (!get_localizedstrings_count(*strings) && candidate_mac != -1)
-        has_english |= opentype_decode_namerecord(table, candidate_mac, *strings);
-    if (!get_localizedstrings_count(*strings) && candidate_unicode != -1)
-        has_english |= opentype_decode_namerecord(table, candidate_unicode, *strings);
-    if (!has_english && candidate_mac_en != -1)
-        opentype_decode_namerecord(table, candidate_mac_en, *strings);
-
-    if (!get_localizedstrings_count(*strings))
+    if (!exists)
     {
-        IDWriteLocalizedStrings_Release(*strings);
-        *strings = NULL;
+        if (candidate_mac != -1)
+            exists = opentype_decode_namerecord(header, storage_area, candidate_mac, *strings);
+        if (!exists && candidate_unicode != -1)
+            exists = opentype_decode_namerecord(header, storage_area, candidate_unicode, *strings);
+
+        if (!exists)
+        {
+            IDWriteLocalizedStrings_Release(*strings);
+            *strings = NULL;
+        }
     }
 
     if (*strings)
         sort_localizedstrings(*strings);
 
-    return *strings ? S_OK : E_FAIL;
+    return exists ? S_OK : E_FAIL;
 }
 
 static WCHAR *meta_get_lng_name(WCHAR *str, WCHAR **ctx)
 {
+    static const WCHAR delimW[] = {',',' ',0};
     WCHAR *ret;
 
     if (!str) str = *ctx;
-    while (*str && wcschr(L", ", *str)) str++;
+    while (*str && strchrW(delimW, *str)) str++;
     if (!*str) return NULL;
     ret = str++;
-    while (*str && !wcschr(L", ", *str)) str++;
+    while (*str && !strchrW(delimW, *str)) str++;
     if (*str) *str++ = 0;
     *ctx = str;
 
@@ -2457,6 +2424,7 @@ static WCHAR *meta_get_lng_name(WCHAR *str, WCHAR **ctx)
 static HRESULT opentype_get_font_strings_from_meta(const struct file_stream_desc *stream_desc,
         DWRITE_INFORMATIONAL_STRING_ID id, IDWriteLocalizedStrings **ret)
 {
+    static const WCHAR emptyW[] = { 0 };
     const struct meta_data_map *maps;
     IDWriteLocalizedStrings *strings;
     struct dwrite_fonttable meta;
@@ -2524,7 +2492,7 @@ static HRESULT opentype_get_font_strings_from_meta(const struct file_stream_desc
 
                     while (token)
                     {
-                        add_localizedstring(strings, L"", token);
+                        add_localizedstring(strings, emptyW, token);
                         token = meta_get_lng_name(NULL, &ctx);
                     }
 
@@ -2557,7 +2525,7 @@ HRESULT opentype_get_font_info_strings(const struct file_stream_desc *stream_des
             break;
         default:
             opentype_get_font_table(stream_desc, MS_NAME_TAG, &name);
-            opentype_get_font_strings_from_id(&name, dwriteid_to_opentypeid[id], strings);
+            opentype_get_font_strings_from_id(name.data, dwriteid_to_opentypeid[id], strings);
             if (name.context)
                 IDWriteFontFileStream_ReleaseFileFragment(stream_desc->stream, name.context);
     }
@@ -2570,25 +2538,28 @@ HRESULT opentype_get_font_info_strings(const struct file_stream_desc *stream_des
 HRESULT opentype_get_font_familyname(struct file_stream_desc *stream_desc, IDWriteLocalizedStrings **names)
 {
     struct dwrite_fonttable os2, name;
+    const void *name_table;
     UINT16 fsselection;
     HRESULT hr;
 
     opentype_get_font_table(stream_desc, MS_OS2_TAG, &os2);
     opentype_get_font_table(stream_desc, MS_NAME_TAG, &name);
 
+    name_table = (const void *)name.data;
+
     *names = NULL;
 
     /* If Preferred Family doesn't conform to WWS model try WWS name. */
     fsselection = os2.data ? table_read_be_word(&os2, FIELD_OFFSET(struct tt_os2, fsSelection)) : 0;
     if (os2.data && !(fsselection & OS2_FSSELECTION_WWS))
-        hr = opentype_get_font_strings_from_id(&name, OPENTYPE_STRING_WWS_FAMILY_NAME, names);
+        hr = opentype_get_font_strings_from_id(name_table, OPENTYPE_STRING_WWS_FAMILY_NAME, names);
     else
         hr = E_FAIL;
 
     if (FAILED(hr))
-        hr = opentype_get_font_strings_from_id(&name, OPENTYPE_STRING_TYPOGRAPHIC_FAMILY_NAME, names);
+        hr = opentype_get_font_strings_from_id(name_table, OPENTYPE_STRING_TYPOGRAPHIC_FAMILY_NAME, names);
     if (FAILED(hr))
-        hr = opentype_get_font_strings_from_id(&name, OPENTYPE_STRING_FAMILY_NAME, names);
+        hr = opentype_get_font_strings_from_id(name_table, OPENTYPE_STRING_FAMILY_NAME, names);
 
     if (os2.context)
         IDWriteFontFileStream_ReleaseFileFragment(stream_desc->stream, os2.context);
@@ -2604,30 +2575,33 @@ HRESULT opentype_get_font_facename(struct file_stream_desc *stream_desc, WCHAR *
 {
     struct dwrite_fonttable os2, name;
     IDWriteLocalizedStrings *lfnames;
+    const void *name_table;
     UINT16 fsselection;
     HRESULT hr;
 
     opentype_get_font_table(stream_desc, MS_OS2_TAG, &os2);
     opentype_get_font_table(stream_desc, MS_NAME_TAG, &name);
 
+    name_table = name.data;
+
     *names = NULL;
 
     /* if Preferred Family doesn't conform to WWS model try WWS name */
     fsselection = os2.data ? table_read_be_word(&os2, FIELD_OFFSET(struct tt_os2, fsSelection)) : 0;
     if (os2.data && !(fsselection & OS2_FSSELECTION_WWS))
-        hr = opentype_get_font_strings_from_id(&name, OPENTYPE_STRING_WWS_SUBFAMILY_NAME, names);
+        hr = opentype_get_font_strings_from_id(name_table, OPENTYPE_STRING_WWS_SUBFAMILY_NAME, names);
     else
         hr = E_FAIL;
 
     if (FAILED(hr))
-        hr = opentype_get_font_strings_from_id(&name, OPENTYPE_STRING_TYPOGRAPHIC_SUBFAMILY_NAME, names);
+        hr = opentype_get_font_strings_from_id(name_table, OPENTYPE_STRING_TYPOGRAPHIC_SUBFAMILY_NAME, names);
     if (FAILED(hr))
-        hr = opentype_get_font_strings_from_id(&name, OPENTYPE_STRING_SUBFAMILY_NAME, names);
+        hr = opentype_get_font_strings_from_id(name_table, OPENTYPE_STRING_SUBFAMILY_NAME, names);
 
     /* User locale is preferred, with fallback to en-us. */
     *lfname = 0;
-    if (SUCCEEDED(opentype_get_font_strings_from_id(&name, OPENTYPE_STRING_FAMILY_NAME, &lfnames)))
-    {
+    if (SUCCEEDED(opentype_get_font_strings_from_id(name_table, OPENTYPE_STRING_FAMILY_NAME, &lfnames))) {
+        static const WCHAR enusW[] = {'e','n','-','u','s',0};
         WCHAR localeW[LOCALE_NAME_MAX_LENGTH];
         UINT32 index;
         BOOL exists;
@@ -2637,7 +2611,7 @@ HRESULT opentype_get_font_facename(struct file_stream_desc *stream_desc, WCHAR *
             IDWriteLocalizedStrings_FindLocaleName(lfnames, localeW, &index, &exists);
 
         if (!exists)
-            IDWriteLocalizedStrings_FindLocaleName(lfnames, L"en-us", &index, &exists);
+            IDWriteLocalizedStrings_FindLocaleName(lfnames, enusW, &index, &exists);
 
         if (exists) {
             UINT32 length = 0;
@@ -2645,8 +2619,7 @@ HRESULT opentype_get_font_facename(struct file_stream_desc *stream_desc, WCHAR *
 
             IDWriteLocalizedStrings_GetStringLength(lfnames, index, &length);
             nameW = heap_alloc((length + 1) * sizeof(WCHAR));
-            if (nameW)
-            {
+            if (nameW) {
                 *nameW = 0;
                 IDWriteLocalizedStrings_GetString(lfnames, index, nameW, length + 1);
                 lstrcpynW(lfname, nameW, LF_FACESIZE);
@@ -2853,13 +2826,6 @@ HRESULT opentype_get_cpal_entries(const struct dwrite_fonttable *cpal, unsigned 
     unsigned int num_palettes, num_palette_entries, i;
     const struct cpal_color_record *records;
     const struct cpal_header_0 *header;
-    struct d3d_color
-    {
-        float r;
-        float g;
-        float b;
-        float a;
-    } *colors = (void *)entries;
 
     header = table_read_ensure(cpal, 0, sizeof(*header));
 
@@ -2885,18 +2851,17 @@ HRESULT opentype_get_cpal_entries(const struct dwrite_fonttable *cpal, unsigned 
 
     first_entry_index += GET_BE_WORD(header->color_record_indices[palette]);
 
-    for (i = 0; i < entry_count; ++i)
-    {
-        colors[i].r = records[first_entry_index + i].red   / 255.0f;
-        colors[i].g = records[first_entry_index + i].green / 255.0f;
-        colors[i].b = records[first_entry_index + i].blue  / 255.0f;
-        colors[i].a = records[first_entry_index + i].alpha / 255.0f;
+    for (i = 0; i < entry_count; i++) {
+        entries[i].u1.r = records[first_entry_index + i].red   / 255.0f;
+        entries[i].u2.g = records[first_entry_index + i].green / 255.0f;
+        entries[i].u3.b = records[first_entry_index + i].blue  / 255.0f;
+        entries[i].u4.a = records[first_entry_index + i].alpha / 255.0f;
     }
 
     return S_OK;
 }
 
-static int __cdecl colr_compare_gid(const void *g, const void *r)
+static int colr_compare_gid(const void *g, const void *r)
 {
     const struct colr_baseglyph_record *record = r;
     UINT16 glyph = *(UINT16*)g, GID = GET_BE_WORD(record->glyph);
@@ -3254,7 +3219,7 @@ unsigned int opentype_layout_find_language(const struct scriptshaping_cache *cac
     return 0;
 }
 
-static int __cdecl gdef_class_compare_format2(const void *g, const void *r)
+static int gdef_class_compare_format2(const void *g, const void *r)
 {
     const struct ot_gdef_class_range *range = r;
     UINT16 glyph = *(UINT16 *)g;
@@ -3363,7 +3328,7 @@ struct coverage_compare_format1_context
     unsigned int *coverage_index;
 };
 
-static int __cdecl coverage_compare_format1(const void *left, const void *right)
+static int coverage_compare_format1(const void *left, const void *right)
 {
     const struct coverage_compare_format1_context *context = left;
     UINT16 glyph = GET_BE_WORD(*(UINT16 *)right);
@@ -3376,7 +3341,7 @@ static int __cdecl coverage_compare_format1(const void *left, const void *right)
     return ret;
 }
 
-static int __cdecl coverage_compare_format2(const void *g, const void *r)
+static int coverage_compare_format2(const void *g, const void *r)
 {
     const struct ot_coverage_range *range = r;
     UINT16 glyph = *(UINT16 *)g;
@@ -3435,7 +3400,7 @@ static unsigned int opentype_layout_is_glyph_covered(const struct dwrite_fonttab
 
 static inline unsigned int dwrite_popcount(unsigned int x)
 {
-#if defined(__GNUC__) && (__GNUC__ >= 4)
+#ifdef HAVE___BUILTIN_POPCOUNT
     return __builtin_popcount(x);
 #else
     x -= x >> 1 & 0x55555555;
@@ -3543,19 +3508,7 @@ struct lookup
 
     unsigned int mask;
     unsigned int offset;
-    unsigned int auto_zwnj : 1;
-    unsigned int auto_zwj : 1;
 };
-
-static unsigned int opentype_layout_is_subst_context(const struct scriptshaping_context *context)
-{
-    return context->table == &context->cache->gsub;
-}
-
-static unsigned int opentype_layout_is_pos_context(const struct scriptshaping_context *context)
-{
-    return context->table == &context->cache->gpos;
-}
 
 static unsigned int opentype_layout_get_gsubgpos_subtable(const struct scriptshaping_context *context,
         const struct lookup *lookup, unsigned int subtable, unsigned int *lookup_type)
@@ -3566,8 +3519,8 @@ static unsigned int opentype_layout_get_gsubgpos_subtable(const struct scriptsha
 
     subtable_offset += lookup->offset;
 
-    if ((opentype_layout_is_subst_context(context) && lookup->type != GSUB_LOOKUP_EXTENSION_SUBST) ||
-            (opentype_layout_is_pos_context(context) && lookup->type != GPOS_LOOKUP_EXTENSION_POSITION))
+    if ((context->table == &context->cache->gsub && lookup->type != GSUB_LOOKUP_EXTENSION_SUBST) ||
+            (context->table == &context->cache->gpos && lookup->type != GPOS_LOOKUP_EXTENSION_POSITION))
     {
         *lookup_type = lookup->type;
         return subtable_offset;
@@ -3632,8 +3585,6 @@ struct glyph_iterator
     p_match_func match_func;
     const UINT16 *glyph_data;
     const struct match_data *match_data;
-    unsigned int ignore_zwnj;
-    unsigned int ignore_zwj;
 };
 
 static void glyph_iterator_init(struct scriptshaping_context *context, unsigned int flags, unsigned int pos,
@@ -3647,9 +3598,6 @@ static void glyph_iterator_init(struct scriptshaping_context *context, unsigned 
     iter->match_func = NULL;
     iter->match_data = NULL;
     iter->glyph_data = NULL;
-    /* Context matching iterators will get these fixed up. */
-    iter->ignore_zwnj = !!opentype_layout_is_pos_context(context);
-    iter->ignore_zwj = context->auto_zwj;
 }
 
 struct ot_gdef_mark_glyph_sets
@@ -3725,17 +3673,8 @@ static BOOL lookup_is_glyph_match(const struct scriptshaping_context *context, u
 
 static enum iterator_match glyph_iterator_may_skip(const struct glyph_iterator *iter)
 {
-    unsigned int glyph_props = iter->context->glyph_infos[iter->pos].props & (GLYPH_PROP_IGNORABLE | GLYPH_PROP_HIDDEN);
-
     if (!lookup_is_glyph_match(iter->context, iter->pos, iter->flags))
         return ITER_YES;
-
-    if (glyph_props == GLYPH_PROP_IGNORABLE && !iter->context->u.buffer.glyph_props[iter->pos].components &&
-            (iter->ignore_zwnj || !(iter->context->glyph_infos[iter->pos].props & GLYPH_PROP_ZWNJ)) &&
-            (iter->ignore_zwj || !(iter->context->glyph_infos[iter->pos].props & GLYPH_PROP_ZWJ)))
-    {
-        return ITER_MAYBE;
-    }
 
     return ITER_NO;
 }
@@ -3861,7 +3800,7 @@ static BOOL opentype_layout_apply_gpos_single_adjustment(struct scriptshaping_co
     return TRUE;
 }
 
-static int __cdecl gpos_pair_adjustment_compare_format1(const void *g, const void *r)
+static int gpos_pair_adjustment_compare_format1(const void *g, const void *r)
 {
     const struct ot_gpos_pairvalue *pairvalue = r;
     UINT16 second_glyph = GET_BE_WORD(pairvalue->second_glyph);
@@ -4058,43 +3997,6 @@ static void opentype_layout_gpos_get_anchor(const struct scriptshaping_context *
         WARN("Unknown anchor format %u.\n", format);
 }
 
-static void opentype_set_glyph_attach_type(struct scriptshaping_context *context, unsigned int idx,
-        enum attach_type attach_type)
-{
-    context->glyph_infos[idx].props &= ~GLYPH_PROP_ATTACH_TYPE_MASK;
-    context->glyph_infos[idx].props |= attach_type << 16;
-}
-
-static enum attach_type opentype_get_glyph_attach_type(const struct scriptshaping_context *context, unsigned int idx)
-{
-    return (context->glyph_infos[idx].props >> 16) & 0xff;
-}
-
-static void opentype_reverse_cursive_offset(struct scriptshaping_context *context, unsigned int i,
-        unsigned int new_parent)
-{
-    enum attach_type type = opentype_get_glyph_attach_type(context, i);
-    int chain = context->glyph_infos[i].attach_chain;
-    unsigned int j;
-
-    if (!chain || type != GLYPH_ATTACH_CURSIVE)
-        return;
-
-    context->glyph_infos[i].attach_chain = 0;
-
-    j = (int)i + chain;
-    if (j == new_parent)
-        return;
-
-    opentype_reverse_cursive_offset(context, j, new_parent);
-
-    /* FIXME: handle vertical flow direction */
-    context->offsets[j].ascenderOffset = -context->offsets[i].ascenderOffset;
-
-    context->glyph_infos[j].attach_chain = -chain;
-    opentype_set_glyph_attach_type(context, j, type);
-}
-
 static BOOL opentype_layout_apply_gpos_cursive_attachment(struct scriptshaping_context *context,
         const struct lookup *lookup, unsigned int subtable_offset)
 {
@@ -4108,10 +4010,9 @@ static BOOL opentype_layout_apply_gpos_cursive_attachment(struct scriptshaping_c
     {
         WORD coverage_offset = table_read_be_word(table, subtable_offset +
                 FIELD_OFFSET(struct ot_gpos_cursive_format1, coverage));
-        unsigned int glyph_index, entry_count, entry_anchor, exit_anchor, child, parent;
+        unsigned int glyph_index, entry_count, entry_anchor, exit_anchor;
         float entry_x, entry_y, exit_x, exit_y, delta;
         struct glyph_iterator prev_iter;
-        float y_offset;
 
         if (!coverage_offset)
             return FALSE;
@@ -4160,28 +4061,9 @@ static BOOL opentype_layout_apply_gpos_cursive_attachment(struct scriptshaping_c
         }
 
         if (lookup->flags & LOOKUP_FLAG_RTL)
-        {
-            y_offset = entry_y - exit_y;
-            child = prev_iter.pos;
-            parent = context->cur;
-        }
+            context->offsets[prev_iter.pos].ascenderOffset = entry_y - exit_y;
         else
-        {
-            y_offset = exit_y - entry_y;
-            child = context->cur;
-            parent = prev_iter.pos;
-        }
-
-        opentype_reverse_cursive_offset(context, child, parent);
-
-        context->offsets[child].ascenderOffset = y_offset;
-
-        opentype_set_glyph_attach_type(context, child, GLYPH_ATTACH_CURSIVE);
-        context->glyph_infos[child].attach_chain = (int)parent - (int)child;
-        context->has_gpos_attachment = 1;
-
-        if (context->glyph_infos[parent].attach_chain == -context->glyph_infos[child].attach_chain)
-            context->glyph_infos[parent].attach_chain = 0;
+            context->offsets[context->cur].ascenderOffset = exit_y - entry_y;
 
         context->cur++;
     }
@@ -4232,11 +4114,8 @@ static BOOL opentype_layout_apply_mark_array(struct scriptshaping_context *conte
         context->offsets[context->cur].advanceOffset = mark_x - base_x;
     else
         context->offsets[context->cur].advanceOffset = -context->advances[glyph_pos] + base_x - mark_x;
-    context->offsets[context->cur].ascenderOffset = base_y - mark_y;
-    opentype_set_glyph_attach_type(context, context->cur, GLYPH_ATTACH_MARK);
-    context->glyph_infos[context->cur].attach_chain = (int)glyph_pos - (int)context->cur;
-    context->has_gpos_attachment = 1;
 
+    context->offsets[context->cur].ascenderOffset = base_y - mark_y;
     context->cur++;
 
     return TRUE;
@@ -4451,15 +4330,15 @@ struct lookups
     size_t count;
 };
 
-static int __cdecl lookups_sorting_compare(const void *a, const void *b)
+static int lookups_sorting_compare(const void *a, const void *b)
 {
     const struct lookup *left = (const struct lookup *)a;
     const struct lookup *right = (const struct lookup *)b;
     return left->index < right->index ? -1 : left->index > right->index ? 1 : 0;
 };
 
-static BOOL opentype_layout_init_lookup(const struct ot_gsubgpos_table *table, unsigned short lookup_index,
-        const struct shaping_feature *feature, struct lookup *lookup)
+static BOOL opentype_layout_init_lookup(const struct ot_gsubgpos_table *table, unsigned short lookup_index, unsigned int mask,
+        struct lookup *lookup)
 {
     unsigned short subtable_count, lookup_type, flags, mark_filtering_set;
     const struct ot_lookup_table *lookup_table;
@@ -4493,13 +4372,8 @@ static BOOL opentype_layout_init_lookup(const struct ot_gsubgpos_table *table, u
     lookup->type = lookup_type;
     lookup->flags = flags;
     lookup->subtable_count = subtable_count;
+    lookup->mask = mask;
     lookup->offset = offset;
-    if (feature)
-    {
-        lookup->mask = feature->mask;
-        lookup->auto_zwnj = !(feature->flags & FEATURE_MANUAL_ZWNJ);
-        lookup->auto_zwj = !(feature->flags & FEATURE_MANUAL_ZWJ);
-    }
 
     return TRUE;
 }
@@ -4535,13 +4409,13 @@ static void opentype_layout_add_lookups(const struct ot_feature_list *feature_li
         if (lookup_index >= total_lookup_count)
             continue;
 
-        if (opentype_layout_init_lookup(table, lookup_index, feature, &lookups->lookups[lookups->count]))
+        if (opentype_layout_init_lookup(table, lookup_index, feature->mask, &lookups->lookups[lookups->count]))
             lookups->count++;
     }
 }
 
 static void opentype_layout_collect_lookups(struct scriptshaping_context *context, unsigned int script_index,
-        unsigned int language_index, struct shaping_features *features, const struct ot_gsubgpos_table *table,
+        unsigned int language_index, const struct shaping_features *features, const struct ot_gsubgpos_table *table,
         struct lookups *lookups)
 {
     unsigned int last_num_lookups = 0, stage, script_feature_count = 0;
@@ -4617,10 +4491,7 @@ static void opentype_layout_collect_lookups(struct scriptshaping_context *contex
         if ((feature->flags & FEATURE_GLOBAL) && feature->max_value == 1)
             bits_needed = 0;
         else
-        {
             BitScanReverse(&bits_needed, min(feature->max_value, 256));
-            bits_needed++;
-        }
 
         if (!feature->max_value || next_bit + bits_needed > 8 * sizeof (feature->mask))
             continue;
@@ -4652,7 +4523,7 @@ static void opentype_layout_collect_lookups(struct scriptshaping_context *contex
             }
         }
 
-        if (!found && !(features->features[i].flags & FEATURE_HAS_FALLBACK))
+        if (!found)
             continue;
 
         if (feature->flags & FEATURE_GLOBAL && feature->max_value == 1)
@@ -4667,8 +4538,6 @@ static void opentype_layout_collect_lookups(struct scriptshaping_context *contex
             next_bit += bits_needed;
             context->global_mask |= (feature->default_value << feature->shift) & feature->mask;
         }
-        if (!found)
-            feature->flags |= FEATURE_NEEDS_FALLBACK;
     }
 
     for (stage = 0; stage <= features->stage; ++stage)
@@ -4698,19 +4567,16 @@ static void opentype_layout_collect_lookups(struct scriptshaping_context *contex
                 else
                 {
                     lookups->lookups[j].mask |= lookups->lookups[i].mask;
-                    lookups->lookups[j].auto_zwnj &= lookups->lookups[i].auto_zwnj;
-                    lookups->lookups[j].auto_zwj &= lookups->lookups[i].auto_zwj;
                 }
             }
             lookups->count = j + 1;
         }
 
         last_num_lookups = lookups->count;
-        features->stages[stage].last_lookup = last_num_lookups;
     }
 }
 
-static int __cdecl feature_search_compare(const void *a, const void* b)
+static int feature_search_compare(const void *a, const void* b)
 {
     unsigned int tag = *(unsigned int *)a;
     const struct shaping_feature *feature = b;
@@ -4731,12 +4597,6 @@ static unsigned int shaping_features_get_mask(const struct shaping_features *fea
     return feature->mask;
 }
 
-unsigned int shape_get_feature_1_mask(const struct shaping_features *features, unsigned int tag)
-{
-    unsigned int shift, mask = shaping_features_get_mask(features, tag, &shift);
-    return (1 << shift) & mask;
-}
-
 static void opentype_layout_get_glyph_range_for_text(struct scriptshaping_context *context, unsigned int start_char,
         unsigned int end_char, unsigned int *start_glyph, unsigned int *end_glyph)
 {
@@ -4744,7 +4604,7 @@ static void opentype_layout_get_glyph_range_for_text(struct scriptshaping_contex
     if (end_char >= context->length - 1)
         *end_glyph = context->glyph_count - 1;
     else
-        *end_glyph = context->u.buffer.clustermap[end_char] - 1;
+        *end_glyph = context->u.buffer.clustermap[end_char + 1] - 1;
 }
 
 static void opentype_layout_set_glyph_masks(struct scriptshaping_context *context, const struct shaping_features *features)
@@ -4755,8 +4615,7 @@ static void opentype_layout_set_glyph_masks(struct scriptshaping_context *contex
    for (g = 0; g < context->glyph_count; ++g)
        context->glyph_infos[g].mask = context->global_mask;
 
-   if (opentype_layout_is_subst_context(context) && context->shaper->setup_masks)
-       context->shaper->setup_masks(context, features);
+   /* FIXME: set shaper masks */
 
    for (r = 0, start_char = 0; r < context->user_features.range_count; ++r)
    {
@@ -4764,9 +4623,6 @@ static void opentype_layout_set_glyph_masks(struct scriptshaping_context *contex
 
        if (start_char >= context->length)
            break;
-
-       if (!context->user_features.range_lengths[r])
-           continue;
 
        opentype_layout_get_glyph_range_for_text(context, start_char, start_char + context->user_features.range_lengths[r],
                &start_glyph, &end_glyph);
@@ -4792,57 +4648,13 @@ static void opentype_layout_set_glyph_masks(struct scriptshaping_context *contex
 static void opentype_layout_apply_gpos_context_lookup(struct scriptshaping_context *context, unsigned int lookup_index)
 {
     struct lookup lookup = { 0 };
-    if (opentype_layout_init_lookup(context->table, lookup_index, NULL, &lookup))
+    /* Feature mask is intentionally zero, it's not used outside of main loop. */
+    if (opentype_layout_init_lookup(context->table, lookup_index, 0, &lookup))
         opentype_layout_apply_gpos_lookup(context, &lookup);
 }
 
-static void opentype_propagate_attachment_offsets(struct scriptshaping_context *context, unsigned int i)
-{
-    enum attach_type type = opentype_get_glyph_attach_type(context, i);
-    int chain = context->glyph_infos[i].attach_chain;
-    unsigned int j, k;
-
-    if (!chain)
-        return;
-
-    context->glyph_infos[i].attach_chain = 0;
-
-    j = (int)i + chain;
-    if (j >= context->glyph_count)
-        return;
-
-    opentype_propagate_attachment_offsets(context, j);
-
-    if (type == GLYPH_ATTACH_CURSIVE)
-    {
-        /* FIXME: handle vertical direction. */
-        context->offsets[i].ascenderOffset += context->offsets[j].ascenderOffset;
-    }
-    else if (type == GLYPH_ATTACH_MARK)
-    {
-        context->offsets[i].advanceOffset += context->offsets[j].advanceOffset;
-        context->offsets[i].ascenderOffset += context->offsets[j].ascenderOffset;
-
-        /* FIXME: handle vertical adjustment. */
-        if (context->is_rtl)
-        {
-            for (k = j + 1; k < i + 1; ++k)
-            {
-                context->offsets[i].advanceOffset += context->advances[k];
-            }
-        }
-        else
-        {
-            for (k = j; k < i; k++)
-            {
-                context->offsets[i].advanceOffset -= context->advances[k];
-            }
-        }
-    }
-}
-
 void opentype_layout_apply_gpos_features(struct scriptshaping_context *context, unsigned int script_index,
-        unsigned int language_index, struct shaping_features *features)
+        unsigned int language_index, const struct shaping_features *features)
 {
     struct lookups lookups = { 0 };
     unsigned int i;
@@ -4862,8 +4674,6 @@ void opentype_layout_apply_gpos_features(struct scriptshaping_context *context, 
 
         context->cur = 0;
         context->lookup_mask = lookup->mask;
-        context->auto_zwnj = lookup->auto_zwnj;
-        context->auto_zwj = lookup->auto_zwj;
 
         while (context->cur < context->glyph_count)
         {
@@ -4881,12 +4691,6 @@ void opentype_layout_apply_gpos_features(struct scriptshaping_context *context, 
     }
 
     heap_free(lookups.lookups);
-
-    if (context->has_gpos_attachment)
-    {
-        for (i = 0; i < context->glyph_count; ++i)
-            opentype_propagate_attachment_offsets(context, i);
-    }
 }
 
 static void opentype_layout_replace_glyph(struct scriptshaping_context *context, UINT16 glyph)
@@ -5140,28 +4944,10 @@ static BOOL opentype_layout_context_match_input(const struct match_context *mc, 
     return TRUE;
 }
 
-/* Marks text segment as unsafe to break between [start, end) glyphs. */
-void opentype_layout_unsafe_to_break(struct scriptshaping_context *context, unsigned int start,
-        unsigned int end)
+static void opentype_layout_unsafe_to_break(struct scriptshaping_context *context, unsigned int idx)
 {
-    unsigned int i;
-
-    while (start && !context->u.buffer.glyph_props[start].isClusterStart)
-        --start;
-
-    while (--end && !context->u.buffer.glyph_props[end].isClusterStart)
-        ;
-
-    if (start == end)
-    {
-        context->u.buffer.text_props[context->glyph_infos[start].start_text_idx].canBreakShapingAfter = 0;
-        return;
-    }
-
-    for (i = context->glyph_infos[start].start_text_idx; i < context->glyph_infos[end].start_text_idx; ++i)
-    {
-        context->u.buffer.text_props[i].canBreakShapingAfter = 0;
-    }
+    if (context->u.buffer.glyph_props[idx].isClusterStart)
+        context->u.buffer.text_props[context->glyph_infos[idx].start_text_idx].canBreakShapingAfter = 0;
 }
 
 static void opentype_layout_delete_glyph(struct scriptshaping_context *context, unsigned int idx)
@@ -5226,8 +5012,10 @@ static BOOL opentype_layout_apply_ligature(struct scriptshaping_context *context
         {
             context->u.buffer.glyph_props[j++].lig_component = comp_count - i;
         }
+        opentype_layout_unsafe_to_break(context, i);
+        context->u.buffer.glyph_props[i].isClusterStart = 0;
+        context->glyph_infos[i].start_text_idx = 0;
     }
-    opentype_layout_unsafe_to_break(context, match_positions[0], match_positions[comp_count - 1] + 1);
 
     /* Delete ligated glyphs, backwards to preserve index. */
     for (i = 1; i < comp_count; ++i)
@@ -5296,8 +5084,6 @@ static BOOL opentype_layout_context_match_backtrack(const struct match_context *
     iter.match_func = mc->match_func;
     iter.match_data = &match_data;
     iter.glyph_data = backtrack;
-    iter.ignore_zwnj |= context->auto_zwnj;
-    iter.ignore_zwj = 1;
 
     for (i = 0; i < count; ++i)
     {
@@ -5322,8 +5108,6 @@ static BOOL opentype_layout_context_match_lookahead(const struct match_context *
     iter.match_func = mc->match_func;
     iter.match_data = &match_data;
     iter.glyph_data = lookahead;
-    iter.ignore_zwnj |= context->auto_zwnj;
-    iter.ignore_zwj = 1;
 
     for (i = 0; i < count; ++i)
     {
@@ -5856,63 +5640,17 @@ static unsigned int unicode_get_mirrored_char(unsigned int codepoint)
 }
 
 /*
-     * 034F          # Mn       COMBINING GRAPHEME JOINER
-     * 061C          # Cf       ARABIC LETTER MARK
-     * 180B..180D    # Mn   [3] MONGOLIAN FREE VARIATION SELECTOR ONE..MONGOLIAN FREE VARIATION SELECTOR THREE
-     * 180E          # Cf       MONGOLIAN VOWEL SEPARATOR
-     * 200B..200F    # Cf   [5] ZERO WIDTH SPACE..RIGHT-TO-LEFT MARK
-     * FEFF          # Cf       ZERO WIDTH NO-BREAK SPACE
-*/
-static unsigned int opentype_is_zero_width(unsigned int codepoint)
-{
-    return codepoint == 0x34f || codepoint == 0x61c || codepoint == 0xfeff ||
-            (codepoint >= 0x180b && codepoint <= 0x180e) || (codepoint >= 0x200b && codepoint <= 0x200f);
-}
-
-/*
-    * 00AD          # Cf       SOFT HYPHEN
     * 034F          # Mn       COMBINING GRAPHEME JOINER
     * 061C          # Cf       ARABIC LETTER MARK
-    * 115F..1160    # Lo   [2] HANGUL CHOSEONG FILLER..HANGUL JUNGSEONG FILLER
-    * 17B4..17B5    # Mn   [2] KHMER VOWEL INHERENT AQ..KHMER VOWEL INHERENT AA
     * 180B..180D    # Mn   [3] MONGOLIAN FREE VARIATION SELECTOR ONE..MONGOLIAN FREE VARIATION SELECTOR THREE
     * 180E          # Cf       MONGOLIAN VOWEL SEPARATOR
     * 200B..200F    # Cf   [5] ZERO WIDTH SPACE..RIGHT-TO-LEFT MARK
-    * 202A..202E    # Cf   [5] LEFT-TO-RIGHT EMBEDDING..RIGHT-TO-LEFT OVERRIDE
-    * 2060..2064    # Cf   [5] WORD JOINER..INVISIBLE PLUS
-    * 2065          # Cn       <reserved-2065>
-    * 2066..206F    # Cf  [10] LEFT-TO-RIGHT ISOLATE..NOMINAL DIGIT SHAPES
-    * 3164          # Lo       HANGUL FILLER
-    * FE00..FE0F    # Mn  [16] VARIATION SELECTOR-1..VARIATION SELECTOR-16
     * FEFF          # Cf       ZERO WIDTH NO-BREAK SPACE
-    * FFA0          # Lo       HALFWIDTH HANGUL FILLER
-    * FFF0..FFF8    # Cn   [9] <reserved-FFF0>..<reserved-FFF8>
-    * 1BCA0..1BCA3  # Cf   [4] SHORTHAND FORMAT LETTER OVERLAP..SHORTHAND FORMAT UP STEP
-    * 1D173..1D17A  # Cf   [8] MUSICAL SYMBOL BEGIN BEAM..MUSICAL SYMBOL END PHRASE
-    * E0000         # Cn       <reserved-E0000>
-    * E0001         # Cf       LANGUAGE TAG
-    * E0002..E001F  # Cn  [30] <reserved-E0002>..<reserved-E001F>
-    * E0020..E007F  # Cf  [96] TAG SPACE..CANCEL TAG
-    * E0080..E00FF  # Cn [128] <reserved-E0080>..<reserved-E00FF>
-    * E0100..E01EF  # Mn [240] VARIATION SELECTOR-17..VARIATION SELECTOR-256
-    * E01F0..E0FFF  # Cn [3600] <reserved-E01F0>..<reserved-E0FFF>
 */
 static unsigned int opentype_is_default_ignorable(unsigned int codepoint)
 {
-    if (codepoint < 0x80) return 0;
-    return codepoint == 0xad ||
-            codepoint == 0x34f ||
-            codepoint == 0x61c ||
-            (codepoint >= 0x17b4 && codepoint <= 0x17b5) ||
-            (codepoint >= 0x180b && codepoint <= 0x180e) ||
-            (codepoint >= 0x200b && codepoint <= 0x200f) ||
-            (codepoint >= 0x202a && codepoint <= 0x202e) ||
-            (codepoint >= 0x2060 && codepoint <= 0x206f) ||
-            (codepoint >= 0xfe00 && codepoint <= 0xfe0f) ||
-            codepoint == 0xfeff ||
-            (codepoint >= 0xfff0 && codepoint <= 0xfff8) ||
-            (codepoint >= 0x1d173 && codepoint <= 0x1d17a) ||
-            (codepoint >= 0xe0000 && codepoint <= 0xe0fff);
+    return codepoint == 0x34f || codepoint == 0x61c || codepoint == 0xfeff ||
+            (codepoint >= 0x180b && codepoint <= 0x180e) || (codepoint >= 0x200b && codepoint <= 0x200f);
 }
 
 static unsigned int opentype_is_diacritic(unsigned int codepoint)
@@ -5959,29 +5697,13 @@ static void opentype_get_nominal_glyphs(struct scriptshaping_context *context, c
                 context->glyph_infos[i].mask |= rtlm_mask;
         }
 
-        /* Glyph availability is not tested for a replacement digit. */
+        /* TODO: should this check for glyph availability? */
         if (*context->u.subst.digits && codepoint >= '0' && codepoint <= '9')
             codepoint = context->u.subst.digits[codepoint - '0'];
 
-        context->glyph_infos[g].codepoint = codepoint;
         context->u.buffer.glyphs[g] = font->get_glyph(context->cache->context, codepoint);
         context->u.buffer.glyph_props[g].justification = SCRIPT_JUSTIFY_CHARACTER;
         opentype_set_subst_glyph_props(context, g);
-        if (opentype_is_default_ignorable(codepoint))
-        {
-            context->glyph_infos[g].props |= GLYPH_PROP_IGNORABLE;
-            if (codepoint == 0x200d)
-                context->glyph_infos[g].props |= GLYPH_PROP_ZWJ;
-            else if (codepoint == 0x200c)
-                context->glyph_infos[g].props |= GLYPH_PROP_ZWNJ;
-            /* Mongolian FVSs, TAGs, COMBINING GRAPHEME JOINER */
-            else if ((codepoint >= 0x180b && codepoint <= 0x180d) ||
-                    (codepoint >= 0xe0020 && codepoint <= 0xe007f) ||
-                    codepoint == 0x34f)
-            {
-                context->glyph_infos[g].props |= GLYPH_PROP_HIDDEN;
-            }
-        }
 
         /* Group diacritics with preceding base. Glyph class is ignored here. */
         if (!g || !opentype_is_diacritic(codepoint))
@@ -5990,9 +5712,9 @@ static void opentype_get_nominal_glyphs(struct scriptshaping_context *context, c
             context->glyph_infos[g].start_text_idx = i;
             cluster_start_idx = g;
         }
-        if (opentype_is_zero_width(codepoint))
-            context->u.buffer.glyph_props[g].isZeroWidthSpace = 1;
 
+        if (opentype_is_default_ignorable(codepoint))
+            context->u.buffer.glyph_props[g].isZeroWidthSpace = 1;
         context->u.buffer.glyph_props[g].components = 1;
         context->glyph_count++;
 
@@ -6020,15 +5742,16 @@ static BOOL opentype_is_gsub_lookup_reversed(const struct scriptshaping_context 
 static void opentype_layout_apply_gsub_context_lookup(struct scriptshaping_context *context, unsigned int lookup_index)
 {
     struct lookup lookup = { 0 };
-    if (opentype_layout_init_lookup(context->table, lookup_index, NULL, &lookup))
+    /* Feature mask is intentionally zero, it's not used outside of main loop. */
+    if (opentype_layout_init_lookup(context->table, lookup_index, 0, &lookup))
         opentype_layout_apply_gsub_lookup(context, &lookup);
 }
 
 void opentype_layout_apply_gsub_features(struct scriptshaping_context *context, unsigned int script_index,
-        unsigned int language_index, struct shaping_features *features)
+        unsigned int language_index, const struct shaping_features *features)
 {
     struct lookups lookups = { 0 };
-    unsigned int i = 0, j, start_idx;
+    unsigned int i, j, start_idx;
     BOOL ret;
 
     context->nesting_level_left = SHAPE_MAX_NESTING_LEVEL;
@@ -6038,53 +5761,45 @@ void opentype_layout_apply_gsub_features(struct scriptshaping_context *context, 
     opentype_get_nominal_glyphs(context, features);
     opentype_layout_set_glyph_masks(context, features);
 
-    for (j = 0; j <= features->stage; ++j)
+    for (i = 0; i < lookups.count; ++i)
     {
-        for (; i < features->stages[j].last_lookup; ++i)
+        const struct lookup *lookup = &lookups.lookups[i];
+
+        context->lookup_mask = lookup->mask;
+
+        if (!opentype_is_gsub_lookup_reversed(context, lookup))
         {
-            const struct lookup *lookup = &lookups.lookups[i];
-
-            context->lookup_mask = lookup->mask;
-            context->auto_zwnj = lookup->auto_zwnj;
-            context->auto_zwj = lookup->auto_zwj;
-
-            if (!opentype_is_gsub_lookup_reversed(context, lookup))
+            context->cur = 0;
+            while (context->cur < context->glyph_count)
             {
-                context->cur = 0;
-                while (context->cur < context->glyph_count)
+                ret = FALSE;
+
+                if ((context->glyph_infos[context->cur].mask & lookup->mask) &&
+                        lookup_is_glyph_match(context, context->cur, lookup->flags))
                 {
-                    ret = FALSE;
-
-                    if ((context->glyph_infos[context->cur].mask & lookup->mask) &&
-                            lookup_is_glyph_match(context, context->cur, lookup->flags))
-                    {
-                        ret = opentype_layout_apply_gsub_lookup(context, lookup);
-                    }
-
-                    if (!ret)
-                        context->cur++;
+                    ret = opentype_layout_apply_gsub_lookup(context, lookup);
                 }
-            }
-            else
-            {
-                context->cur = context->glyph_count - 1;
 
-                for (;;)
-                {
-                    if ((context->glyph_infos[context->cur].mask & lookup->mask) &&
-                            lookup_is_glyph_match(context, context->cur, lookup->flags))
-                    {
-                        opentype_layout_apply_gsub_lookup(context, lookup);
-                    }
-
-                    if (context->cur == 0) break;
-                    --context->cur;
-                }
+                if (!ret)
+                    context->cur++;
             }
         }
+        else
+        {
+            context->cur = context->glyph_count - 1;
 
-        if (features->stages[j].func)
-            features->stages[j].func(context, features);
+            for (;;)
+            {
+                if ((context->glyph_infos[context->cur].mask & lookup->mask) &&
+                        lookup_is_glyph_match(context, context->cur, lookup->flags))
+                {
+                    opentype_layout_apply_gsub_lookup(context, lookup);
+                }
+
+                if (context->cur == 0) break;
+                --context->cur;
+            }
+        }
     }
 
     /* For every glyph range of [<last>.isClusterStart, <next>.isClusterStart) set corresponding
@@ -6317,7 +6032,7 @@ BOOL opentype_layout_check_feature(struct scriptshaping_context *context, unsign
 
     opentype_layout_collect_lookups(context, script_index, language_index, &features, context->table, &lookups);
 
-    func_is_covered = opentype_layout_is_subst_context(context) ? opentype_layout_gsub_lookup_is_glyph_covered :
+    func_is_covered = context->table == &context->cache->gsub ? opentype_layout_gsub_lookup_is_glyph_covered :
             opentype_layout_gpos_lookup_is_glyph_covered;
 
     for (i = 0; i < lookups.count; ++i)
@@ -6352,9 +6067,6 @@ BOOL opentype_has_vertical_variants(struct dwrite_fontface *fontface)
     struct scriptshaping_context context = { 0 };
     struct lookups lookups = { 0 };
     UINT16 format;
-
-    if (fontface->flags & (FONTFACE_VERTICAL_VARIANTS | FONTFACE_NO_VERTICAL_VARIANTS))
-        return !!(fontface->flags & FONTFACE_VERTICAL_VARIANTS);
 
     context.cache = fontface_get_shaping_cache(fontface);
     context.table = &context.cache->gsub;
@@ -6398,12 +6110,7 @@ BOOL opentype_has_vertical_variants(struct dwrite_fontface *fontface)
 
     heap_free(lookups.lookups);
 
-    if (count)
-        fontface->flags |= FONTFACE_VERTICAL_VARIANTS;
-    else
-        fontface->flags |= FONTFACE_NO_VERTICAL_VARIANTS;
-
-    return !!(fontface->flags & FONTFACE_VERTICAL_VARIANTS);
+    return !!count;
 }
 
 HRESULT opentype_get_vertical_glyph_variants(struct dwrite_fontface *fontface, unsigned int glyph_count,
@@ -6417,7 +6124,7 @@ HRESULT opentype_get_vertical_glyph_variants(struct dwrite_fontface *fontface, u
 
     memcpy(glyphs, nominal_glyphs, glyph_count * sizeof(*glyphs));
 
-    if (!opentype_has_vertical_variants(fontface))
+    if (!(fontface->flags & FONTFACE_HAS_VERTICAL_VARIANTS))
         return S_OK;
 
     context.cache = fontface_get_shaping_cache(fontface);
@@ -6459,135 +6166,6 @@ HRESULT opentype_get_vertical_glyph_variants(struct dwrite_fontface *fontface, u
     heap_free(context.u.subst.glyph_props);
     heap_free(context.glyph_infos);
     heap_free(lookups.lookups);
-
-    return S_OK;
-}
-
-BOOL opentype_has_kerning_pairs(struct dwrite_fontface *fontface)
-{
-    const struct kern_subtable_header *subtable;
-    struct file_stream_desc stream_desc;
-    const struct kern_header *header;
-    unsigned int offset, count, i;
-
-    if (fontface->flags & (FONTFACE_KERNING_PAIRS | FONTFACE_NO_KERNING_PAIRS))
-        return !!(fontface->flags & FONTFACE_KERNING_PAIRS);
-
-    fontface->flags |= FONTFACE_NO_KERNING_PAIRS;
-
-    stream_desc.stream = fontface->stream;
-    stream_desc.face_type = fontface->type;
-    stream_desc.face_index = fontface->index;
-
-    opentype_get_font_table(&stream_desc, MS_KERN_TAG, &fontface->kern);
-    if (fontface->kern.exists)
-    {
-        if ((header = table_read_ensure(&fontface->kern, 0, sizeof(*header))))
-        {
-            count = GET_BE_WORD(header->table_count);
-            offset = sizeof(*header);
-
-            /* FreeType limits table count this way. */
-            count = min(count, 32);
-
-            /* Check for presence of format 0 subtable with horizontal coverage. */
-            for (i = 0; i < count; ++i)
-            {
-                if (!(subtable = table_read_ensure(&fontface->kern, offset, sizeof(*subtable))))
-                    break;
-
-                if (subtable->version == 0 && GET_BE_WORD(subtable->coverage) & 1)
-                {
-                    fontface->flags &= ~FONTFACE_NO_KERNING_PAIRS;
-                    fontface->flags |= FONTFACE_KERNING_PAIRS;
-                    break;
-                }
-
-                offset += GET_BE_WORD(subtable->length);
-            }
-        }
-    }
-
-    if (fontface->flags & FONTFACE_NO_KERNING_PAIRS && fontface->kern.data)
-        IDWriteFontFileStream_ReleaseFileFragment(stream_desc.stream, fontface->kern.context);
-
-    return !!(fontface->flags & FONTFACE_KERNING_PAIRS);
-}
-
-struct kern_format0_compare_key
-{
-    UINT16 left;
-    UINT16 right;
-};
-
-static int __cdecl kern_format0_compare(const void *a, const void *b)
-{
-    const struct kern_format0_compare_key *key = a;
-    const WORD *data = b;
-    UINT16 left = GET_BE_WORD(data[0]), right = GET_BE_WORD(data[1]);
-    int ret;
-
-    if ((ret = (int)key->left - (int)left)) return ret;
-    if ((ret = (int)key->right - (int)right)) return ret;
-    return 0;
-}
-
-HRESULT opentype_get_kerning_pairs(struct dwrite_fontface *fontface, unsigned int count,
-        const UINT16 *glyphs, INT32 *values)
-{
-    const struct kern_subtable_header *subtable;
-    unsigned int i, s, offset, pair_count, subtable_count;
-    struct kern_format0_compare_key key;
-    const struct kern_header *header;
-    const WORD *data;
-
-    if (!opentype_has_kerning_pairs(fontface))
-    {
-        memset(values, 0, count * sizeof(*values));
-        return S_OK;
-    }
-
-    subtable_count = table_read_be_word(&fontface->kern, 2);
-    subtable_count = min(subtable_count, 32);
-
-    for (i = 0; i < count - 1; ++i)
-    {
-        offset = sizeof(*header);
-
-        key.left = glyphs[i];
-        key.right = glyphs[i + 1];
-        values[i] = 0;
-
-        for (s = 0; s < subtable_count; ++s)
-        {
-            if (!(subtable = table_read_ensure(&fontface->kern, offset, sizeof(*subtable))))
-                break;
-
-            if (subtable->version == 0 && GET_BE_WORD(subtable->coverage) & 1)
-            {
-                if ((data = table_read_ensure(&fontface->kern, offset, GET_BE_WORD(subtable->length))))
-                {
-                    /* Skip subtable header */
-                    data += 3;
-                    pair_count = GET_BE_WORD(*data);
-                    data += 4;
-                    /* Move to pair data */
-                    if ((data = table_read_ensure(&fontface->kern, offset + 7 * sizeof(*data),
-                            pair_count * 3 * sizeof(*data))))
-                    {
-                        if ((data = bsearch(&key, data, pair_count, 3 * sizeof(*data), kern_format0_compare)))
-                        {
-                            values[i] = (short)GET_BE_WORD(data[2]);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            offset += GET_BE_WORD(subtable->length);
-        }
-    }
-    values[count - 1] = 0;
 
     return S_OK;
 }

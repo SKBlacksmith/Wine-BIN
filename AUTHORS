@@ -14,7 +14,6 @@ A C Hurst
 Adam Bolte
 Adam Buchbinder
 Adam D. Moss
-Adam Gashlin
 Adam Gundy
 Adam Martinson
 Adam Petaccia
@@ -23,7 +22,6 @@ Adam Stachowicz
 Adam Stoelting
 Adrian Bunk
 Adrian Harvey
-Adrian Thiele
 Adrian Thurston
 Aidan Thornton
 Akihiro Sagawa
@@ -47,7 +45,6 @@ Alexander Coffin
 Alexander Dorofeyev
 Alexander E. Patrakov
 Alexander Farber
-Alexander Fischer
 Alexander Frink
 Alexander Gottwald
 Alexander Kanavin
@@ -106,6 +103,7 @@ Andreas Mohr
 Andreas Pflug
 Andreas Rosenberg
 Andre Heider
+André Hentschel
 Andrei Derevyanko
 Andrei Slăvoiu
 André Johansen
@@ -114,7 +112,6 @@ Andrej Znidarsic
 Andre Malafaya Baptista
 Andrew Bogott
 Andrew Borodin
-Andrew Boyarshin
 Andrew Bulhak
 Andrew Church
 Andrew Cook
@@ -143,7 +140,6 @@ Andrey Panov
 Andrey Semakin
 Andrey Turkin
 Andrey Zhezherun
-André Zwing
 Andriy Palamarchuk
 Andrzej Popowski
 Andy Clayton
@@ -319,7 +315,6 @@ Colin Finck
 Colin Fletcher
 Colin Fowler
 Colin Pitrat
-Connor Abbott
 Connor McAdams
 Conor McCarthy
 Constantine Sapuntzakis
@@ -383,10 +378,8 @@ David Hedberg
 David Heidelberger
 David Hemmo
 David Howells
-David Kahurani
 David Keijser
 David Kiefer
-David Koolhoven
 David Korth
 David Kredba
 David Lassonde
@@ -430,11 +423,9 @@ Dmitry Potapov
 Dmitry Timoshkov
 Dominik Strasser
 Donat Enikeev
-Dongwan Kim
 Don Kelly
 Donna Whisnant
 Donn Miller
-Doug Kingston
 Douglas Ridgway
 Doug Paul
 Drew Ronneberg
@@ -454,7 +445,6 @@ Eddie Leung
 Edgar Hucek
 Ed Snow
 Eduardo García
-Eduard Permyakov
 EG Galano
 Elias Benali
 Elias Ross
@@ -485,7 +475,6 @@ Eriks Dobelis
 Erik Svendsen
 Erwin Wolff
 Eryk Wieliczko
-Esdras Tarsis
 Esme Povirk
 Ethan Chen
 Ethan Lee
@@ -518,7 +507,6 @@ Filip Frąckiewicz
 Filip Navara
 Finlo Boyde
 Flávio J. Saraiva
-Florian Eder
 Florian Goth
 Florian Köberle
 Florian Pelz
@@ -639,7 +627,6 @@ Hilko Bengen
 Hin-Tak Leung
 Hippocrates Sendoukas
 Hirofumi Katayama
-Hiroki Awata
 Hiroshi Inoue
 Hiroshi Miura
 Hiroshi Tanabe
@@ -683,7 +670,6 @@ Iván Matellanes
 Ivan Sinitsin
 Ivan Vojtko
 Ivan Wong
-Ivo Ivanov
 Jacek Bator
 Jacek Caban
 Jacek Konieczny
@@ -800,7 +786,6 @@ Jimmy Rentz
 Jimmy Tirtawangsa
 Jim Peterson
 Jinhui Chen
-Jinoh Kang
 Jiuming Luo
 Joachim Priesner
 João Diogo Ferreira
@@ -891,7 +876,6 @@ Jukka-Pekka Iivonen
 Julian Rüger
 Julien Cegarra
 Julien D'ascenzio
-Julien Loir
 Julien Muchembled
 Julio César Gázquez
 Julio E. Gonzalez P
@@ -911,7 +895,6 @@ Kai Krakow
 Kai Morich
 Kai Tietz
 Kaj Kaloinen
-Kalen Alwardt
 Kalevi J Hautaniemi
 Kamil Pošvic
 Kanit Therdsteerasukdi
@@ -1033,7 +1016,6 @@ Lukáš Krejčí
 Łukasz Wojniłowicz
 Luke Benstead
 Luke Bratch
-Luke Deller
 Maarten Lankhorst
 Maciej Borsz
 Maciek Kaliszewski
@@ -1092,7 +1074,7 @@ Martin Payne
 Martin Petricek
 Martin Pilka
 Martin Profittlich
-Martin Storsjö
+Martin Storsjo
 Martin von Loewis
 Martin Walker
 Martin Wilck
@@ -1222,7 +1204,6 @@ Neil Skrypuch
 Nemeth Peter
 Nerijus Baliunas
 Nguyễn Chính Hữu
-Nicholas Fraser
 Nicholas Niro
 Nick Bowler
 Nick Burns
@@ -1255,7 +1236,6 @@ Ofir Petruska
 Olaf Flebbe
 Oldřich Jedlička
 Oleg Bosis
-Oleg Dubinskiy
 Oleg Korda
 Oleg Krylov
 Oleg Prokhorov
@@ -1453,7 +1433,6 @@ Robert Wilhelm
 Robert Xiao
 Rob Farnum
 Rob Hughes
-Robin Ebert
 Robin Kertels
 Rob McClinton
 Rob Walker
@@ -1545,7 +1524,6 @@ Simeon Pilgrim
 Simon Britnell
 Simon C. Ion
 Simon Kissane
-Simon McVittie
 Simon Richter
 Simon Walton
 Sin-ta Hsiea
@@ -1606,7 +1584,6 @@ Sylvain Petreolle
 Sylvain St-Germain
 Tapio Kautto
 Tatyana Fokina
-Ted Lyngmo
 Ted Percival
 Thanasis Papoutsidakis
 Theodore Dubois
@@ -1633,13 +1610,11 @@ Tijl Coosemans
 Tijs van Bakel
 Tillmann Werner
 Tim Cadogan-Cowper
-Tim Clem
 Tim Ferguson
 Tim Hentenaar
 Tim Newsome
 Timo Kreuzer
 Timo Teräs
-Timothy Pearson
 Tim Schumacher
 Tim Schwartz
 Tim Segall
@@ -1692,7 +1667,6 @@ Valery Kartel
 Vasily I. Volchenko
 Vasudev Mulchandani
 Vedran Rodic
-Victor Hermann Chiletto
 Victor Martinez Calvo
 Victor Pelt
 Victor Schneider
@@ -1757,7 +1731,6 @@ Xiaoshan Sun
 XueFeng Chang
 Yann Droneaud
 Yaron Shahrabani
-Yeshun Ye
 Yifu Wang
 Yngvi Sigurjonsson
 Yong Chi

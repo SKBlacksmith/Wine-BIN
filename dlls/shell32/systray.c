@@ -37,6 +37,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(systray);
 
+static const WCHAR classname[] = /* Shell_TrayWnd */ {'S','h','e','l','l','_','T','r','a','y','W','n','d','\0'};
+
 struct notify_data  /* platform-independent format for NOTIFYICONDATA */
 {
     LONG  hWnd;
@@ -147,7 +149,7 @@ BOOL WINAPI Shell_NotifyIconW(DWORD dwMessage, PNOTIFYICONDATAW nid)
         return Shell_NotifyIconW(dwMessage, &newNid);
     }
 
-    tray = FindWindowExW(0, NULL, L"Shell_TrayWnd", NULL);
+    tray = FindWindowExW(0, NULL, classname, NULL);
     if (!tray) return FALSE;
 
     cds.dwData = dwMessage;

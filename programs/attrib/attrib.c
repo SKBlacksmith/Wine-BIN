@@ -252,7 +252,7 @@ int __cdecl wmain(int argc, WCHAR *argv[])
     }
 
     /* By default all files from current directory are taken into account */
-    lstrcpyW(originalname, L".\\*");
+    lstrcpyW(name, L"*");
 
     while (i < argc) {
         WCHAR *param = argv[i++];

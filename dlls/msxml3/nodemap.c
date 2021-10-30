@@ -18,11 +18,15 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
 #define COBJMACROS
 
 #include <stdarg.h>
-#include <libxml/parser.h>
-#include <libxml/xmlerror.h>
+#ifdef HAVE_LIBXML2
+# include <libxml/parser.h>
+# include <libxml/xmlerror.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -35,6 +39,8 @@
 #include "msxml_private.h"
 
 #include "wine/debug.h"
+
+#ifdef HAVE_LIBXML2
 
 WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 
@@ -450,3 +456,5 @@ IXMLDOMNamedNodeMap *create_nodemap(xmlNodePtr node, const struct nodemap_funcs 
 
     return &This->IXMLDOMNamedNodeMap_iface;
 }
+
+#endif

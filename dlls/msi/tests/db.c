@@ -38,13 +38,13 @@ static const WCHAR msifile2W[] = L"winetst2-db.msi";
 
 static void WINAPIV check_record_(int line, MSIHANDLE rec, UINT count, ...)
 {
-    va_list args;
+    __ms_va_list args;
     UINT i;
 
     ok_(__FILE__, line)(count == MsiRecordGetFieldCount(rec),
             "expected %u fields, got %u\n", count, MsiRecordGetFieldCount(rec));
 
-    va_start(args, count);
+    __ms_va_start(args, count);
 
     for (i = 1; i <= count; ++i)
     {
@@ -57,7 +57,7 @@ static void WINAPIV check_record_(int line, MSIHANDLE rec, UINT count, ...)
                 "field %u: expected \"%s\", got \"%s\"\n", i, expect, buffer);
     }
 
-    va_end(args);
+    __ms_va_end(args);
 }
 #define check_record(rec, ...) check_record_(__LINE__, rec, __VA_ARGS__)
 

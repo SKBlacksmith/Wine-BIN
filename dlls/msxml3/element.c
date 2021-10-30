@@ -20,9 +20,13 @@
 
 #define COBJMACROS
 
+#include "config.h"
+
 #include <stdarg.h>
-#include <libxml/parser.h>
-#include <libxml/xmlerror.h>
+#ifdef HAVE_LIBXML2
+# include <libxml/parser.h>
+# include <libxml/xmlerror.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -34,6 +38,8 @@
 #include "msxml_private.h"
 
 #include "wine/debug.h"
+
+#ifdef HAVE_LIBXML2
 
 WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 
@@ -303,8 +309,6 @@ static HRESULT WINAPI domelem_insertBefore(
 
     TRACE("(%p)->(%p %s %p)\n", This, newNode, debugstr_variant(&refChild), old_node);
 
-    if (!newNode) return E_INVALIDARG;
-
     hr = IXMLDOMNode_get_nodeType(newNode, &type);
     if (hr != S_OK) return hr;
 
@@ -498,9 +502,9 @@ static inline HRESULT variant_from_dt(XDR_DT dt, xmlChar* str, VARIANT* v)
 
             if(p+4<e && *(p+4)=='-') /* parse date (yyyy-mm-dd) */
             {
-                st.wYear = wcstol(p, NULL, 10);
-                st.wMonth = wcstol(p+5, NULL, 10);
-                st.wDay = wcstol(p+8, NULL, 10);
+                st.wYear = atoiW(p);
+                st.wMonth = atoiW(p+5);
+                st.wDay = atoiW(p+8);
                 p += 10;
 
                 if(*p == 'T') p++;
@@ -508,9 +512,9 @@ static inline HRESULT variant_from_dt(XDR_DT dt, xmlChar* str, VARIANT* v)
 
             if(p+2<e && *(p+2)==':') /* parse time (hh:mm:ss.?) */
             {
-                st.wHour = wcstol(p, NULL, 10);
-                st.wMinute = wcstol(p+3, NULL, 10);
-                st.wSecond = wcstol(p+6, NULL, 10);
+                st.wHour = atoiW(p);
+                st.wMinute = atoiW(p+3);
+                st.wSecond = atoiW(p+6);
                 p += 8;
 
                 if(*p == '.')
@@ -525,9 +529,9 @@ static inline HRESULT variant_from_dt(XDR_DT dt, xmlChar* str, VARIANT* v)
             V_DATE(v) = date;
 
             if(*p == '+') /* parse timezone offset (+hh:mm) */
-                V_DATE(v) += (DOUBLE)wcstol(p+1, NULL, 10)/24 + (DOUBLE)wcstol(p+4, NULL, 10)/1440;
+                V_DATE(v) += (DOUBLE)atoiW(p+1)/24 + (DOUBLE)atoiW(p+4)/1440;
             else if(*p == '-') /* parse timezone offset (-hh:mm) */
-                V_DATE(v) -= (DOUBLE)wcstol(p+1, NULL, 10)/24 + (DOUBLE)wcstol(p+4, NULL, 10)/1440;
+                V_DATE(v) -= (DOUBLE)atoiW(p+1)/24 + (DOUBLE)atoiW(p+4)/1440;
 
             VariantClear(&src);
             handled = TRUE;
@@ -1434,7 +1438,7 @@ static HRESULT WINAPI domelem_setAttributeNode(
     if (hr != S_OK) return hr;
 
     /* adding xmlns attribute doesn't change a tree or existing namespace definition */
-    if (!wcscmp(nameW, xmlnsW))
+    if (!strcmpW(nameW, xmlnsW))
     {
         SysFreeString(nameW);
         return DISP_E_UNKNOWNNAME;
@@ -1884,8 +1888,6 @@ static HRESULT domelem_next_node(const xmlNodePtr node, LONG *iter, IXMLDOMNode 
     *nextNode = NULL;
 
     curr = node->properties;
-    if (curr == NULL)
-        return S_FALSE;
 
     for (i = 0; i < *iter; i++) {
         if (curr->next == NULL)
@@ -1938,3 +1940,5 @@ IUnknown* create_element( xmlNodePtr element )
 
     return (IUnknown*)&This->IXMLDOMElement_iface;
 }
+
+#endif

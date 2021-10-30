@@ -490,6 +490,16 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
     return CLASS_E_CLASSNOTAVAILABLE;
 }
 
+/******************************************************************
+ *              DllCanUnloadNow (MSHTML.@)
+ */
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    TRACE("()\n");
+    /* The cost of keeping this DLL in memory is small. */
+    return S_FALSE;
+}
+
 /***********************************************************************
  *          RunHTMLApplication (MSHTML.@)
  *
@@ -514,15 +524,9 @@ DWORD WINAPI RNIGetCompatibleVersion(void)
 /***********************************************************************
  *          DllInstall (MSHTML.@)
  */
-HRESULT WINAPI DllInstall(BOOL install, const WCHAR *cmdline)
+HRESULT WINAPI DllInstall(BOOL bInstall, LPCWSTR cmdline)
 {
-    TRACE("(%x %s)\n", install, debugstr_w(cmdline));
-
-    if(cmdline && *cmdline)
-        FIXME("unsupported cmdline: %s\n", debugstr_w(cmdline));
-    else if(install)
-        load_gecko();
-
+    FIXME("stub %d %s: returning S_OK\n", bInstall, debugstr_w(cmdline));
     return S_OK;
 }
 
@@ -662,9 +666,12 @@ HRESULT WINAPI DllRegisterServer(void)
 {
     HRESULT hres;
 
-    hres = __wine_register_resources();
+    hres = __wine_register_resources( hInst );
     if(SUCCEEDED(hres))
         hres = register_server(TRUE);
+    if(SUCCEEDED(hres))
+        load_gecko();
+
     return hres;
 }
 
@@ -673,7 +680,7 @@ HRESULT WINAPI DllRegisterServer(void)
  */
 HRESULT WINAPI DllUnregisterServer(void)
 {
-    HRESULT hres = __wine_unregister_resources();
+    HRESULT hres = __wine_unregister_resources( hInst );
     if(SUCCEEDED(hres)) hres = register_server(FALSE);
     return hres;
 }

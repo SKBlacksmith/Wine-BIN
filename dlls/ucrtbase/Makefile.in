@@ -4,6 +4,7 @@ IMPORTLIB = ucrtbase
 IMPORTS   = ntdll
 DELAYIMPORTS = advapi32 user32
 PARENTSRC = ../msvcrt
+EXTRADLLFLAGS = -mno-cygwin
 
 C_SRCS = \
 	console.c \
@@ -41,6 +42,7 @@ C_SRCS = \
 	thread.c \
 	time.c \
 	undname.c \
+	unixlib.c \
 	wcs.c
 
 RC_SRCS = version.rc

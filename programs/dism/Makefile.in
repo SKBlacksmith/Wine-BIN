@@ -1,6 +1,6 @@
 MODULE    = dism.exe
 
-EXTRADLLFLAGS = -mconsole -municode
+EXTRADLLFLAGS = -mconsole -municode -mno-cygwin
 
 RC_SRCS = version.rc
 

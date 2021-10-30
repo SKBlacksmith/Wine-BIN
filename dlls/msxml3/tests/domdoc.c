@@ -46,28 +46,11 @@
 #include "wine/heap.h"
 #include "wine/test.h"
 
-#define XML_E_UNEXPECTED_ATTRIBUTE 0xC00CE56C
-
 /* undef the #define in msxml2 so that we can access all versions */
 #undef CLSID_DOMDocument
 
 DEFINE_GUID(GUID_NULL,0,0,0,0,0,0,0,0,0,0,0);
 DEFINE_GUID(IID_transformdest_unknown,0xf5078f3a,0xc551,0x11d3,0x89,0xb9,0x00,0x00,0xf8,0x1f,0xe2,0x21);
-
-#define check_interface(a, b, c) check_interface_(__LINE__, a, b, c)
-static void check_interface_(unsigned int line, void *iface_ptr, REFIID iid, BOOL supported)
-{
-    IUnknown *iface = iface_ptr;
-    HRESULT hr, expected_hr;
-    IUnknown *unk;
-
-    expected_hr = supported ? S_OK : E_NOINTERFACE;
-
-    hr = IUnknown_QueryInterface(iface, iid, (void **)&unk);
-    ok_(__FILE__, line)(hr == expected_hr, "Got hr %#x, expected %#x.\n", hr, expected_hr);
-    if (SUCCEEDED(hr))
-        IUnknown_Release(unk);
-}
 
 static int g_unexpectedcall, g_expectedcall;
 
@@ -258,7 +241,7 @@ static IDispatch* create_dispevent(void)
     event->IDispatch_iface.lpVtbl = &dispeventVtbl;
     event->ref = 1;
 
-    return &event->IDispatch_iface;
+    return (IDispatch*)&event->IDispatch_iface;
 }
 
 /* IStream */
@@ -1495,14 +1478,6 @@ static void test_domdoc( void )
     doc = create_document(&IID_IXMLDOMDocument);
     if (!doc) return;
 
-    check_interface(doc, &IID_IXMLDOMDocument, TRUE);
-    check_interface(doc, &IID_IPersistStreamInit, TRUE);
-    check_interface(doc, &IID_IObjectWithSite, TRUE);
-    check_interface(doc, &IID_IObjectSafety, TRUE);
-    check_interface(doc, &IID_IConnectionPointContainer, TRUE);
-    check_interface(doc, &IID_IDispatch, TRUE);
-    check_interface(doc, &IID_IDispatchEx, TRUE);
-
 if (0)
 {
     /* crashes on native */
@@ -2133,6 +2108,7 @@ static void test_persiststream(void)
     IPersistStream *stream;
     IXMLDOMDocument *doc;
     ULARGE_INTEGER size;
+    IPersist *persist;
     IStream *istream;
     HRESULT hr;
     CLSID clsid;
@@ -2152,8 +2128,11 @@ static void test_persiststream(void)
     ok(hr == S_OK, "got 0x%08x\n", hr);
     ok((IUnknown *)stream == (IUnknown *)streaminit, "got %p, %p\n", stream, streaminit);
 
-    check_interface(stream, &IID_IPersist, FALSE);
-    check_interface(doc, &IID_IPersist, FALSE);
+    hr = IPersistStream_QueryInterface(stream, &IID_IPersist, (void **)&persist);
+    ok(hr == E_NOINTERFACE, "got 0x%08x\n", hr);
+
+    hr = IXMLDOMDocument_QueryInterface(doc, &IID_IPersist, (void **)&persist);
+    ok(hr == E_NOINTERFACE, "got 0x%08x\n", hr);
 
     hr = IPersistStreamInit_GetClassID(streaminit, NULL);
     ok(hr == E_POINTER, "got 0x%08x\n", hr);
@@ -2224,8 +2203,6 @@ static void test_domnode( void )
 
     if (element)
     {
-        IXMLDOMNamedNodeMap *attributes;
-
         owner = NULL;
         r = IXMLDOMElement_get_ownerDocument( element, &owner );
         ok( r == S_OK, "get_ownerDocument return code\n");
@@ -2304,29 +2281,6 @@ static void test_domnode( void )
         ok( map != NULL, "should be attributes\n");
 
         EXPECT_CHILDREN(element);
-
-        r = IXMLDOMElement_get_childNodes( element, &list );
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        r = IXMLDOMNodeList_nextNode( list, &node ); /* <bs> */
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        IXMLDOMNode_Release( node );
-        r = IXMLDOMNodeList_nextNode( list, &node ); /* <pr> */
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        IXMLDOMNode_Release( node );
-        r = IXMLDOMNodeList_nextNode( list, &node ); /* <empty> */
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        r = IXMLDOMNode_get_attributes( node, &attributes );
-        ok( r == S_OK, "Expected S_OK, ret %08x\n", r );
-        next = (IXMLDOMNode*)0xdeadbeef;
-        r = IXMLDOMNamedNodeMap_nextNode( attributes, &next );
-        ok( r == S_FALSE, "Expected S_FALSE, ret %08x\n", r );
-        ok( next == NULL, "Expected NULL, ret %p\n", next );
-        IXMLDOMNamedNodeMap_Release( attributes );
-        IXMLDOMNode_Release( node );
-        node = NULL;
-        next = NULL;
-        IXMLDOMNodeList_Release( list );
-        list = NULL;
     }
     else
         ok( FALSE, "no element\n");
@@ -7468,7 +7422,6 @@ static void test_XSLPattern(void)
         ok(hr == S_OK, "query=%s, failed with 0x%08x\n", ptr->query, hr);
         len = 0;
         hr = IXMLDOMNodeList_get_length(list, &len);
-        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
         ok(len != 0, "query=%s, empty list\n", ptr->query);
         if (len) {
             if (ptr->todo) {
@@ -8569,51 +8522,12 @@ static void test_events(void)
 
 static void test_createProcessingInstruction(void)
 {
-    static const WCHAR xml1[] = L"<?xml version=\"1.0\"?>\r\n<test/>\r\n";
-    static const char xml2[] = "<?xml version=\"1.0\" encoding=\"windows-1252\"?>\r\n<test/>\r\n";
-    static const char xml2_wine[] = "<?xml version=\"1.0\" encoding=\"windows-1252\"?>\n<test/>\n";
-    static const char xml3[] = "<?xml version=\"1.0\" standalone=\"yes\"?>\r\n<test/>\r\n";
-    static const char xml3_wine[] = "<?xml version=\"1.0\" standalone=\"yes\"?>\n<test/>\n";
     IXMLDOMProcessingInstruction *pi;
     IXMLDOMDocument *doc;
-    IXMLDOMNode *node, *item;
-    IXMLDOMNamedNodeMap *node_map;
-    IXMLDOMElement *element;
     WCHAR buff[10];
-    BSTR xml, bstr;
-    VARIANT var;
     HRESULT hr;
-    IStream *stream;
-    LARGE_INTEGER off;
-    VARIANT_BOOL b;
-    HGLOBAL global;
-    char *p;
 
     doc = create_document(&IID_IXMLDOMDocument);
-
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=\"windows-1252\" dummy=\"value\""), &pi);
-    ok(hr == XML_E_UNEXPECTED_ATTRIBUTE, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, NULL, _bstr_("version=\"1.0\" encoding=\"UTF-8\""), &pi);
-    ok(hr == E_FAIL, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), NULL, &pi);
-    ok(hr == XML_E_XMLDECLSYNTAX, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=UTF-8"), &pi);
-    ok(hr == XML_E_MISSINGQUOTE, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding='UTF-8\""), &pi);
-    ok(hr == XML_E_BADCHARINSTRING, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=\"UTF-8"), &pi);
-    ok(hr == XML_E_BADCHARINSTRING, "got 0x%08x\n", hr);
-    pi = NULL;
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding='UTF-8'"), &pi);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    hr = IXMLDOMProcessingInstruction_QueryInterface(pi, &IID_IXMLDOMNode, (void **)&node);
-    node_map = NULL;
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    hr = IXMLDOMNode_get_attributes(node, &node_map);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    IXMLDOMNamedNodeMap_Release(node_map);
-    IXMLDOMNode_Release(node);
-    IXMLDOMProcessingInstruction_Release(pi);
 
     /* test for BSTR handling, pass broken BSTR */
     memcpy(&buff[2], L"test", 5 * sizeof(WCHAR));
@@ -8623,115 +8537,6 @@ static void test_createProcessingInstruction(void)
     ok(hr == S_OK, "got 0x%08x\n", hr);
 
     IXMLDOMProcessingInstruction_Release(pi);
-    IXMLDOMDocument_Release(doc);
-
-    doc = create_document(&IID_IXMLDOMDocument);
-
-    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=\"windows-1252\""), &pi);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    hr = IXMLDOMProcessingInstruction_QueryInterface(pi, &IID_IXMLDOMNode, (void **)&node);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_appendChild(doc, node, NULL);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = IXMLDOMNode_get_attributes(node, &node_map);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    item = (void *)0xdeadbeef;
-    hr = IXMLDOMNamedNodeMap_getNamedItem(node_map, _bstr_("xml"), &item);
-    ok(hr == S_FALSE, "got 0x%08x\n", hr);
-    ok(!item, "got %p\n", item);
-
-    item = NULL;
-    hr = IXMLDOMNamedNodeMap_getNamedItem(node_map, _bstr_("encoding"), &item);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(item != NULL, "got NULL\n");
-
-    hr = IXMLDOMNode_get_nodeName(item, &bstr);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(!lstrcmpW(bstr, L"encoding"), "got %s\n", wine_dbgstr_w(bstr));
-    SysFreeString(bstr);
-
-    VariantInit(&var);
-    hr = IXMLDOMNode_get_nodeValue(item, &var);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(V_VT(&var) == VT_BSTR, "got %u\n", V_VT(&var));
-    ok(!lstrcmpW(V_BSTR(&var), L"windows-1252"), "got %s\n", wine_dbgstr_w(V_BSTR(&var)));
-    VariantClear(&var);
-
-    IXMLDOMNamedNodeMap_Release(node_map);
-    IXMLDOMNode_Release(node);
-    IXMLDOMProcessingInstruction_Release(pi);
-
-    hr = IXMLDOMDocument_createElement(doc, _bstr_("test"), &element);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    hr = IXMLDOMDocument_appendChild(doc, (IXMLDOMNode *)element, NULL);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    IXMLDOMElement_Release(element);
-
-    hr = IXMLDOMDocument_get_xml(doc, &xml);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-todo_wine
-    ok(!wcscmp(xml, xml1), "got %s\n", wine_dbgstr_w(xml));
-    SysFreeString(xml);
-
-    hr = CreateStreamOnHGlobal(NULL, TRUE, &stream);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    V_VT(&var) = VT_UNKNOWN;
-    V_UNKNOWN(&var) = (IUnknown*)stream;
-    hr = IXMLDOMDocument_save(doc, var);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = GetHGlobalFromStream(stream, &global);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    p = GlobalLock(global);
-    ok(!memcmp(p, xml2, sizeof(xml2) - 1) || !memcmp(p, xml2_wine, sizeof(xml2_wine) - 1), "got %s\n", wine_dbgstr_a(p));
-    GlobalUnlock(global);
-
-    /* Verify the result after load+save */
-    off.QuadPart = 0;
-    hr = IStream_Seek(stream, off, STREAM_SEEK_SET, NULL);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = IXMLDOMDocument_load(doc, var, &b);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(b == VARIANT_TRUE, "got %d\n", b);
-
-    off.QuadPart = 0;
-    hr = IStream_Seek(stream, off, STREAM_SEEK_SET, NULL);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = IXMLDOMDocument_save(doc, var);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = GetHGlobalFromStream(stream, &global);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    p = GlobalLock(global);
-    ok(!memcmp(p, xml2, sizeof(xml2) - 1) || !memcmp(p, xml2_wine, sizeof(xml2_wine) - 1), "got %s\n", wine_dbgstr_a(p));
-    GlobalUnlock(global);
-
-    IStream_Release(stream);
-
-    hr = IXMLDOMDocument_loadXML(doc, _bstr_("<?xml version=\"1.0\" standalone=\"yes\"?>\r\n<test/>\r\n"), &b);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-    ok(b == VARIANT_TRUE, "got %d\n", b);
-
-    hr = CreateStreamOnHGlobal(NULL, TRUE, &stream);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    V_VT(&var) = VT_UNKNOWN;
-    V_UNKNOWN(&var) = (IUnknown*)stream;
-    hr = IXMLDOMDocument_save(doc, var);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    hr = GetHGlobalFromStream(stream, &global);
-    ok(hr == S_OK, "got 0x%08x\n", hr);
-
-    p = GlobalLock(global);
-    ok(!memcmp(p, xml3, sizeof(xml3) - 1) || !memcmp(p, xml3_wine, sizeof(xml3_wine) - 1), "got %s\n", wine_dbgstr_a(p));
-    GlobalUnlock(global);
-
-    IStream_Release(stream);
     IXMLDOMDocument_Release(doc);
 }
 
@@ -9079,10 +8884,6 @@ static void test_xsltemplate(void)
     if (!is_clsid_supported(&CLSID_XSLTemplate, &IID_IXSLTemplate)) return;
     template = create_xsltemplate(&IID_IXSLTemplate);
 
-    check_interface(template, &IID_IXSLTemplate, TRUE);
-    check_interface(template, &IID_IDispatch, TRUE);
-    check_interface(template, &IID_IDispatchEx, TRUE);
-
     /* works as reset */
     hr = IXSLTemplate_putref_stylesheet(template, NULL);
     ok(hr == S_OK, "got 0x%08x\n", hr);
@@ -9304,13 +9105,6 @@ static void test_insertBefore(void)
     doc = create_document(&IID_IXMLDOMDocument);
     doc3 = create_document(&IID_IXMLDOMDocument);
 
-    /* NULL to document */
-    V_VT(&v) = VT_NULL;
-    node = (void*)0xdeadbeef;
-    hr = IXMLDOMDocument_insertBefore(doc, NULL, v, &node);
-    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
-    ok(node == (void*)0xdeadbeef, "got %p\n", node);
-
     /* document to document */
     V_VT(&v) = VT_NULL;
     node = (void*)0xdeadbeef;
@@ -9479,13 +9273,6 @@ static void test_insertBefore(void)
     EXPECT_NO_CHILDREN(elem3);
 
     todo_wine EXPECT_REF(elem2, 2);
-
-    /* NULL to element */
-    V_VT(&v) = VT_NULL;
-    node = (void*)0xdeadbeef;
-    hr = IXMLDOMElement_insertBefore(elem1, NULL, v, &node);
-    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
-    ok(node == (void*)0xdeadbeef, "got %p\n", node);
 
     /* document to element */
     V_VT(&v) = VT_DISPATCH;
@@ -10834,6 +10621,7 @@ static void test_mxnamespacemanager(void)
     IMXNamespaceManager *nsmgr;
     IUnknown *unk1, *unk2;
     WCHAR buffW[250];
+    IDispatch *disp;
     IUnknown *unk;
     HRESULT hr;
     INT len;
@@ -10842,10 +10630,10 @@ static void test_mxnamespacemanager(void)
         &IID_IMXNamespaceManager, (void**)&nsmgr);
     EXPECT_HR(hr, S_OK);
 
-    check_interface(nsmgr, &IID_IDispatch, TRUE);
-    check_interface(nsmgr, &IID_IDispatchEx, TRUE);
-    check_interface(nsmgr, &IID_IMXNamespaceManager, TRUE);
-    check_interface(nsmgr, &IID_IVBMXNamespaceManager, TRUE);
+    /* IMXNamespaceManager inherits from IUnknown */
+    hr = IMXNamespaceManager_QueryInterface(nsmgr, &IID_IDispatch, (void**)&disp);
+    EXPECT_HR(hr, S_OK);
+    IDispatch_Release(disp);
 
     hr = IMXNamespaceManager_QueryInterface(nsmgr, &IID_IVBMXNamespaceManager, (void**)&mgr2);
     EXPECT_HR(hr, S_OK);
@@ -13213,7 +13001,7 @@ static HRESULT WINAPI transformdest_QueryInterface(IUnknown *iface, REFIID riid,
         IsEqualIID(riid, &IID_IServiceProvider) ||
         IsEqualIID(riid, &IID_IStream) ||
         IsEqualIID(riid, &IID_ISequentialStream) ||
-        IsEqualIID(riid, &IID_IResponse);
+        IsEqualIID(riid, &IID_IRequestDictionary);
 
 todo_wine_if(IsEqualIID(riid, &IID_IXMLDOMDocument))
     ok(known_iid, "Unexpected riid %s\n", wine_dbgstr_guid(riid));
@@ -13664,11 +13452,11 @@ todo_wine
     ok(hr == S_OK, "got %#x\n", hr);
     ok(b == VARIANT_TRUE, "got %d\n", b);
     ok(qi_count == 0, "got %d QI calls\n", qi_count);
+    SysFreeString(V_BSTR(&var));
 
     IXMLDOMDocument2_Release(doc);
 
     DeleteFileA(path);
-    free_bstrs();
 }
 
 START_TEST(domdoc)
@@ -13687,7 +13475,6 @@ START_TEST(domdoc)
         return;
     }
 
-    test_createProcessingInstruction();
     test_load_with_site();
     test_domdoc();
     test_persiststream();
@@ -13729,6 +13516,7 @@ START_TEST(domdoc)
     test_default_properties();
     test_selectSingleNode();
     test_events();
+    test_createProcessingInstruction();
     test_put_nodeTypedValue();
     test_get_xml();
     test_insertBefore();

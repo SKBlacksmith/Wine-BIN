@@ -22,6 +22,8 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  *
+ * TODO
+ * Use the file flag hints O_SEQUENTIAL, O_RANDOM, O_SHORT_LIVED
  */
 
 #include <direct.h>
@@ -584,7 +586,7 @@ void msvcrt_init_io(void)
     count = min(count, MSVCRT_MAX_FILES);
     for (i = 0; i < count; i++)
     {
-      if ((*wxflag_ptr & WX_OPEN) && GetFileType(*handle_ptr) != FILE_TYPE_UNKNOWN)
+      if ((*wxflag_ptr & WX_OPEN) && *handle_ptr != INVALID_HANDLE_VALUE)
       {
         fdinfo = get_ioinfo_alloc_fd(i);
         if(fdinfo != &MSVCRT___badioinfo)
@@ -1586,13 +1588,6 @@ static int msvcrt_get_flags(const wchar_t* mode, int *open_flags, int* stream_fl
       *open_flags |=  _O_TEXT;
       *open_flags &= ~_O_BINARY;
       break;
-#if _MSVCR_VER>=140
-    case 'x':
-      if(!MSVCRT_CHECK_PMT((*open_flags & (_O_CREAT | _O_APPEND)) == _O_CREAT))
-          return -1;
-      *open_flags |= _O_EXCL;
-      break;
-#endif
     case 'D':
       *open_flags |= _O_TEMPORARY;
       break;
@@ -1614,12 +1609,8 @@ static int msvcrt_get_flags(const wchar_t* mode, int *open_flags, int* stream_fl
     case 'w':
       break;
     case 'S':
-      if (!(*open_flags & _O_RANDOM))
-          *open_flags |= _O_SEQUENTIAL;
-      break;
     case 'R':
-      if (!(*open_flags & _O_SEQUENTIAL))
-          *open_flags |= _O_RANDOM;
+      FIXME("ignoring cache optimization flag: %c\n", mode[-1]);
       break;
     default:
       ERR("incorrect mode flag: %c\n", mode[-1]);
@@ -1763,6 +1754,7 @@ int CDECL _fstat64(int fd, struct _stat64* buf)
   ioinfo *info = get_ioinfo(fd);
   DWORD dw;
   DWORD type;
+  BY_HANDLE_FILE_INFORMATION hfi;
 
   TRACE(":fd (%d) stat (%p)\n", fd, buf);
   if (info->handle == INVALID_HANDLE_VALUE)
@@ -1779,6 +1771,7 @@ int CDECL _fstat64(int fd, struct _stat64* buf)
     return -1;
   }
 
+  memset(&hfi, 0, sizeof(hfi));
   memset(buf, 0, sizeof(struct _stat64));
   type = GetFileType(info->handle);
   if (type == FILE_TYPE_PIPE)
@@ -1795,30 +1788,25 @@ int CDECL _fstat64(int fd, struct _stat64* buf)
   }
   else /* FILE_TYPE_DISK etc. */
   {
-    FILE_BASIC_INFORMATION basic_info;
-    FILE_STANDARD_INFORMATION std_info;
-    IO_STATUS_BLOCK io;
-    NTSTATUS status;
-
-    if ((status = NtQueryInformationFile( info->handle, &io, &basic_info, sizeof(basic_info), FileBasicInformation )) ||
-        (status = NtQueryInformationFile( info->handle, &io, &std_info, sizeof(std_info), FileStandardInformation )))
+    if (!GetFileInformationByHandle(info->handle, &hfi))
     {
-      WARN(":failed-error %x\n",status);
+      WARN(":failed-last error (%d)\n",GetLastError());
       msvcrt_set_errno(ERROR_INVALID_PARAMETER);
       release_ioinfo(info);
       return -1;
     }
     buf->st_mode = _S_IFREG | 0444;
-    if (!(basic_info.FileAttributes & FILE_ATTRIBUTE_READONLY))
+    if (!(hfi.dwFileAttributes & FILE_ATTRIBUTE_READONLY))
       buf->st_mode |= 0222;
-    buf->st_size  = std_info.EndOfFile.QuadPart;
-    RtlTimeToSecondsSince1970((LARGE_INTEGER *)&basic_info.LastAccessTime, &dw);
+    buf->st_size  = ((__int64)hfi.nFileSizeHigh << 32) + hfi.nFileSizeLow;
+    RtlTimeToSecondsSince1970((LARGE_INTEGER *)&hfi.ftLastAccessTime, &dw);
     buf->st_atime = dw;
-    RtlTimeToSecondsSince1970((LARGE_INTEGER *)&basic_info.LastWriteTime, &dw);
+    RtlTimeToSecondsSince1970((LARGE_INTEGER *)&hfi.ftLastWriteTime, &dw);
     buf->st_mtime = buf->st_ctime = dw;
-    buf->st_nlink = std_info.NumberOfLinks;
-    TRACE(":dwFileAttributes = 0x%x, mode set to 0x%x\n",basic_info.FileAttributes, buf->st_mode);
+    buf->st_nlink = hfi.nNumberOfLinks;
   }
+  TRACE(":dwFileAttributes = 0x%x, mode set to 0x%x\n",hfi.dwFileAttributes,
+   buf->st_mode);
   release_ioinfo(info);
   return 0;
 }
@@ -2278,13 +2266,6 @@ int CDECL _wsopen_dispatch( const wchar_t* path, int oflags, int shflags, int pm
       sharing |= FILE_SHARE_DELETE;
   }
 
-  if (oflags & _O_RANDOM)
-      attrib |= FILE_FLAG_RANDOM_ACCESS;
-  if (oflags & _O_SEQUENTIAL)
-      attrib |= FILE_FLAG_SEQUENTIAL_SCAN;
-  if (oflags & _O_SHORT_LIVED)
-      attrib |= FILE_ATTRIBUTE_TEMPORARY;
-
   sa.nLength              = sizeof( SECURITY_ATTRIBUTES );
   sa.lpSecurityDescriptor = NULL;
   sa.bInheritHandle       = !(oflags & _O_NOINHERIT);
@@ -2396,11 +2377,11 @@ int WINAPIV _wsopen( const wchar_t *path, int oflags, int shflags, ... )
 
   if (oflags & _O_CREAT)
   {
-    va_list ap;
+    __ms_va_list ap;
 
-    va_start(ap, shflags);
+    __ms_va_start(ap, shflags);
     pmode = va_arg(ap, int);
-    va_end(ap);
+    __ms_va_end(ap);
   }
   else
     pmode = 0;
@@ -2447,11 +2428,11 @@ int WINAPIV _sopen( const char *path, int oflags, int shflags, ... )
 
   if (oflags & _O_CREAT)
   {
-    va_list ap;
+    __ms_va_list ap;
 
-    va_start(ap, shflags);
+    __ms_va_start(ap, shflags);
     pmode = va_arg(ap, int);
-    va_end(ap);
+    __ms_va_end(ap);
   }
   else
     pmode = 0;
@@ -2464,14 +2445,14 @@ int WINAPIV _sopen( const char *path, int oflags, int shflags, ... )
  */
 int WINAPIV _open( const char *path, int flags, ... )
 {
-  va_list ap;
+  __ms_va_list ap;
 
   if (flags & _O_CREAT)
   {
     int pmode;
-    va_start(ap, flags);
+    __ms_va_start(ap, flags);
     pmode = va_arg(ap, int);
-    va_end(ap);
+    __ms_va_end(ap);
     return _sopen( path, flags, _SH_DENYNO, pmode );
   }
   else
@@ -2483,14 +2464,14 @@ int WINAPIV _open( const char *path, int flags, ... )
  */
 int WINAPIV _wopen(const wchar_t *path,int flags,...)
 {
-  va_list ap;
+  __ms_va_list ap;
 
   if (flags & _O_CREAT)
   {
     int pmode;
-    va_start(ap, flags);
+    __ms_va_start(ap, flags);
     pmode = va_arg(ap, int);
-    va_end(ap);
+    __ms_va_end(ap);
     return _wsopen( path, flags, _SH_DENYNO, pmode );
   }
   else
@@ -3623,8 +3604,6 @@ int CDECL fclose(FILE* file)
 {
   int ret;
 
-  if (!MSVCRT_CHECK_PMT(file != NULL)) return EOF;
-
   _lock_file(file);
   ret = _fclose_nolock(file);
   _unlock_file(file);
@@ -3638,8 +3617,6 @@ int CDECL fclose(FILE* file)
 int CDECL _fclose_nolock(FILE* file)
 {
   int r, flag;
-
-  if (!MSVCRT_CHECK_PMT(file != NULL)) return EOF;
 
   if(!(file->_flag & (_IOREAD | _IOWRT | _IORW)))
   {
@@ -5150,7 +5127,7 @@ static int puts_clbk_file_w(void *file, int len, const wchar_t *str)
 }
 
 static int vfprintf_helper(DWORD options, FILE* file, const char *format,
-        _locale_t locale, va_list valist)
+        _locale_t locale, __ms_va_list valist)
 {
     printf_arg args_ctx[_ARGMAX+1];
     BOOL tmp_buf;
@@ -5182,7 +5159,7 @@ static int vfprintf_helper(DWORD options, FILE* file, const char *format,
 }
 
 static int vfwprintf_helper(DWORD options, FILE* file, const wchar_t *format,
-        _locale_t locale, va_list valist)
+        _locale_t locale, __ms_va_list valist)
 {
     printf_arg args_ctx[_ARGMAX+1];
     BOOL tmp_buf;
@@ -5217,7 +5194,7 @@ static int vfwprintf_helper(DWORD options, FILE* file, const wchar_t *format,
  *    _vfprintf_s_l (MSVCRT.@)
  */
 int CDECL _vfprintf_s_l(FILE* file, const char *format,
-        _locale_t locale, va_list valist)
+        _locale_t locale, __ms_va_list valist)
 {
     return vfprintf_helper(MSVCRT_PRINTF_INVOKE_INVALID_PARAM_HANDLER, file, format, locale, valist);
 }
@@ -5226,7 +5203,7 @@ int CDECL _vfprintf_s_l(FILE* file, const char *format,
  *    _vfwprintf_s_l (MSVCRT.@)
  */
 int CDECL _vfwprintf_s_l(FILE* file, const wchar_t *format,
-        _locale_t locale, va_list valist)
+        _locale_t locale, __ms_va_list valist)
 {
     return vfwprintf_helper(MSVCRT_PRINTF_INVOKE_INVALID_PARAM_HANDLER, file, format, locale, valist);
 }
@@ -5234,7 +5211,7 @@ int CDECL _vfwprintf_s_l(FILE* file, const wchar_t *format,
 /*********************************************************************
  *		vfprintf (MSVCRT.@)
  */
-int CDECL vfprintf(FILE* file, const char *format, va_list valist)
+int CDECL vfprintf(FILE* file, const char *format, __ms_va_list valist)
 {
     return vfprintf_helper(0, file, format, NULL, valist);
 }
@@ -5242,7 +5219,7 @@ int CDECL vfprintf(FILE* file, const char *format, va_list valist)
 /*********************************************************************
  *		vfprintf_s (MSVCRT.@)
  */
-int CDECL vfprintf_s(FILE* file, const char *format, va_list valist)
+int CDECL vfprintf_s(FILE* file, const char *format, __ms_va_list valist)
 {
     return _vfprintf_s_l(file, format, NULL, valist);
 }
@@ -5250,7 +5227,7 @@ int CDECL vfprintf_s(FILE* file, const char *format, va_list valist)
 /*********************************************************************
  *		vfwprintf (MSVCRT.@)
  */
-int CDECL vfwprintf(FILE* file, const wchar_t *format, va_list valist)
+int CDECL vfwprintf(FILE* file, const wchar_t *format, __ms_va_list valist)
 {
     return vfwprintf_helper(0, file, format, NULL, valist);
 }
@@ -5258,7 +5235,7 @@ int CDECL vfwprintf(FILE* file, const wchar_t *format, va_list valist)
 /*********************************************************************
  *		vfwprintf_s (MSVCRT.@)
  */
-int CDECL vfwprintf_s(FILE* file, const wchar_t *format, va_list valist)
+int CDECL vfwprintf_s(FILE* file, const wchar_t *format, __ms_va_list valist)
 {
     return _vfwprintf_s_l(file, format, NULL, valist);
 }
@@ -5269,7 +5246,7 @@ int CDECL vfwprintf_s(FILE* file, const wchar_t *format, va_list valist)
  *              __stdio_common_vfprintf (UCRTBASE.@)
  */
 int CDECL _stdio_common_vfprintf(unsigned __int64 options, FILE *file, const char *format,
-                                        _locale_t locale, va_list valist)
+                                        _locale_t locale, __ms_va_list valist)
 {
     if (options & ~UCRTBASE_PRINTF_MASK)
         FIXME("options %s not handled\n", wine_dbgstr_longlong(options));
@@ -5281,7 +5258,7 @@ int CDECL _stdio_common_vfprintf(unsigned __int64 options, FILE *file, const cha
  *              __stdio_common_vfprintf_p (UCRTBASE.@)
  */
 int CDECL __stdio_common_vfprintf_p(unsigned __int64 options, FILE *file, const char *format,
-                                          _locale_t locale, va_list valist)
+                                          _locale_t locale, __ms_va_list valist)
 {
     if (options & ~UCRTBASE_PRINTF_MASK)
         FIXME("options %s not handled\n", wine_dbgstr_longlong(options));
@@ -5295,7 +5272,7 @@ int CDECL __stdio_common_vfprintf_p(unsigned __int64 options, FILE *file, const 
  *              __stdio_common_vfprintf_s (UCRTBASE.@)
  */
 int CDECL __stdio_common_vfprintf_s(unsigned __int64 options, FILE *file, const char *format,
-                                          _locale_t locale, va_list valist)
+                                          _locale_t locale, __ms_va_list valist)
 {
     if (options & ~UCRTBASE_PRINTF_MASK)
         FIXME("options %s not handled\n", wine_dbgstr_longlong(options));
@@ -5308,7 +5285,7 @@ int CDECL __stdio_common_vfprintf_s(unsigned __int64 options, FILE *file, const 
  *              __stdio_common_vfwprintf (UCRTBASE.@)
  */
 int CDECL __stdio_common_vfwprintf(unsigned __int64 options, FILE *file, const wchar_t *format,
-                                         _locale_t locale, va_list valist)
+                                         _locale_t locale, __ms_va_list valist)
 {
     if (options & ~UCRTBASE_PRINTF_MASK)
         FIXME("options %s not handled\n", wine_dbgstr_longlong(options));
@@ -5320,7 +5297,7 @@ int CDECL __stdio_common_vfwprintf(unsigned __int64 options, FILE *file, const w
  *              __stdio_common_vfwprintf_p (UCRTBASE.@)
  */
 int CDECL __stdio_common_vfwprintf_p(unsigned __int64 options, FILE *file, const wchar_t *format,
-                                           _locale_t locale, va_list valist)
+                                           _locale_t locale, __ms_va_list valist)
 {
     if (options & ~UCRTBASE_PRINTF_MASK)
         FIXME("options %s not handled\n", wine_dbgstr_longlong(options));
@@ -5334,7 +5311,7 @@ int CDECL __stdio_common_vfwprintf_p(unsigned __int64 options, FILE *file, const
  *              __stdio_common_vfwprintf_s (UCRTBASE.@)
  */
 int CDECL __stdio_common_vfwprintf_s(unsigned __int64 options, FILE *file, const wchar_t *format,
-                                           _locale_t locale, va_list valist)
+                                           _locale_t locale, __ms_va_list valist)
 {
     if (options & ~UCRTBASE_PRINTF_MASK)
         FIXME("options %s not handled\n", wine_dbgstr_longlong(options));
@@ -5349,7 +5326,7 @@ int CDECL __stdio_common_vfwprintf_s(unsigned __int64 options, FILE *file, const
  *    _vfprintf_l (MSVCRT.@)
  */
 int CDECL _vfprintf_l(FILE* file, const char *format,
-        _locale_t locale, va_list valist)
+        _locale_t locale, __ms_va_list valist)
 {
     return vfprintf_helper(0, file, format, locale, valist);
 }
@@ -5358,7 +5335,7 @@ int CDECL _vfprintf_l(FILE* file, const char *format,
  *              _vfwprintf_l (MSVCRT.@)
  */
 int CDECL _vfwprintf_l(FILE* file, const wchar_t *format,
-        _locale_t locale, va_list valist)
+        _locale_t locale, __ms_va_list valist)
 {
     return vfwprintf_helper(0, file, format, locale, valist);
 }
@@ -5367,7 +5344,7 @@ int CDECL _vfwprintf_l(FILE* file, const wchar_t *format,
  *    _vfprintf_p_l (MSVCRT.@)
  */
 int CDECL _vfprintf_p_l(FILE* file, const char *format,
-        _locale_t locale, va_list valist)
+        _locale_t locale, __ms_va_list valist)
 {
     return vfprintf_helper(MSVCRT_PRINTF_POSITIONAL_PARAMS | MSVCRT_PRINTF_INVOKE_INVALID_PARAM_HANDLER,
             file, format, locale, valist);
@@ -5376,7 +5353,7 @@ int CDECL _vfprintf_p_l(FILE* file, const char *format,
 /*********************************************************************
  *    _vfprintf_p (MSVCRT.@)
  */
-int CDECL _vfprintf_p(FILE* file, const char *format, va_list valist)
+int CDECL _vfprintf_p(FILE* file, const char *format, __ms_va_list valist)
 {
     return _vfprintf_p_l(file, format, NULL, valist);
 }
@@ -5385,7 +5362,7 @@ int CDECL _vfprintf_p(FILE* file, const char *format, va_list valist)
  *    _vfwprintf_p_l (MSVCRT.@)
  */
 int CDECL _vfwprintf_p_l(FILE* file, const wchar_t *format,
-        _locale_t locale, va_list valist)
+        _locale_t locale, __ms_va_list valist)
 {
     return vfwprintf_helper(MSVCRT_PRINTF_POSITIONAL_PARAMS | MSVCRT_PRINTF_INVOKE_INVALID_PARAM_HANDLER,
             file, format, locale, valist);
@@ -5394,7 +5371,7 @@ int CDECL _vfwprintf_p_l(FILE* file, const wchar_t *format,
 /*********************************************************************
  *    _vfwprintf_p (MSVCRT.@)
  */
-int CDECL _vfwprintf_p(FILE* file, const wchar_t *format, va_list valist)
+int CDECL _vfwprintf_p(FILE* file, const wchar_t *format, __ms_va_list valist)
 {
     return _vfwprintf_p_l(file, format, NULL, valist);
 }
@@ -5402,7 +5379,7 @@ int CDECL _vfwprintf_p(FILE* file, const wchar_t *format, va_list valist)
 /*********************************************************************
  *		vprintf (MSVCRT.@)
  */
-int CDECL vprintf(const char *format, va_list valist)
+int CDECL vprintf(const char *format, __ms_va_list valist)
 {
   return vfprintf(MSVCRT_stdout,format,valist);
 }
@@ -5410,7 +5387,7 @@ int CDECL vprintf(const char *format, va_list valist)
 /*********************************************************************
  *		vprintf_s (MSVCRT.@)
  */
-int CDECL vprintf_s(const char *format, va_list valist)
+int CDECL vprintf_s(const char *format, __ms_va_list valist)
 {
   return vfprintf_s(MSVCRT_stdout,format,valist);
 }
@@ -5418,7 +5395,7 @@ int CDECL vprintf_s(const char *format, va_list valist)
 /*********************************************************************
  *		vwprintf (MSVCRT.@)
  */
-int CDECL vwprintf(const wchar_t *format, va_list valist)
+int CDECL vwprintf(const wchar_t *format, __ms_va_list valist)
 {
   return vfwprintf(MSVCRT_stdout,format,valist);
 }
@@ -5426,7 +5403,7 @@ int CDECL vwprintf(const wchar_t *format, va_list valist)
 /*********************************************************************
  *		vwprintf_s (MSVCRT.@)
  */
-int CDECL vwprintf_s(const wchar_t *format, va_list valist)
+int CDECL vwprintf_s(const wchar_t *format, __ms_va_list valist)
 {
   return vfwprintf_s(MSVCRT_stdout,format,valist);
 }
@@ -5436,11 +5413,11 @@ int CDECL vwprintf_s(const wchar_t *format, va_list valist)
  */
 int WINAPIV fprintf(FILE* file, const char *format, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, format);
+    __ms_va_start(valist, format);
     res = vfprintf(file, format, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 
@@ -5449,11 +5426,11 @@ int WINAPIV fprintf(FILE* file, const char *format, ...)
  */
 int WINAPIV fprintf_s(FILE* file, const char *format, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, format);
+    __ms_va_start(valist, format);
     res = vfprintf_s(file, format, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 
@@ -5462,11 +5439,11 @@ int WINAPIV fprintf_s(FILE* file, const char *format, ...)
  */
 int WINAPIV fwprintf(FILE* file, const wchar_t *format, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, format);
+    __ms_va_start(valist, format);
     res = vfwprintf(file, format, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 
@@ -5475,11 +5452,11 @@ int WINAPIV fwprintf(FILE* file, const wchar_t *format, ...)
  */
 int WINAPIV fwprintf_s(FILE* file, const wchar_t *format, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, format);
+    __ms_va_start(valist, format);
     res = vfwprintf_s(file, format, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 
@@ -5488,11 +5465,11 @@ int WINAPIV fwprintf_s(FILE* file, const wchar_t *format, ...)
  */
 int WINAPIV _fwprintf_l(FILE* file, const wchar_t *format, _locale_t locale, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, locale);
+    __ms_va_start(valist, locale);
     res = _vfwprintf_l(file, format, locale, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 
@@ -5501,11 +5478,11 @@ int WINAPIV _fwprintf_l(FILE* file, const wchar_t *format, _locale_t locale, ...
  */
 int WINAPIV printf(const char *format, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, format);
+    __ms_va_start(valist, format);
     res = vfprintf(MSVCRT_stdout, format, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 
@@ -5514,11 +5491,11 @@ int WINAPIV printf(const char *format, ...)
  */
 int WINAPIV printf_s(const char *format, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, format);
+    __ms_va_start(valist, format);
     res = vprintf_s(format, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 
@@ -5631,11 +5608,11 @@ wint_t CDECL _ungetwc_nolock(wint_t wc, FILE * file)
  */
 int WINAPIV wprintf(const wchar_t *format, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, format);
+    __ms_va_start(valist, format);
     res = vwprintf(format, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 
@@ -5644,11 +5621,11 @@ int WINAPIV wprintf(const wchar_t *format, ...)
  */
 int WINAPIV wprintf_s(const wchar_t *format, ...)
 {
-    va_list valist;
+    __ms_va_list valist;
     int res;
-    va_start(valist, format);
+    __ms_va_start(valist, format);
     res = vwprintf_s(format, valist);
-    va_end(valist);
+    __ms_va_end(valist);
     return res;
 }
 

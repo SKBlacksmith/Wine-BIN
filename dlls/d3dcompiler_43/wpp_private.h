@@ -235,7 +235,6 @@ extern includelogicentry_t *pp_includelogiclist;
 extern FILE *ppy_out;
 extern char *ppy_text;
 int ppy_lex(void);
-int ppy_lex_destroy(void);
 
 void pp_do_include(char *fname, int type);
 void pp_push_ignore_state(void);

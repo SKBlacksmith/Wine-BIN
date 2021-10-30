@@ -21,7 +21,9 @@
 #include "qdvd_private.h"
 #include "rpcproxy.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+WINE_DEFAULT_DEBUG_CHANNEL(qdvd);
+
+static HINSTANCE qdvd_instance;
 
 struct class_factory
 {
@@ -100,6 +102,19 @@ static const IClassFactoryVtbl class_factory_vtbl =
 static struct class_factory graph_builder_cf = {{&class_factory_vtbl}, graph_builder_create};
 static struct class_factory navigator_cf = {{&class_factory_vtbl}, navigator_create};
 
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
+{
+    if (reason == DLL_WINE_PREATTACH)
+        return FALSE; /* prefer native version */
+
+    if (reason == DLL_PROCESS_ATTACH)
+    {
+        qdvd_instance = instance;
+        DisableThreadLibraryCalls(instance);
+    }
+    return TRUE;
+}
+
 HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **out)
 {
     TRACE("clsid %s, iid %s, out %p.\n", debugstr_guid(clsid), debugstr_guid(iid), out);
@@ -111,4 +126,19 @@ HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **out)
 
     FIXME("%s not available, returning CLASS_E_CLASSNOTAVAILABLE.\n", debugstr_guid(clsid));
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+HRESULT WINAPI DllRegisterServer(void)
+{
+    return __wine_register_resources(qdvd_instance);
+}
+
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    return __wine_unregister_resources(qdvd_instance);
+}
+
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
 }

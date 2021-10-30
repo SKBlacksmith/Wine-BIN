@@ -23,10 +23,8 @@
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
-#include "windef.h"
-#include "winbase.h"
 #include "winerror.h"
-#include "winternl.h"
+#include "wine/server.h"
 #include "kernel_private.h"
 #include "wine/asm.h"
 #include "wine/debug.h"
@@ -167,9 +165,13 @@ BOOL WINAPI DebugBreakProcess(HANDLE process)
  */
 BOOL WINAPI DebugSetProcessKillOnExit(BOOL kill)
 {
-    ULONG flag = kill ? DEBUG_KILL_ON_CLOSE : 0;
+    BOOL ret = FALSE;
 
-    return set_ntstatus( NtSetInformationDebugObject( DbgUiGetThreadDebugObject(),
-                                                      DebugObjectKillProcessOnExitInformation,
-                                                      &flag, sizeof(flag), NULL ));
+    SERVER_START_REQ( set_debugger_kill_on_exit )
+    {
+        req->kill_on_exit = kill;
+        ret = !wine_server_call_err( req );
+    }
+    SERVER_END_REQ;
+    return ret;
 }

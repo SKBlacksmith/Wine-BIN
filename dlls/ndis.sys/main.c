@@ -32,6 +32,7 @@
 #include "ws2ipdef.h"
 #include "iphlpapi.h"
 #include "netioapi.h"
+#include "ntddndis.h"
 #include "ddk/wdm.h"
 #include "ddk/ndis.h"
 #include "winreg.h"
@@ -89,7 +90,7 @@ static void query_global_stats(IRP *irp, const MIB_IF_ROW2 *netdev)
     }
     default:
         FIXME( "Unsupported OID %x\n", oid );
-        irp->IoStatus.u.Status = STATUS_INVALID_PARAMETER;
+        irp->IoStatus.u.Status = STATUS_NOT_SUPPORTED;
         break;
     }
 }
@@ -98,7 +99,6 @@ static NTSTATUS WINAPI ndis_ioctl(DEVICE_OBJECT *device, IRP *irp)
 {
     IO_STACK_LOCATION *irpsp = IoGetCurrentIrpStackLocation( irp );
     MIB_IF_ROW2 *netdev = device->DeviceExtension;
-    NTSTATUS status;
 
     TRACE( "ioctl %x insize %u outsize %u\n",
            irpsp->Parameters.DeviceIoControl.IoControlCode,
@@ -116,9 +116,8 @@ static NTSTATUS WINAPI ndis_ioctl(DEVICE_OBJECT *device, IRP *irp)
         break;
     }
 
-    status = irp->IoStatus.u.Status;
     IoCompleteRequest( irp, IO_NO_INCREMENT );
-    return status;
+    return STATUS_SUCCESS;
 }
 
 static void add_key(const WCHAR *guidstrW, const MIB_IF_ROW2 *netdev)

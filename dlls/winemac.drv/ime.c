@@ -648,10 +648,7 @@ BOOL WINAPI ImeSelect(HIMC hIMC, BOOL fSelect)
 
 BOOL WINAPI ImeSetActiveContext(HIMC hIMC, BOOL fFlag)
 {
-    static int once;
-
-    if (!once++)
-        FIXME("(%p, %x): stub\n", hIMC, fFlag);
+    FIXME("(%p, %x): stub\n", hIMC, fFlag);
     return TRUE;
 }
 
@@ -1430,10 +1427,10 @@ void macdrv_im_set_text(const macdrv_event *event)
             {
                 input.ki.wScan      = chars[i];
                 input.ki.dwFlags    = KEYEVENTF_UNICODE;
-                __wine_send_input(hwnd, &input, NULL);
+                __wine_send_input(hwnd, &input);
 
                 input.ki.dwFlags    = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-                __wine_send_input(hwnd, &input, NULL);
+                __wine_send_input(hwnd, &input);
             }
         }
 

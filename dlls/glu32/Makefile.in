@@ -2,7 +2,7 @@ MODULE    = glu32.dll
 IMPORTLIB = glu32
 IMPORTS   = opengl32
 
-EXTRADLLFLAGS = -Wb,--prefer-native
+EXTRADLLFLAGS = -mno-cygwin
 
 C_SRCS = \
 	geom.c \

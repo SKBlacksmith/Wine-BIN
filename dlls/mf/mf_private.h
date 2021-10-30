@@ -20,6 +20,7 @@
 #include "mfidl.h"
 #include "mfapi.h"
 
+#include "wine/heap.h"
 #include "wine/debug.h"
 
 static inline BOOL mf_array_reserve(void **elements, size_t *capacity, size_t count, size_t size)
@@ -40,7 +41,7 @@ static inline BOOL mf_array_reserve(void **elements, size_t *capacity, size_t co
     if (new_capacity < count)
         new_capacity = max_capacity;
 
-    if (!(new_elements = realloc(*elements, new_capacity * size)))
+    if (!(new_elements = heap_realloc(*elements, new_capacity * size)))
         return FALSE;
 
     *elements = new_elements;
@@ -79,6 +80,4 @@ static inline const char *debugstr_time(LONGLONG time)
     return wine_dbg_sprintf("%s", rev);
 }
 
-extern BOOL mf_is_sample_copier_transform(IMFTransform *transform) DECLSPEC_HIDDEN;
-extern BOOL mf_is_sar_sink(IMFMediaSink *sink) DECLSPEC_HIDDEN;
-extern HRESULT topology_node_get_object(IMFTopologyNode *node, REFIID riid, void **obj) DECLSPEC_HIDDEN;
+extern BOOL mf_is_sample_copier_transform(IUnknown *transform) DECLSPEC_HIDDEN;

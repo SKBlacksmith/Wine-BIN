@@ -56,15 +56,18 @@ static inline IDirectPlay8ClientImpl *impl_from_IDirectPlay8Client(IDirectPlay8C
 
 /* IDirectPlay8Client IUnknown parts follow: */
 static HRESULT WINAPI IDirectPlay8ClientImpl_QueryInterface(IDirectPlay8Client *iface, REFIID riid,
-        void **ret_iface)
+        void **ppobj)
 {
-    if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_IDirectPlay8Client)) {
-        IDirectPlay8Client_AddRef(iface);
-        *ret_iface = iface;
-        return S_OK;
+    IDirectPlay8ClientImpl *This = impl_from_IDirectPlay8Client(iface);
+
+    if (IsEqualGUID(riid, &IID_IUnknown)
+        || IsEqualGUID(riid, &IID_IDirectPlay8Client)) {
+        IUnknown_AddRef(iface);
+        *ppobj = This;
+        return DPN_OK;
     }
 
-    WARN("(%p)->(%s,%p): not found\n", iface, debugstr_guid(riid), ret_iface);
+    WARN("(%p)->(%s,%p),not found\n",This,debugstr_guid(riid),ppobj);
     return E_NOINTERFACE;
 }
 

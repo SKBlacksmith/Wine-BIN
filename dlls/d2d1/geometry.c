@@ -2061,13 +2061,6 @@ static HRESULT d2d_path_geometry_triangulate(struct d2d_geometry *geometry)
         }
     }
 
-    if (vertex_count < 3)
-    {
-        WARN("Geometry has %lu vertices after eliminating duplicates.\n", (long)vertex_count);
-        heap_free(vertices);
-        return S_OK;
-    }
-
     geometry->fill.vertices = vertices;
     geometry->fill.vertex_count = vertex_count;
 
@@ -4887,24 +4880,9 @@ static void STDMETHODCALLTYPE d2d_geometry_group_GetFactory(ID2D1GeometryGroup *
 static HRESULT STDMETHODCALLTYPE d2d_geometry_group_GetBounds(ID2D1GeometryGroup *iface,
         const D2D1_MATRIX_3X2_F *transform, D2D1_RECT_F *bounds)
 {
-    struct d2d_geometry *geometry = impl_from_ID2D1GeometryGroup(iface);
-    D2D1_RECT_F rect;
-    unsigned int i;
+    FIXME("iface %p, transform %p, bounds %p stub!.\n", iface, transform, bounds);
 
-    TRACE("iface %p, transform %p, bounds %p.\n", iface, transform, bounds);
-
-    bounds->left = FLT_MAX;
-    bounds->top = FLT_MAX;
-    bounds->right = -FLT_MAX;
-    bounds->bottom = -FLT_MAX;
-
-    for (i = 0; i < geometry->u.group.geometry_count; ++i)
-    {
-        if (SUCCEEDED(ID2D1Geometry_GetBounds(geometry->u.group.src_geometries[i], transform, &rect)))
-            d2d_rect_union(bounds, &rect);
-    }
-
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 static HRESULT STDMETHODCALLTYPE d2d_geometry_group_GetWidenedBounds(ID2D1GeometryGroup *iface,

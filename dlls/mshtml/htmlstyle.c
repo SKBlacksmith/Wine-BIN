@@ -17,6 +17,7 @@
  */
 
 #include <stdarg.h>
+#include <assert.h>
 #include <math.h>
 
 #define COBJMACROS
@@ -119,12 +120,6 @@ typedef struct {
 } style_tbl_entry_t;
 
 static const style_tbl_entry_t style_tbl[] = {
-    {
-        L"animation",
-        DISPID_IHTMLCSSSTYLEDECLARATION2_ANIMATION,
-        DISPID_UNKNOWN,
-        ATTR_COMPAT_IE10
-    },
     {
         L"animation-name",
         DISPID_IHTMLCSSSTYLEDECLARATION2_ANIMATIONNAME,
@@ -3025,10 +3020,8 @@ static HRESULT WINAPI HTMLStyle_removeAttribute(IHTMLStyle *iface, BSTR strAttri
 static HRESULT WINAPI HTMLStyle_toString(IHTMLStyle *iface, BSTR *String)
 {
     HTMLStyle *This = impl_from_IHTMLStyle(iface);
-
-    TRACE("(%p)->(%p)\n", This, String);
-
-    return dispex_to_string(&This->css_style.dispex, String);
+    FIXME("(%p)->(%p)\n", This, String);
+    return E_NOTIMPL;
 }
 
 static const IHTMLStyleVtbl HTMLStyleVtbl = {
@@ -9696,15 +9689,15 @@ static HRESULT WINAPI HTMLCSSStyleDeclaration2_get_animationIterationCount(IHTML
 static HRESULT WINAPI HTMLCSSStyleDeclaration2_put_animation(IHTMLCSSStyleDeclaration2 *iface, BSTR v)
 {
     CSSStyle *This = impl_from_IHTMLCSSStyleDeclaration2(iface);
-    TRACE("(%p)->(%s)\n", This, debugstr_w(v));
-    return set_style_property(This, STYLEID_ANIMATION, v);
+    FIXME("(%p)->(%s)\n", This, debugstr_w(v));
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI HTMLCSSStyleDeclaration2_get_animation(IHTMLCSSStyleDeclaration2 *iface, BSTR *p)
 {
     CSSStyle *This = impl_from_IHTMLCSSStyleDeclaration2(iface);
-    TRACE("(%p)->(%p)\n", This, p);
-    return get_style_property(This, STYLEID_ANIMATION, p);
+    FIXME("(%p)->(%p)\n", This, p);
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI HTMLCSSStyleDeclaration2_put_animationFillMode(IHTMLCSSStyleDeclaration2 *iface, BSTR v)
@@ -10008,7 +10001,6 @@ static const tid_t HTMLStyle_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLStyle_dispex = {
-    L"MSStyleCSSProperties",
     &CSSStyle_dispex_vtbl,
     DispHTMLStyle_tid,
     HTMLStyle_iface_tids,
@@ -10063,8 +10055,8 @@ void init_css_style(CSSStyle *style, nsIDOMCSSStyleDeclaration *nsstyle, style_q
     style->nsstyle = nsstyle;
     nsIDOMCSSStyleDeclaration_AddRef(nsstyle);
 
-    init_dispatch(&style->dispex, (IUnknown*)&style->IHTMLCSSStyleDeclaration_iface,
-                  dispex_info, compat_mode);
+    init_dispex_with_compat_mode(&style->dispex, (IUnknown*)&style->IHTMLCSSStyleDeclaration_iface,
+                                 dispex_info, compat_mode);
 }
 
 HRESULT HTMLStyle_Create(HTMLElement *elem, HTMLStyle **ret)
@@ -10103,7 +10095,6 @@ static const tid_t HTMLW3CComputedStyle_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLW3CComputedStyle_dispex = {
-    L"CSSStyleDeclaration",
     &CSSStyle_dispex_vtbl,
     DispHTMLW3CComputedStyle_tid,
     HTMLW3CComputedStyle_iface_tids,

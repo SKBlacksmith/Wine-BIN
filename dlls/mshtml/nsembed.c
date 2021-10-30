@@ -17,6 +17,7 @@
  */
 
 #include <stdarg.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -608,7 +609,7 @@ static BOOL load_xul(WCHAR *gecko_path)
 
     len = wcslen(gecko_path);
     wcscpy(gecko_path + len, L"\\xul.dll");
-    xul_handle = LoadLibraryExW(gecko_path, 0, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    xul_handle = LoadLibraryExW(gecko_path, 0, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR);
     gecko_path[len] = 0;
     if(!xul_handle) {
         WARN("Could not load XUL: %d\n", GetLastError());
@@ -707,7 +708,7 @@ static WCHAR *find_wine_gecko_reg(void)
     if(res != ERROR_SUCCESS)
         return NULL;
 
-    size = sizeof(buffer);
+    size = ARRAY_SIZE(buffer);
     res = RegQueryValueExW(hkey, L"GeckoPath", NULL, &type, (LPBYTE)buffer, &size);
     RegCloseKey(hkey);
     if(res != ERROR_SUCCESS || type != REG_SZ)
@@ -1658,7 +1659,7 @@ static nsresult NSAPI nsContextMenuListener_OnShowContextMenu(nsIContextMenuList
     if(FAILED(hres))
         return NS_ERROR_FAILURE;
 
-    hres = create_event_from_nsevent(aEvent, dispex_compat_mode(&node->event_target.dispex), &event);
+    hres = create_event_from_nsevent(aEvent, &event);
     if(SUCCEEDED(hres)) {
         dispatch_event(&node->event_target, event);
         IDOMEvent_Release(&event->IDOMEvent_iface);

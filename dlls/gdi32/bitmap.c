@@ -26,22 +26,57 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "ntgdi_private.h"
+#include "gdi_private.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(bitmap);
 
 
+static HGDIOBJ BITMAP_SelectObject( HGDIOBJ handle, HDC hdc );
 static INT BITMAP_GetObject( HGDIOBJ handle, INT count, LPVOID buffer );
 static BOOL BITMAP_DeleteObject( HGDIOBJ handle );
 
 static const struct gdi_obj_funcs bitmap_funcs =
 {
+    BITMAP_SelectObject,  /* pSelectObject */
+    BITMAP_GetObject,     /* pGetObjectA */
     BITMAP_GetObject,     /* pGetObjectW */
     NULL,                 /* pUnrealizeObject */
     BITMAP_DeleteObject   /* pDeleteObject */
 };
 
+
+/******************************************************************************
+ * CreateBitmap [GDI32.@]
+ *
+ * Creates a bitmap with the specified info.
+ *
+ * PARAMS
+ *    width  [I] bitmap width
+ *    height [I] bitmap height
+ *    planes [I] Number of color planes
+ *    bpp    [I] Number of bits to identify a color
+ *    bits   [I] Pointer to array containing color data
+ *
+ * RETURNS
+ *    Success: Handle to bitmap
+ *    Failure: 0
+ */
+HBITMAP WINAPI CreateBitmap( INT width, INT height, UINT planes,
+                             UINT bpp, LPCVOID bits )
+{
+    BITMAP bm;
+
+    bm.bmType = 0;
+    bm.bmWidth = width;
+    bm.bmHeight = height;
+    bm.bmWidthBytes = get_bitmap_stride( width, bpp );
+    bm.bmPlanes = planes;
+    bm.bmBitsPixel = bpp;
+    bm.bmBits = (LPVOID)bits;
+
+    return CreateBitmapIndirect( &bm );
+}
 
 /******************************************************************************
  * CreateCompatibleBitmap [GDI32.@]
@@ -91,57 +126,81 @@ HBITMAP WINAPI CreateCompatibleBitmap( HDC hdc, INT width, INT height)
 
 
 /******************************************************************************
- *      NtGdiCreateBitmap (win32u.@)
+ * CreateBitmapIndirect [GDI32.@]
  *
  * Creates a bitmap with the specified info.
+ *
+ * PARAMS
+ *  bmp [I] Pointer to the bitmap info describing the bitmap
+ *
+ * RETURNS
+ *    Success: Handle to bitmap
+ *    Failure: NULL. Use GetLastError() to determine the cause.
+ *
+ * NOTES
+ *  If a width or height of 0 is given, a 1x1 monochrome bitmap is returned.
  */
-HBITMAP WINAPI NtGdiCreateBitmap( INT width, INT height, UINT planes,
-                                  UINT bpp, const void *bits )
+HBITMAP WINAPI CreateBitmapIndirect( const BITMAP *bmp )
 {
+    BITMAP bm;
     BITMAPOBJ *bmpobj;
     HBITMAP hbitmap;
     INT dib_stride;
     SIZE_T size;
 
-    if (width > 0x7ffffff || height > 0x7ffffff)
+    if (!bmp || bmp->bmType)
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return NULL;
+    }
+
+    if (bmp->bmWidth > 0x7ffffff || bmp->bmHeight > 0x7ffffff)
     {
         SetLastError( ERROR_INVALID_PARAMETER );
         return 0;
     }
 
-    if (!width || !height)
-        return 0;
+    bm = *bmp;
 
-    if (height < 0)
-        height = -height;
-    if (width < 0)
-        width = -width;
-
-    if (planes != 1)
+    if (!bm.bmWidth || !bm.bmHeight)
     {
-        FIXME("planes = %d\n", planes);
+        return GetStockObject( DEFAULT_BITMAP );
+    }
+    else
+    {
+        if (bm.bmHeight < 0)
+            bm.bmHeight = -bm.bmHeight;
+        if (bm.bmWidth < 0)
+            bm.bmWidth = -bm.bmWidth;
+    }
+
+    if (bm.bmPlanes != 1)
+    {
+        FIXME("planes = %d\n", bm.bmPlanes);
         SetLastError( ERROR_INVALID_PARAMETER );
         return NULL;
     }
 
     /* Windows only uses 1, 4, 8, 16, 24 and 32 bpp */
-    if(bpp == 1)         bpp = 1;
-    else if(bpp <= 4)    bpp = 4;
-    else if(bpp <= 8)    bpp = 8;
-    else if(bpp <= 16)   bpp = 16;
-    else if(bpp <= 24)   bpp = 24;
-    else if(bpp <= 32)   bpp = 32;
-    else
-    {
-        WARN("Invalid bmBitsPixel %d, returning ERROR_INVALID_PARAMETER\n", bpp);
+    if(bm.bmBitsPixel == 1)         bm.bmBitsPixel = 1;
+    else if(bm.bmBitsPixel <= 4)    bm.bmBitsPixel = 4;
+    else if(bm.bmBitsPixel <= 8)    bm.bmBitsPixel = 8;
+    else if(bm.bmBitsPixel <= 16)   bm.bmBitsPixel = 16;
+    else if(bm.bmBitsPixel <= 24)   bm.bmBitsPixel = 24;
+    else if(bm.bmBitsPixel <= 32)   bm.bmBitsPixel = 32;
+    else {
+        WARN("Invalid bmBitsPixel %d, returning ERROR_INVALID_PARAMETER\n", bm.bmBitsPixel);
         SetLastError(ERROR_INVALID_PARAMETER);
         return NULL;
     }
 
-    dib_stride = get_dib_stride( width, bpp );
-    size = dib_stride * height;
+    /* Windows ignores the provided bm.bmWidthBytes */
+    bm.bmWidthBytes = get_bitmap_stride( bm.bmWidth, bm.bmBitsPixel );
+
+    dib_stride = get_dib_stride( bm.bmWidth, bm.bmBitsPixel );
+    size = dib_stride * bm.bmHeight;
     /* Check for overflow (dib_stride itself must be ok because of the constraint on bm.bmWidth above). */
-    if (dib_stride != size / height)
+    if (dib_stride != size / bm.bmHeight)
     {
         SetLastError( ERROR_INVALID_PARAMETER );
         return 0;
@@ -154,13 +213,8 @@ HBITMAP WINAPI NtGdiCreateBitmap( INT width, INT height, UINT planes,
         return 0;
     }
 
-    bmpobj->dib.dsBm.bmType       = 0;
-    bmpobj->dib.dsBm.bmWidth      = width;
-    bmpobj->dib.dsBm.bmHeight     = height;
-    bmpobj->dib.dsBm.bmWidthBytes = get_bitmap_stride( width, bpp );
-    bmpobj->dib.dsBm.bmPlanes     = planes;
-    bmpobj->dib.dsBm.bmBitsPixel  = bpp;
-    bmpobj->dib.dsBm.bmBits       = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, size );
+    bmpobj->dib.dsBm = bm;
+    bmpobj->dib.dsBm.bmBits = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, size );
     if (!bmpobj->dib.dsBm.bmBits)
     {
         HeapFree( GetProcessHeap(), 0, bmpobj );
@@ -168,23 +222,25 @@ HBITMAP WINAPI NtGdiCreateBitmap( INT width, INT height, UINT planes,
         return 0;
     }
 
-    if (!(hbitmap = alloc_gdi_handle( &bmpobj->obj, NTGDI_OBJ_BITMAP, &bitmap_funcs )))
+    if (!(hbitmap = alloc_gdi_handle( bmpobj, OBJ_BITMAP, &bitmap_funcs )))
     {
         HeapFree( GetProcessHeap(), 0, bmpobj->dib.dsBm.bmBits );
         HeapFree( GetProcessHeap(), 0, bmpobj );
         return 0;
     }
 
-    if (bits)
-        NtGdiSetBitmapBits( hbitmap, height * bmpobj->dib.dsBm.bmWidthBytes, bits );
+    if (bm.bmBits)
+        SetBitmapBits( hbitmap, bm.bmHeight * bm.bmWidthBytes, bm.bmBits );
 
-    TRACE("%dx%d, bpp %d planes %d: returning %p\n", width, height, bpp, planes, hbitmap);
+    TRACE("%dx%d, bpp %d planes %d: returning %p\n", bm.bmWidth, bm.bmHeight,
+          bm.bmBitsPixel, bm.bmPlanes, hbitmap);
+
     return hbitmap;
 }
 
 
 /***********************************************************************
- *      NtGdiGetBitmapBits (win32u.@)
+ * GetBitmapBits [GDI32.@]
  *
  * Copies bitmap bits of bitmap to buffer.
  *
@@ -192,7 +248,7 @@ HBITMAP WINAPI NtGdiCreateBitmap( INT width, INT height, UINT planes,
  *    Success: Number of bytes copied
  *    Failure: 0
  */
-LONG WINAPI NtGdiGetBitmapBits(
+LONG WINAPI GetBitmapBits(
     HBITMAP hbitmap, /* [in]  Handle to bitmap */
     LONG count,        /* [in]  Number of bytes to copy */
     LPVOID bits)       /* [out] Pointer to buffer to receive bits */
@@ -202,7 +258,7 @@ LONG WINAPI NtGdiGetBitmapBits(
     struct gdi_image_bits src_bits;
     struct bitblt_coords src;
     int dst_stride, max, ret;
-    BITMAPOBJ *bmp = GDI_GetObjPtr( hbitmap, NTGDI_OBJ_BITMAP );
+    BITMAPOBJ *bmp = GDI_GetObjPtr( hbitmap, OBJ_BITMAP );
 
     if (!bmp) return 0;
 
@@ -253,7 +309,7 @@ done:
 
 
 /******************************************************************************
- *      NtGdiSetBitmapBits (win32u.@)
+ * SetBitmapBits [GDI32.@]
  *
  * Sets bits of color data for a bitmap.
  *
@@ -261,7 +317,7 @@ done:
  *    Success: Number of bytes used in setting the bitmap bits
  *    Failure: 0
  */
-LONG WINAPI NtGdiSetBitmapBits(
+LONG WINAPI SetBitmapBits(
     HBITMAP hbitmap, /* [in] Handle to bitmap */
     LONG count,        /* [in] Number of bytes in bitmap array */
     LPCVOID bits)      /* [in] Address of array with bitmap bits */
@@ -277,7 +333,7 @@ LONG WINAPI NtGdiSetBitmapBits(
 
     if (!bits) return 0;
 
-    bmp = GDI_GetObjPtr( hbitmap, NTGDI_OBJ_BITMAP );
+    bmp = GDI_GetObjPtr( hbitmap, OBJ_BITMAP );
     if (!bmp) return 0;
 
     if (count < 0) {
@@ -303,11 +359,11 @@ LONG WINAPI NtGdiSetBitmapBits(
 
         if ((count % src_stride << 3) % bmp->dib.dsBm.bmBitsPixel)
             FIXME( "Unhandled partial pixel\n" );
-        clip = NtGdiCreateRectRgn( src.visrect.left, src.visrect.top,
-                                   src.visrect.right, src.visrect.bottom - 1 );
-        last_row = NtGdiCreateRectRgn( src.visrect.left, src.visrect.bottom - 1,
-                                       src.visrect.left + extra_pixels, src.visrect.bottom );
-        NtGdiCombineRgn( clip, clip, last_row, RGN_OR );
+        clip = CreateRectRgn( src.visrect.left, src.visrect.top,
+                              src.visrect.right, src.visrect.bottom - 1 );
+        last_row = CreateRectRgn( src.visrect.left, src.visrect.bottom - 1,
+                                  src.visrect.left + extra_pixels, src.visrect.bottom );
+        CombineRgn( clip, clip, last_row, RGN_OR );
         DeleteObject( last_row );
     }
 
@@ -367,9 +423,9 @@ LONG WINAPI NtGdiSetBitmapBits(
 
 
 /***********************************************************************
- *           NtGdiSelectBitmap (win32u.@)
+ *           BITMAP_SelectObject
  */
-HGDIOBJ WINAPI NtGdiSelectBitmap( HDC hdc, HGDIOBJ handle )
+static HGDIOBJ BITMAP_SelectObject( HGDIOBJ handle, HDC hdc )
 {
     HGDIOBJ ret;
     BITMAPOBJ *bitmap;
@@ -386,7 +442,7 @@ HGDIOBJ WINAPI NtGdiSelectBitmap( HDC hdc, HGDIOBJ handle )
     ret = dc->hBitmap;
     if (handle == dc->hBitmap) goto done;  /* nothing to do */
 
-    if (!(bitmap = GDI_GetObjPtr( handle, NTGDI_OBJ_BITMAP )))
+    if (!(bitmap = GDI_GetObjPtr( handle, OBJ_BITMAP )))
     {
         ret = 0;
         goto done;
@@ -400,8 +456,7 @@ HGDIOBJ WINAPI NtGdiSelectBitmap( HDC hdc, HGDIOBJ handle )
         goto done;
     }
 
-    if (!is_bitmapobj_dib( bitmap ) &&
-        bitmap->dib.dsBm.bmBitsPixel != 1 &&
+    if (bitmap->dib.dsBm.bmBitsPixel != 1 &&
         bitmap->dib.dsBm.bmBitsPixel != GetDeviceCaps( hdc, BITSPIXEL ))
     {
         WARN( "Wrong format bitmap %u bpp\n", bitmap->dib.dsBm.bmBitsPixel );
@@ -421,11 +476,11 @@ HGDIOBJ WINAPI NtGdiSelectBitmap( HDC hdc, HGDIOBJ handle )
         dc->hBitmap = handle;
         GDI_inc_ref_count( handle );
         dc->dirty = 0;
-        dc->attr->vis_rect.left   = 0;
-        dc->attr->vis_rect.top    = 0;
-        dc->attr->vis_rect.right  = bitmap->dib.dsBm.bmWidth;
-        dc->attr->vis_rect.bottom = bitmap->dib.dsBm.bmHeight;
-        dc->device_rect = dc->attr->vis_rect;
+        dc->vis_rect.left   = 0;
+        dc->vis_rect.top    = 0;
+        dc->vis_rect.right  = bitmap->dib.dsBm.bmWidth;
+        dc->vis_rect.bottom = bitmap->dib.dsBm.bmHeight;
+        dc->device_rect = dc->vis_rect;
         GDI_ReleaseObj( handle );
         DC_InitDC( dc );
         GDI_dec_ref_count( ret );
@@ -457,7 +512,7 @@ static BOOL BITMAP_DeleteObject( HGDIOBJ handle )
 static INT BITMAP_GetObject( HGDIOBJ handle, INT count, LPVOID buffer )
 {
     INT ret = 0;
-    BITMAPOBJ *bmp = GDI_GetObjPtr( handle, NTGDI_OBJ_BITMAP );
+    BITMAPOBJ *bmp = GDI_GetObjPtr( handle, OBJ_BITMAP );
 
     if (!bmp) return 0;
 
@@ -475,7 +530,25 @@ static INT BITMAP_GetObject( HGDIOBJ handle, INT count, LPVOID buffer )
 
 
 /******************************************************************************
- *      NtGdiGetBitmapDimension (win32u.@)
+ * CreateDiscardableBitmap [GDI32.@]
+ *
+ * Creates a discardable bitmap.
+ *
+ * RETURNS
+ *    Success: Handle to bitmap
+ *    Failure: NULL
+ */
+HBITMAP WINAPI CreateDiscardableBitmap(
+    HDC hdc,    /* [in] Handle to device context */
+    INT width,  /* [in] Bitmap width */
+    INT height) /* [in] Bitmap height */
+{
+    return CreateCompatibleBitmap( hdc, width, height );
+}
+
+
+/******************************************************************************
+ * GetBitmapDimensionEx [GDI32.@]
  *
  * Retrieves dimensions of a bitmap.
  *
@@ -483,11 +556,11 @@ static INT BITMAP_GetObject( HGDIOBJ handle, INT count, LPVOID buffer )
  *    Success: TRUE
  *    Failure: FALSE
  */
-BOOL WINAPI NtGdiGetBitmapDimension(
+BOOL WINAPI GetBitmapDimensionEx(
     HBITMAP hbitmap, /* [in]  Handle to bitmap */
     LPSIZE size)     /* [out] Address of struct receiving dimensions */
 {
-    BITMAPOBJ * bmp = GDI_GetObjPtr( hbitmap, NTGDI_OBJ_BITMAP );
+    BITMAPOBJ * bmp = GDI_GetObjPtr( hbitmap, OBJ_BITMAP );
     if (!bmp) return FALSE;
     *size = bmp->size;
     GDI_ReleaseObj( hbitmap );
@@ -496,7 +569,7 @@ BOOL WINAPI NtGdiGetBitmapDimension(
 
 
 /******************************************************************************
- *      NtGdiSetBitmapDimension (win32u.@)
+ * SetBitmapDimensionEx [GDI32.@]
  *
  * Assigns dimensions to a bitmap.
  * MSDN says that this function will fail if hbitmap is a handle created by
@@ -506,13 +579,13 @@ BOOL WINAPI NtGdiGetBitmapDimension(
  *    Success: TRUE
  *    Failure: FALSE
  */
-BOOL WINAPI NtGdiSetBitmapDimension(
+BOOL WINAPI SetBitmapDimensionEx(
     HBITMAP hbitmap, /* [in]  Handle to bitmap */
     INT x,           /* [in]  Bitmap width */
     INT y,           /* [in]  Bitmap height */
     LPSIZE prevSize) /* [out] Address of structure for orig dims */
 {
-    BITMAPOBJ * bmp = GDI_GetObjPtr( hbitmap, NTGDI_OBJ_BITMAP );
+    BITMAPOBJ * bmp = GDI_GetObjPtr( hbitmap, OBJ_BITMAP );
     if (!bmp) return FALSE;
     if (prevSize) *prevSize = bmp->size;
     bmp->size.cx = x;

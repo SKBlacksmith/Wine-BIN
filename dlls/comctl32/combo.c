@@ -789,8 +789,6 @@ static LRESULT COMBO_ThemedPaint(HTHEME theme, HEADCOMBO *lphc, HDC hdc)
 
     if ((lphc->dwStyle & CBS_DROPDOWNLIST) == CBS_DROPDOWNLIST)
         CBPaintText(lphc, hdc);
-    else
-        InvalidateRect(lphc->hWndEdit, NULL, TRUE);
 
     return 0;
 }
@@ -1634,13 +1632,6 @@ static void COMBO_MouseMove( LPHEADCOMBO lphc, WPARAM wParam, LPARAM lParam )
    }
 }
 
-static LRESULT COMBO_MouseLeave(LPHEADCOMBO lphc)
-{
-    lphc->wState &= ~CBF_HOT;
-    RedrawWindow(lphc->self, &lphc->buttonRect, 0, RDW_INVALIDATE | RDW_UPDATENOW);
-    return 0;
-}
-
 static LRESULT COMBO_GetComboBoxInfo(const HEADCOMBO *lphc, COMBOBOXINFO *pcbi)
 {
     if (!pcbi || (pcbi->cbSize < sizeof(COMBOBOXINFO)))
@@ -1700,7 +1691,6 @@ static LRESULT CALLBACK COMBO_WindowProc( HWND hwnd, UINT message, WPARAM wParam
         theme = GetWindowTheme( hwnd );
         CloseThemeData( theme );
         OpenThemeData( hwnd, WC_COMBOBOXW );
-        InvalidateRect( hwnd, NULL, TRUE );
         break;
 
     case WM_PRINTCLIENT:
@@ -1881,7 +1871,6 @@ static LRESULT CALLBACK COMBO_WindowProc( HWND hwnd, UINT message, WPARAM wParam
     case WM_MOUSEMOVE:
         if (!IsRectEmpty(&lphc->buttonRect))
         {
-            TRACKMOUSEEVENT event;
             POINT pt;
 
             pt.x = (short)LOWORD(lParam);
@@ -1893,15 +1882,6 @@ static LRESULT CALLBACK COMBO_WindowProc( HWND hwnd, UINT message, WPARAM wParam
                 {
                     lphc->wState |= CBF_HOT;
                     RedrawWindow(hwnd, &lphc->buttonRect, 0, RDW_INVALIDATE | RDW_UPDATENOW);
-
-                    event.cbSize = sizeof(TRACKMOUSEEVENT);
-                    event.dwFlags = TME_QUERY;
-                    if (!TrackMouseEvent(&event) || event.hwndTrack != hwnd || !(event.dwFlags & TME_LEAVE))
-                    {
-                        event.hwndTrack = hwnd;
-                        event.dwFlags = TME_LEAVE;
-                        TrackMouseEvent(&event);
-                    }
                 }
             }
             else if (lphc->wState & CBF_HOT)
@@ -1914,9 +1894,6 @@ static LRESULT CALLBACK COMBO_WindowProc( HWND hwnd, UINT message, WPARAM wParam
         if ( lphc->wState & CBF_CAPTURE )
             COMBO_MouseMove( lphc, wParam, lParam );
         return  TRUE;
-
-    case WM_MOUSELEAVE:
-        return COMBO_MouseLeave(lphc);
 
     case WM_MOUSEWHEEL:
         if (wParam & (MK_SHIFT | MK_CONTROL))

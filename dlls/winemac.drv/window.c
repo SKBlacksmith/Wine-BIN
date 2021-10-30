@@ -1798,6 +1798,7 @@ UINT CDECL macdrv_ShowWindow(HWND hwnd, INT cmd, RECT *rect, UINT swp)
           hwnd, data ? data->cocoa_window : NULL, cmd, wine_dbgstr_rect(rect), swp);
 
     if (!data || !data->cocoa_window) goto done;
+    if (IsRectEmpty(rect)) goto done;
     if (GetWindowLongW(hwnd, GWL_STYLE) & WS_MINIMIZE)
     {
         if (rect->left != -32000 || rect->top != -32000)
@@ -2052,7 +2053,7 @@ static inline RECT get_surface_rect(const RECT *visible_rect)
 /***********************************************************************
  *              WindowPosChanging   (MACDRV.@)
  */
-BOOL CDECL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags,
+void CDECL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags,
                                     const RECT *window_rect, const RECT *client_rect,
                                     RECT *visible_rect, struct window_surface **surface)
 {
@@ -2064,7 +2065,7 @@ BOOL CDECL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags
           swp_flags, wine_dbgstr_rect(window_rect), wine_dbgstr_rect(client_rect),
           wine_dbgstr_rect(visible_rect), surface);
 
-    if (!data && !(data = macdrv_create_win_data(hwnd, window_rect, client_rect))) return TRUE;
+    if (!data && !(data = macdrv_create_win_data(hwnd, window_rect, client_rect))) return;
 
     *visible_rect = *window_rect;
     macdrv_window_to_mac_rect(data, style, visible_rect, window_rect, client_rect);
@@ -2097,7 +2098,6 @@ BOOL CDECL macdrv_WindowPosChanging(HWND hwnd, HWND insert_after, UINT swp_flags
 
 done:
     release_win_data(data);
-    return TRUE;
 }
 
 
@@ -2322,11 +2322,10 @@ void macdrv_window_frame_changed(HWND hwnd, const macdrv_event *event)
         flags |= SWP_NOSENDCHANGING;
     if (!(flags & SWP_NOSIZE) || !(flags & SWP_NOMOVE))
     {
-        int send_sizemove = !event->window_frame_changed.in_resize && !being_dragged && !event->window_frame_changed.skip_size_move_loop;
-        if (send_sizemove)
+        if (!event->window_frame_changed.in_resize && !being_dragged)
             SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);
         SetWindowPos(hwnd, 0, rect.left, rect.top, width, height, flags);
-        if (send_sizemove)
+        if (!event->window_frame_changed.in_resize && !being_dragged)
             SendMessageW(hwnd, WM_EXITSIZEMOVE, 0, 0);
     }
 }
@@ -2406,8 +2405,6 @@ void macdrv_app_activated(void)
  */
 void macdrv_app_deactivated(void)
 {
-    ClipCursor(NULL);
-
     if (GetActiveWindow() == GetForegroundWindow())
     {
         TRACE("setting fg to desktop\n");
@@ -2435,21 +2432,6 @@ void macdrv_window_maximize_requested(HWND hwnd)
 void macdrv_window_minimize_requested(HWND hwnd)
 {
     perform_window_command(hwnd, WS_MINIMIZEBOX, WS_MINIMIZE, SC_MINIMIZE, HTMINBUTTON);
-}
-
-
-/***********************************************************************
- *              macdrv_window_did_minimize
- *
- * Handler for WINDOW_DID_MINIMIZE events.
- */
-void macdrv_window_did_minimize(HWND hwnd)
-{
-    TRACE("win %p\n", hwnd);
-
-    /* If all our windows are minimized, disable cursor clipping. */
-    if (!macdrv_is_any_wine_window_visible())
-        ClipCursor(NULL);
 }
 
 
@@ -2887,8 +2869,6 @@ BOOL query_resize_size(HWND hwnd, macdrv_query *query)
 BOOL query_resize_start(HWND hwnd)
 {
     TRACE("hwnd %p\n", hwnd);
-
-    ClipCursor(NULL);
 
     sync_window_min_max_info(hwnd);
     SendMessageW(hwnd, WM_ENTERSIZEMOVE, 0, 0);

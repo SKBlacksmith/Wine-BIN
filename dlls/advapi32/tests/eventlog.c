@@ -64,10 +64,8 @@ static BOOL create_backup(const char *filename)
     HANDLE handle;
     DWORD rc, attribs;
 
-    handle = OpenEventLogA(NULL, "Application");
-    ok(handle != NULL, "OpenEventLogA(Application) failed : %d\n", GetLastError());
-
     DeleteFileA(filename);
+    handle = OpenEventLogA(NULL, "Application");
     rc = BackupEventLogA(handle, filename);
     if (!rc && GetLastError() == ERROR_PRIVILEGE_NOT_HELD)
     {
@@ -115,9 +113,9 @@ static void test_open_close(void)
 
     /* This one opens the Application log */
     handle = OpenEventLogA(NULL, "deadbeef");
-    ok(handle != NULL, "Expected a handle : %d\n", GetLastError());
+    ok(handle != NULL, "Expected a handle\n");
     ret = CloseEventLog(handle);
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     /* Close a second time */
     SetLastError(0xdeadbeef);
     ret = CloseEventLog(handle);
@@ -129,11 +127,11 @@ static void test_open_close(void)
 
     /* Empty servername should be read as local server */
     handle = OpenEventLogA("", "Application");
-    ok(handle != NULL, "Expected a handle : %d\n", GetLastError());
+    ok(handle != NULL, "Expected a handle\n");
     CloseEventLog(handle);
 
     handle = OpenEventLogA(NULL, "Application");
-    ok(handle != NULL, "Expected a handle : %d\n", GetLastError());
+    ok(handle != NULL, "Expected a handle\n");
     CloseEventLog(handle);
 }
 
@@ -162,7 +160,6 @@ static void test_info(void)
     ok(GetLastError() == ERROR_INVALID_HANDLE, "Expected ERROR_INVALID_HANDLE, got %d\n", GetLastError());
 
     handle = OpenEventLogA(NULL, "Application");
-    ok(handle != NULL, "OpenEventLogA(Application) failed : %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
     ret = pGetEventLogInformation(handle, EVENTLOG_FULL_INFO, NULL, 0, NULL);
@@ -192,7 +189,7 @@ static void test_info(void)
     efi->dwFull = 0xdeadbeef;
     needed = sizeof(buffer);
     ret = pGetEventLogInformation(handle, EVENTLOG_FULL_INFO, efi, needed, &needed);
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     ok(needed == sizeof(EVENTLOG_FULL_INFORMATION), "Expected sizeof(EVENTLOG_FULL_INFORMATION), got %d\n", needed);
     ok(efi->dwFull == 0 || efi->dwFull == 1, "Expected 0 (not full) or 1 (full), got %d\n", efi->dwFull);
 
@@ -219,7 +216,6 @@ static void test_count(void)
     ok(count == 0xdeadbeef, "Expected count to stay unchanged\n");
 
     handle = OpenEventLogA(NULL, "Application");
-    ok(handle != NULL, "OpenEventLogA(Application) failed : %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
     ret = GetNumberOfEventLogRecords(handle, NULL);
@@ -228,7 +224,7 @@ static void test_count(void)
 
     count = 0xdeadbeef;
     ret = GetNumberOfEventLogRecords(handle, &count);
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     ok(count != 0xdeadbeef, "Expected the number of records\n");
 
     CloseEventLog(handle);
@@ -245,7 +241,7 @@ static void test_count(void)
         ret = GetNumberOfEventLogRecords(handle, &count);
         todo_wine
         {
-        ok(ret, "Expected success : %d\n", GetLastError());
+        ok(ret, "Expected success\n");
         ok(count != 0xdeadbeef, "Expected the number of records\n");
         }
 
@@ -274,7 +270,6 @@ static void test_oldest(void)
     ok(oldest == 0xdeadbeef, "Expected oldest to stay unchanged\n");
 
     handle = OpenEventLogA(NULL, "Application");
-    ok(handle != NULL, "OpenEventLogA(Application) failed : %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
     ret = GetOldestEventLogRecord(handle, NULL);
@@ -283,7 +278,7 @@ static void test_oldest(void)
 
     oldest = 0xdeadbeef;
     ret = GetOldestEventLogRecord(handle, &oldest);
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     ok(oldest != 0xdeadbeef, "Expected the number of the oldest record\n");
 
     CloseEventLog(handle);
@@ -300,7 +295,7 @@ static void test_oldest(void)
         ret = GetOldestEventLogRecord(handle, &oldest);
         todo_wine
         {
-        ok(ret, "Expected success : %d\n", GetLastError());
+        ok(ret, "Expected success\n");
         ok(oldest != 0xdeadbeef, "Expected the number of the oldest record\n");
         }
 
@@ -327,7 +322,6 @@ static void test_backup(void)
     ok(GetFileAttributesA(backup) == INVALID_FILE_ATTRIBUTES, "Expected no backup file\n");
 
     handle = OpenEventLogA(NULL, "Application");
-    ok(handle != NULL, "OpenEventLogA(Application) failed : %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
     ret = BackupEventLogA(handle, NULL);
@@ -341,7 +335,7 @@ static void test_backup(void)
         CloseEventLog(handle);
         return;
     }
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     todo_wine
     ok(GetFileAttributesA(backup) != INVALID_FILE_ATTRIBUTES, "Expected a backup file\n");
 
@@ -364,7 +358,7 @@ static void test_backup(void)
     ret = BackupEventLogA(handle, backup2);
     todo_wine
     {
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     ok(GetFileAttributesA(backup2) != INVALID_FILE_ATTRIBUTES, "Expected a backup file\n");
     }
 
@@ -439,7 +433,6 @@ static void test_read(void)
     HeapFree(GetProcessHeap(), 0, buf);
 
     handle = OpenEventLogA(NULL, "Application");
-    ok(handle != NULL, "OpenEventLogA(Application) failed : %d\n", GetLastError());
 
     /* Show that we need the proper dwFlags with a (for the rest) proper call */
     buf = HeapAlloc(GetProcessHeap(), 0, sizeof(EVENTLOGRECORD));
@@ -512,7 +505,7 @@ static void test_read(void)
     read = needed = 0xdeadbeef;
     SetLastError(0xdeadbeef);
     ret = ReadEventLogA(handle, EVENTLOG_SEQUENTIAL_READ | EVENTLOG_FORWARDS_READ, 0, buf, toread, &read, &needed);
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     ok(read == toread ||
        broken(read < toread), /* NT4 wants a buffer size way bigger than just 1 record */
        "Expected the requested size to be read\n");
@@ -893,7 +886,7 @@ static void test_readwrite(void)
     handle = OpenEventLogA(NULL, eventlogname);
     count = 0xdeadbeef;
     ret = GetNumberOfEventLogRecords(handle, &count);
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     todo_wine
     ok(count == i, "Expected %d records, got %d\n", i, count);
     CloseEventLog(handle);
@@ -1031,11 +1024,11 @@ static void test_readwrite(void)
 
     SetLastError(0xdeadbeef);
     ret = ClearEventLogA(handle, NULL);
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
 
     count = 0xdeadbeef;
     ret = GetNumberOfEventLogRecords(handle, &count);
-    ok(ret, "Expected success : %d\n", GetLastError());
+    ok(ret, "Expected success\n");
     ok(count == 0, "Expected an empty eventlog, got %d records\n", count);
 
     CloseEventLog(handle);

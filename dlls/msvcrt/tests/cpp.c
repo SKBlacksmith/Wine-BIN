@@ -108,6 +108,9 @@ static void* (__cdecl *p__RTDynamicCast)(void*,int,void*,void*,int);
 static char* (__cdecl *p__unDName)(char*,const char*,int,void*,void*,unsigned short int);
 
 
+/* _very_ early native versions have serious RTTI bugs, so we check */
+static void* bAncientVersion;
+
 /* Emulate a __thiscall */
 #ifdef __i386__
 
@@ -169,6 +172,7 @@ static BOOL InitFunctionPtrs(void)
     SET(p__unDName,"__unDName");
 
     /* Extremely early versions export logic_error, and crash in RTTI */
+    SETNOFAIL(bAncientVersion, "??0logic_error@@QAE@ABQBD@Z");
     if (sizeof(void *) > sizeof(int))  /* 64-bit initialization */
     {
         SETNOFAIL(poperator_new, "??_U@YAPEAX_K@Z");
@@ -429,7 +433,7 @@ static void test_exception(void)
   name = call_func1(pexception_what, &e);
   ok(e.name == name, "Bad exception name from vtable e::what()\n");
 
-  if (p__RTtypeid)
+  if (p__RTtypeid && !bAncientVersion)
   {
     /* Check the rtti */
     type_info *ti = p__RTtypeid(&e);
@@ -552,7 +556,7 @@ static void test_bad_typeid(void)
   name = call_func1(pbad_typeid_what, &e);
   ok(e.name == name, "Bad bad_typeid name from vtable e::what()\n");
 
-  if (p__RTtypeid)
+  if (p__RTtypeid && !bAncientVersion)
   {
     /* Check the rtti */
     type_info *ti = p__RTtypeid(&e);
@@ -680,7 +684,7 @@ static void test_bad_cast(void)
   name = call_func1(pbad_cast_what, &e);
   ok(e.name == name, "Bad bad_cast name from vtable e::what()\n");
 
-  if (p__RTtypeid)
+  if (p__RTtypeid && !bAncientVersion)
   {
     /* Check the rtti */
     type_info *ti = p__RTtypeid(&e);
@@ -782,7 +786,7 @@ static void test___non_rtti_object(void)
   name = call_func1(p__non_rtti_object_what, &e);
   ok(e.name == name, "Bad __non_rtti_object name from vtable e::what()\n");
 
-  if (p__RTtypeid)
+  if (p__RTtypeid && !bAncientVersion)
   {
     /* Check the rtti */
     type_info *ti = p__RTtypeid(&e);
@@ -965,7 +969,8 @@ static void test_rtti(void)
   char *base = (char*)GetModuleHandleW(NULL);
 #endif
 
-  if (!p__RTCastToVoid || !p__RTtypeid || !pexception_ctor || !pbad_typeid_ctor
+  if (bAncientVersion ||
+      !p__RTCastToVoid || !p__RTtypeid || !pexception_ctor || !pbad_typeid_ctor
       || !p__RTDynamicCast || !pexception_dtor || !pbad_typeid_dtor)
     return;
 
@@ -1101,8 +1106,28 @@ static void test_demangle_datatype(void)
         name = p__unDName(0, demangle[i].mangled, 0, malloc, free, 0x2800);
         todo_wine_if (!demangle[i].test_in_wine)
             ok(name != NULL && !strcmp(name,demangle[i].result), "Got name \"%s\" for %d\n", name, i);
-        free(name);
+        if(name)
+            free(name);
     }
+}
+
+/* Compare two strings treating multiple spaces (' ', ascii 0x20) in s2 
+   as single space. Needed for test_demangle as __unDName() returns sometimes
+   two spaces instead of one in some older native msvcrt dlls. */
+static int strcmp_space(const char *s1, const char *s2)
+{
+    const char* s2start = s2;
+    do {
+        while (*s1 == *s2 && *s1) {
+            s1++;
+            s2++;
+        }
+        if (*s2 == ' ' && s2 > s2start && *(s2 - 1) == ' ')
+            s2++;
+        else
+            break;
+    } while (*s1 && *s2);
+    return *s1 - *s2;
 }
 
 static void test_demangle(void)
@@ -1300,11 +1325,11 @@ static void test_demangle(void)
 	name = p__unDName(0, test[i].in, 0, malloc, free, test[i].flags);
         ok(name != NULL, "%u: unDName failed\n", i);
         if (!name) continue;
-        ok( !strcmp(test[i].out, name) ||
-            broken(test[i].broken && !strcmp(test[i].broken, name)),
+        ok( !strcmp_space(test[i].out, name) ||
+            broken(test[i].broken && !strcmp_space(test[i].broken, name)),
            "%u: Got name \"%s\"\n", i, name );
-        ok( !strcmp(test[i].out, name) ||
-            broken(test[i].broken && !strcmp(test[i].broken, name)),
+        ok( !strcmp_space(test[i].out, name) ||
+            broken(test[i].broken && !strcmp_space(test[i].broken, name)),
            "%u: Expected \"%s\"\n", i, test[i].out );
         free(name);
     }

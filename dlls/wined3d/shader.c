@@ -1649,28 +1649,23 @@ static HRESULT shader_get_registers_used(struct wined3d_shader *shader, DWORD co
                     || (ins.handler_idx == WINED3DSIH_LD_RAW && ins.src[1].reg.type == WINED3DSPR_UAV)
                     || (ins.handler_idx == WINED3DSIH_LD_STRUCTURED && ins.src[2].reg.type == WINED3DSPR_UAV))
             {
-                const struct wined3d_shader_register *reg;
-
+                unsigned int reg_idx;
                 if (ins.handler_idx == WINED3DSIH_LD_UAV_TYPED || ins.handler_idx == WINED3DSIH_LD_RAW)
-                    reg = &ins.src[1].reg;
+                    reg_idx = ins.src[1].reg.idx[0].offset;
                 else if (ins.handler_idx == WINED3DSIH_LD_STRUCTURED)
-                    reg = &ins.src[2].reg;
+                    reg_idx = ins.src[2].reg.idx[0].offset;
                 else if (WINED3DSIH_ATOMIC_AND <= ins.handler_idx && ins.handler_idx <= WINED3DSIH_ATOMIC_XOR)
-                    reg = &ins.dst[0].reg;
+                    reg_idx = ins.dst[0].reg.idx[0].offset;
                 else if (ins.handler_idx == WINED3DSIH_BUFINFO)
-                    reg = &ins.src[0].reg;
+                    reg_idx = ins.src[0].reg.idx[0].offset;
                 else
-                    reg = &ins.dst[1].reg;
-
-                if (reg->type == WINED3DSPR_UAV)
+                    reg_idx = ins.dst[1].reg.idx[0].offset;
+                if (reg_idx >= MAX_UNORDERED_ACCESS_VIEWS)
                 {
-                    if (reg->idx[0].offset >= MAX_UNORDERED_ACCESS_VIEWS)
-                    {
-                        ERR("Invalid UAV index %u.\n", reg->idx[0].offset);
-                        break;
-                    }
-                    reg_maps->uav_read_mask |= (1u << reg->idx[0].offset);
+                    ERR("Invalid UAV index %u.\n", reg_idx);
+                    break;
                 }
+                reg_maps->uav_read_mask |= (1u << reg_idx);
             }
             else if (ins.handler_idx == WINED3DSIH_NRM)
             {
@@ -1915,11 +1910,6 @@ static void shader_dump_global_flags(struct wined3d_string_buffer *buffer, DWORD
 
 static void shader_dump_sync_flags(struct wined3d_string_buffer *buffer, DWORD sync_flags)
 {
-    if (sync_flags & WINED3DSSF_GLOBAL_UAV)
-    {
-        shader_addline(buffer, "_uglobal");
-        sync_flags &= ~WINED3DSSF_GLOBAL_UAV;
-    }
     if (sync_flags & WINED3DSSF_GROUP_SHARED_MEMORY)
     {
         shader_addline(buffer, "_g");
@@ -3279,12 +3269,6 @@ static BOOL shader_none_has_ffp_proj_control(void *shader_priv)
     return priv->ffp_proj_control;
 }
 
-static uint64_t shader_none_shader_compile(struct wined3d_context *context, const struct wined3d_shader_desc *shader_desc,
-        enum wined3d_shader_type shader_type)
-{
-    return 0;
-}
-
 const struct wined3d_shader_backend_ops none_shader_backend =
 {
     shader_none_handle_instruction,
@@ -3304,7 +3288,6 @@ const struct wined3d_shader_backend_ops none_shader_backend =
     shader_none_get_caps,
     shader_none_color_fixup_supported,
     shader_none_has_ffp_proj_control,
-    shader_none_shader_compile,
 };
 
 static unsigned int shader_max_version_from_feature_level(enum wined3d_feature_level level)
@@ -3361,7 +3344,7 @@ static HRESULT shader_set_function(struct wined3d_shader *shader, struct wined3d
         WARN("Wrong shader type %s.\n", debug_shader_type(reg_maps->shader_version.type));
         return WINED3DERR_INVALIDCALL;
     }
-    if (version->major > shader_max_version_from_feature_level(device->cs->c.state->feature_level))
+    if (version->major > shader_max_version_from_feature_level(device->feature_level))
     {
         WARN("Shader version %u not supported by this device.\n", version->major);
         return WINED3DERR_INVALIDCALL;
@@ -3416,8 +3399,6 @@ static void wined3d_shader_init_object(void *object)
     struct wined3d_shader *shader = object;
     struct wined3d_device *device = shader->device;
 
-    TRACE("shader %p.\n", shader);
-
     list_add_head(&device->shaders, &shader->shader_list_entry);
 
     device->shader_backend->shader_precompile(device->shader_priv, shader);
@@ -3425,8 +3406,6 @@ static void wined3d_shader_init_object(void *object)
 
 static void wined3d_shader_destroy_object(void *object)
 {
-    TRACE("object %p.\n", object);
-
     shader_cleanup(object);
     heap_free(object);
 }
@@ -3439,10 +3418,8 @@ ULONG CDECL wined3d_shader_decref(struct wined3d_shader *shader)
 
     if (!refcount)
     {
-        wined3d_mutex_lock();
         shader->parent_ops->wined3d_object_destroyed(shader->parent);
         wined3d_cs_destroy_object(shader->device->cs, wined3d_shader_destroy_object, shader);
-        wined3d_mutex_unlock();
     }
 
     return refcount;
@@ -3533,13 +3510,12 @@ static void init_interpolation_compile_args(DWORD *interpolation_args,
 }
 
 void find_vs_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
-        struct vs_compile_args *args, const struct wined3d_context *context)
+        WORD swizzle_map, struct vs_compile_args *args, const struct wined3d_context *context)
 {
     const struct wined3d_shader *geometry_shader = state->shader[WINED3D_SHADER_TYPE_GEOMETRY];
     const struct wined3d_shader *pixel_shader = state->shader[WINED3D_SHADER_TYPE_PIXEL];
     const struct wined3d_shader *hull_shader = state->shader[WINED3D_SHADER_TYPE_HULL];
     const struct wined3d_d3d_info *d3d_info = context->d3d_info;
-    WORD swizzle_map = context->stream_info.swizzle_map;
 
     args->fog_src = state->render_states[WINED3D_RS_FOGTABLEMODE]
             == WINED3D_FOG_NONE ? VS_FOG_COORD : VS_FOG_Z;
@@ -3676,7 +3652,7 @@ static HRESULT shader_init(struct wined3d_shader *shader, struct wined3d_device 
         memcpy(shader->byte_code, desc->byte_code, desc->byte_code_size);
         shader->byte_code_size = desc->byte_code_size;
 
-        max_version = shader_max_version_from_feature_level(device->cs->c.state->feature_level);
+        max_version = shader_max_version_from_feature_level(device->feature_level);
         if (FAILED(hr = shader_extract_from_dxbc(shader, max_version, &format)))
             goto fail;
 
@@ -3962,6 +3938,7 @@ void find_gs_compile_args(const struct wined3d_state *state, const struct wined3
 void find_ps_compile_args(const struct wined3d_state *state, const struct wined3d_shader *shader,
         BOOL position_transformed, struct ps_compile_args *args, const struct wined3d_context *context)
 {
+    const struct wined3d_gl_info *gl_info = &context->device->adapter->gl_info;
     const struct wined3d_d3d_info *d3d_info = context->d3d_info;
     struct wined3d_texture *texture;
     unsigned int i;
@@ -4221,9 +4198,8 @@ void find_ps_compile_args(const struct wined3d_state *state, const struct wined3
     if (d3d_info->emulated_flatshading)
         args->flatshading = state->render_states[WINED3D_RS_SHADEMODE] == WINED3D_SHADE_FLAT;
 
-    args->y_correction = (shader->reg_maps.vpos && d3d_info->frag_coord_correction)
-            || (shader->reg_maps.usesdsy && wined3d_settings.offscreen_rendering_mode != ORM_FBO)
-            ? !context->render_offscreen : 0;
+    args->render_offscreen = shader->reg_maps.vpos && gl_info->supported[ARB_FRAGMENT_COORD_CONVENTIONS]
+            ? context->render_offscreen : 0;
 
     for (i = 0; i < ARRAY_SIZE(state->fb.render_targets); ++i)
     {

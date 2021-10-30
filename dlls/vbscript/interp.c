@@ -134,8 +134,7 @@ static HRESULT lookup_identifier(exec_ctx_t *ctx, BSTR name, vbdisp_invoke_type_
     DISPID id;
     HRESULT hres;
 
-    if(invoke_type != VBDISP_CALLGET
-       && (ctx->func->type == FUNC_FUNCTION || ctx->func->type == FUNC_PROPGET)
+    if((ctx->func->type == FUNC_FUNCTION || ctx->func->type == FUNC_PROPGET)
        && !wcsicmp(name, ctx->func->name)) {
         ref->type = REF_VAR;
         ref->u.v = &ctx->ret_val;
@@ -616,8 +615,10 @@ static HRESULT variant_call(exec_ctx_t *ctx, VARIANT *v, unsigned arg_cnt, VARIA
     return S_OK;
 }
 
-static HRESULT do_icall(exec_ctx_t *ctx, VARIANT *res, BSTR identifier, unsigned arg_cnt)
+static HRESULT do_icall(exec_ctx_t *ctx, VARIANT *res)
 {
+    BSTR identifier = ctx->instr->arg1.bstr;
+    const unsigned arg_cnt = ctx->instr->arg2.uint;
     DISPPARAMS dp;
     ref_t ref;
     HRESULT hres;
@@ -686,14 +687,12 @@ static HRESULT do_icall(exec_ctx_t *ctx, VARIANT *res, BSTR identifier, unsigned
 
 static HRESULT interp_icall(exec_ctx_t *ctx)
 {
-    BSTR identifier = ctx->instr->arg1.bstr;
-    const unsigned arg_cnt = ctx->instr->arg2.uint;
     VARIANT v;
     HRESULT hres;
 
     TRACE("\n");
 
-    hres = do_icall(ctx, &v, identifier, arg_cnt);
+    hres = do_icall(ctx, &v);
     if(FAILED(hres))
         return hres;
 
@@ -702,12 +701,8 @@ static HRESULT interp_icall(exec_ctx_t *ctx)
 
 static HRESULT interp_icallv(exec_ctx_t *ctx)
 {
-    BSTR identifier = ctx->instr->arg1.bstr;
-    const unsigned arg_cnt = ctx->instr->arg2.uint;
-
     TRACE("\n");
-
-    return do_icall(ctx, NULL, identifier, arg_cnt);
+    return do_icall(ctx, NULL);
 }
 
 static HRESULT interp_vcall(exec_ctx_t *ctx)
@@ -791,28 +786,6 @@ static HRESULT interp_mcallv(exec_ctx_t *ctx)
     TRACE("\n");
 
     return do_mcall(ctx, NULL);
-}
-
-static HRESULT interp_ident(exec_ctx_t *ctx)
-{
-    BSTR identifier = ctx->instr->arg1.bstr;
-    VARIANT v;
-    HRESULT hres;
-
-    TRACE("%s\n", debugstr_w(identifier));
-
-    if((ctx->func->type == FUNC_FUNCTION || ctx->func->type == FUNC_PROPGET)
-       && !wcsicmp(identifier, ctx->func->name)) {
-        V_VT(&v) = VT_BYREF|VT_VARIANT;
-        V_BYREF(&v) = &ctx->ret_val;
-        return stack_push(ctx, &v);
-    }
-
-    hres = do_icall(ctx, &v, identifier, 0);
-    if(FAILED(hres))
-        return hres;
-
-    return stack_push(ctx, &v);
 }
 
 static HRESULT assign_value(exec_ctx_t *ctx, VARIANT *dst, VARIANT *src, WORD flags)
@@ -1660,19 +1633,6 @@ static HRESULT interp_string(exec_ctx_t *ctx)
     V_BSTR(&v) = SysAllocString(ctx->instr->arg1.str);
     if(!V_BSTR(&v))
         return E_OUTOFMEMORY;
-
-    return stack_push(ctx, &v);
-}
-
-static HRESULT interp_date(exec_ctx_t *ctx)
-{
-    const DATE *d = ctx->instr->arg1.date;
-    VARIANT v;
-
-    TRACE("%lf\n",*d);
-
-    V_VT(&v) = VT_DATE;
-    V_DATE(&v) = *d;
 
     return stack_push(ctx, &v);
 }

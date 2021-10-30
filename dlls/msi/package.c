@@ -527,7 +527,7 @@ static LPWSTR get_fusion_filename(MSIPACKAGE *package)
 
     if (!RegCreateKeyExW(netsetup, L"v4\\Client", 0, NULL, 0, KEY_QUERY_VALUE, NULL, &hkey, NULL))
     {
-        size = sizeof(path);
+        size = ARRAY_SIZE(path);
         if (!RegQueryValueExW(hkey, L"InstallPath", NULL, &type, (BYTE *)path, &size))
         {
             len = lstrlenW(path) + lstrlenW(L"fusion.dll") + 2;
@@ -737,7 +737,6 @@ static VOID set_installer_properties(MSIPACKAGE *package)
     /* in a wine environment the user is always admin and privileged */
     msi_set_property( package->db, L"AdminUser", L"1", -1 );
     msi_set_property( package->db, L"Privileged", L"1", -1 );
-    msi_set_property( package->db, L"MsiRunningElevated", L"1", -1 );
 
     /* set the os things */
     OSVersion.dwOSVersionInfoSize = sizeof(OSVersion);
@@ -782,12 +781,12 @@ static VOID set_installer_properties(MSIPACKAGE *package)
         PathAddBackslashW( pth );
         msi_set_property( package->db, L"SystemFolder", pth, -1 );
 
-        len = sizeof(pth);
+        len = MAX_PATH;
         RegQueryValueExW(hkey, L"ProgramFilesDir", 0, &type, (BYTE *)pth, &len);
         PathAddBackslashW( pth );
         msi_set_property( package->db, L"ProgramFilesFolder", pth, -1 );
 
-        len = sizeof(pth);
+        len = MAX_PATH;
         RegQueryValueExW(hkey, L"CommonFilesDir", 0, &type, (BYTE *)pth, &len);
         PathAddBackslashW( pth );
         msi_set_property( package->db, L"CommonFilesFolder", pth, -1 );
@@ -806,22 +805,22 @@ static VOID set_installer_properties(MSIPACKAGE *package)
         PathAddBackslashW( pth );
         msi_set_property( package->db, L"SystemFolder", pth, -1 );
 
-        len = sizeof(pth);
+        len = MAX_PATH;
         RegQueryValueExW(hkey, L"ProgramFilesDir", 0, &type, (BYTE *)pth, &len);
         PathAddBackslashW( pth );
         msi_set_property( package->db, L"ProgramFiles64Folder", pth, -1 );
 
-        len = sizeof(pth);
+        len = MAX_PATH;
         RegQueryValueExW(hkey, L"ProgramFilesDir (x86)", 0, &type, (BYTE *)pth, &len);
         PathAddBackslashW( pth );
         msi_set_property( package->db, L"ProgramFilesFolder", pth, -1 );
 
-        len = sizeof(pth);
+        len = MAX_PATH;
         RegQueryValueExW(hkey, L"CommonFilesDir", 0, &type, (BYTE *)pth, &len);
         PathAddBackslashW( pth );
         msi_set_property( package->db, L"CommonFiles64Folder", pth, -1 );
 
-        len = sizeof(pth);
+        len = MAX_PATH;
         RegQueryValueExW(hkey, L"CommonFilesDir (x86)", 0, &type, (BYTE *)pth, &len);
         PathAddBackslashW( pth );
         msi_set_property( package->db, L"CommonFilesFolder", pth, -1 );
@@ -964,8 +963,6 @@ void msi_adjust_privilege_properties( MSIPACKAGE *package )
         msi_set_property( package->db, L"ALLUSERS", L"1", -1 );
     }
     msi_set_property( package->db, L"AdminUser", L"1", -1 );
-    msi_set_property( package->db, L"Privileged", L"1", -1 );
-    msi_set_property( package->db, L"MsiRunningElevated", L"1", -1 );
 }
 
 MSIPACKAGE *MSI_CreatePackage( MSIDATABASE *db )
@@ -1371,8 +1368,6 @@ UINT MSI_OpenPackageW(LPCWSTR szPackage, DWORD dwOptions, MSIPACKAGE **pPackage)
         r = get_local_package( db, localfile );
         if (r != ERROR_SUCCESS || GetFileAttributesW( localfile ) == INVALID_FILE_ATTRIBUTES)
         {
-            DWORD localfile_attr;
-
             r = msi_create_empty_local_file( localfile, L".msi" );
             if (r != ERROR_SUCCESS)
             {
@@ -1389,11 +1384,6 @@ UINT MSI_OpenPackageW(LPCWSTR szPackage, DWORD dwOptions, MSIPACKAGE **pPackage)
                 return r;
             }
             delete_on_close = TRUE;
-
-            /* Remove read-only bit, we are opening it with write access in MSI_OpenDatabaseW below. */
-            localfile_attr = GetFileAttributesW( localfile );
-            if (localfile_attr & FILE_ATTRIBUTE_READONLY)
-                SetFileAttributesW( localfile, localfile_attr & ~FILE_ATTRIBUTE_READONLY);
         }
         else if (dwOptions & WINE_OPENPACKAGEFLAGS_RECACHE)
         {
@@ -1806,7 +1796,7 @@ INT MSI_ProcessMessageVerbatim(MSIPACKAGE *package, INSTALLMESSAGE eMessageType,
         MSI_FormatRecordW(package, record, message, &len);
     }
 
-    /* convert it to ANSI */
+    /* convert it to ASCII */
     len = WideCharToMultiByte( CP_ACP, 0, message, -1, NULL, 0, NULL, NULL );
     msg = msi_alloc( len );
     WideCharToMultiByte( CP_ACP, 0, message, -1, msg, len, NULL, NULL );

@@ -18,6 +18,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -85,6 +88,7 @@ static void RunFileDlgW(
 	LPCWSTR lpstrDescription,
 	UINT uFlags)
 {
+    static const WCHAR resnameW[] = {'S','H','E','L','L','_','R','U','N','_','D','L','G',0};
     RUNFILEDLGPARAMS rfdp;
     HRSRC hRes;
     LPVOID template;
@@ -97,7 +101,7 @@ static void RunFileDlgW(
     rfdp.lpstrDescription = lpstrDescription;
     rfdp.uFlags           = uFlags;
 
-    if (!(hRes = FindResourceW(shell32_hInstance, L"SHELL_RUN_DLG", (LPWSTR)RT_DIALOG)) ||
+    if (!(hRes = FindResourceW(shell32_hInstance, resnameW, (LPWSTR)RT_DIALOG)) ||
         !(template = LoadResource(shell32_hInstance, hRes)))
     {
         ERR("Couldn't load SHELL_RUN_DLG resource\n");
@@ -115,8 +119,9 @@ static LPWSTR RunDlg_GetParentDir(LPCWSTR cmdline)
 {
     const WCHAR *src;
     WCHAR *dest, *result, *result_end=NULL;
+    static const WCHAR dotexeW[] = {'.','e','x','e',0};
 
-    result = heap_alloc(sizeof(WCHAR)*(lstrlenW(cmdline)+5));
+    result = heap_alloc(sizeof(WCHAR)*(strlenW(cmdline)+5));
 
     src = cmdline;
     dest = result;
@@ -134,12 +139,12 @@ static LPWSTR RunDlg_GetParentDir(LPCWSTR cmdline)
     else {
         while (*src)
         {
-            if (iswspace(*src))
+            if (isspaceW(*src))
             {
                 *dest = 0;
                 if (INVALID_FILE_ATTRIBUTES != GetFileAttributesW(result))
                     break;
-                lstrcatW(dest, L".exe");
+                strcatW(dest, dotexeW);
                 if (INVALID_FILE_ATTRIBUTES != GetFileAttributesW(result))
                     break;
             }
@@ -251,8 +256,10 @@ static INT_PTR CALLBACK RunDlgProc (HWND hwnd, UINT message, WPARAM wParam, LPAR
 
                 case IDC_RUNDLG_BROWSE :
                     {
+                    static const WCHAR filterW[] = {'%','s','%','c','*','.','e','x','e','%','c','%','s','%','c','*','.','*','%','c',0};
                     HMODULE hComdlg = NULL ;
                     LPFNOFN ofnProc = NULL ;
+                    static const WCHAR comdlg32W[] = {'c','o','m','d','l','g','3','2',0};
                     WCHAR szFName[1024] = {0};
                     WCHAR filter_exe[256], filter_all[256], filter[MAX_PATH], szCaption[MAX_PATH];
                     OPENFILENAMEW ofn;
@@ -260,7 +267,7 @@ static INT_PTR CALLBACK RunDlgProc (HWND hwnd, UINT message, WPARAM wParam, LPAR
                     LoadStringW(shell32_hInstance, IDS_RUNDLG_BROWSE_FILTER_EXE, filter_exe, 256);
                     LoadStringW(shell32_hInstance, IDS_RUNDLG_BROWSE_FILTER_ALL, filter_all, 256);
                     LoadStringW(shell32_hInstance, IDS_RUNDLG_BROWSE_CAPTION, szCaption, MAX_PATH);
-                    swprintf( filter, MAX_PATH, L"%s%c*.exe%c%s%c*.*%c", filter_exe, 0, 0, filter_all, 0, 0 );
+                    snprintfW( filter, MAX_PATH, filterW, filter_exe, 0, 0, filter_all, 0, 0 );
 
                     ZeroMemory(&ofn, sizeof(ofn));
                     ofn.lStructSize = sizeof(OPENFILENAMEW);
@@ -272,7 +279,7 @@ static INT_PTR CALLBACK RunDlgProc (HWND hwnd, UINT message, WPARAM wParam, LPAR
                     ofn.Flags = OFN_ENABLESIZING | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY | OFN_PATHMUSTEXIST;
                     ofn.lpstrInitialDir = prfdp->lpstrDirectory;
 
-                    if (NULL == (hComdlg = LoadLibraryExW (L"comdlg32.dll", NULL, 0)) ||
+                    if (NULL == (hComdlg = LoadLibraryExW (comdlg32W, NULL, 0)) ||
                         NULL == (ofnProc = (LPFNOFN)GetProcAddress (hComdlg, "GetOpenFileNameW")))
                     {
                         ERR("Couldn't get GetOpenFileName function entry (lib=%p, proc=%p)\n", hComdlg, ofnProc);

@@ -19,8 +19,16 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "gdi_private.h"
+#include <stdarg.h>
+#include <string.h>
+
+#include "windef.h"
+#include "winbase.h"
+#include "wingdi.h"
 #include "winnls.h"
+#include "winreg.h"
+
+#include "gdi_private.h"
 
 #include "wine/debug.h"
 
@@ -68,15 +76,19 @@ INT WINAPI EnumICMProfilesA(HDC hdc, ICMENUMPROCA func, LPARAM lparam)
  */
 INT WINAPI EnumICMProfilesW(HDC hdc, ICMENUMPROCW func, LPARAM lparam)
 {
-    WCHAR profile[MAX_PATH];
-    DWORD size = ARRAYSIZE(profile);
+    DC *dc;
+    INT ret = -1;
 
-    TRACE( "%p, %p, 0x%08lx\n", hdc, func, lparam );
+    TRACE("%p, %p, 0x%08lx\n", hdc, func, lparam);
 
     if (!func) return -1;
-    if (!__wine_get_icm_profile( hdc, FALSE, &size, profile )) return -1;
-    /* FIXME: support multiple profiles */
-    return func( profile, lparam );
+    if ((dc = get_dc_ptr(hdc)))
+    {
+        PHYSDEV physdev = GET_DC_PHYSDEV( dc, pEnumICMProfiles );
+        ret = physdev->funcs->pEnumICMProfiles( physdev, func, lparam );
+        release_dc_ptr(dc);
+    }
+    return ret;
 }
 
 /**********************************************************************
@@ -129,9 +141,18 @@ BOOL WINAPI GetICMProfileA(HDC hdc, LPDWORD size, LPSTR filename)
  */
 BOOL WINAPI GetICMProfileW(HDC hdc, LPDWORD size, LPWSTR filename)
 {
+    BOOL ret = FALSE;
+    DC *dc = get_dc_ptr(hdc);
+
     TRACE("%p, %p, %p\n", hdc, size, filename);
 
-    return __wine_get_icm_profile( hdc, TRUE, size, filename );
+    if (dc)
+    {
+        PHYSDEV physdev = GET_DC_PHYSDEV( dc, pGetICMProfile );
+        ret = physdev->funcs->pGetICMProfile( physdev, size, filename );
+        release_dc_ptr(dc);
+    }
+    return ret;
 }
 
 /**********************************************************************

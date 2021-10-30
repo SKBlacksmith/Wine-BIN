@@ -20,9 +20,13 @@
 
 #define COBJMACROS
 
+#include "config.h"
+
 #include <stdarg.h>
-#include <libxml/parser.h>
-#include <libxml/xmlerror.h>
+#ifdef HAVE_LIBXML2
+# include <libxml/parser.h>
+# include <libxml/xmlerror.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -400,7 +404,7 @@ static HRESULT WINAPI xslprocessor_put_input( IXSLProcessor *iface, VARIANT inpu
     {
         IXMLDOMDocument *doc;
 
-        hr = dom_document_create(MSXML_DEFAULT, (void **)&doc);
+        hr = DOMDocument_create(MSXML_DEFAULT, (void**)&doc);
         if (hr == S_OK)
         {
             VARIANT_BOOL b;
@@ -559,6 +563,7 @@ static HRESULT WINAPI xslprocessor_transform(
     IXSLProcessor *iface,
     VARIANT_BOOL  *ret)
 {
+#ifdef HAVE_LIBXML2
     xslprocessor *This = impl_from_IXSLProcessor( iface );
     ISequentialStream *stream = NULL;
     HRESULT hr;
@@ -645,6 +650,10 @@ static HRESULT WINAPI xslprocessor_transform(
 
     *ret = hr == S_OK ? VARIANT_TRUE : VARIANT_FALSE;
     return hr;
+#else
+    FIXME("libxml2 is required but wasn't present at compile time\n");
+    return E_NOTIMPL;
+#endif
 }
 
 static HRESULT WINAPI xslprocessor_reset( IXSLProcessor *iface )
@@ -704,7 +713,7 @@ static HRESULT WINAPI xslprocessor_addParameter(
     /* search for existing parameter first */
     LIST_FOR_EACH_ENTRY(cur, &This->params.list, struct xslprocessor_par, entry)
     {
-        if (!wcscmp(cur->name, p))
+        if (!strcmpW(cur->name, p))
         {
             par = cur;
             break;

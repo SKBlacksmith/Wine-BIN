@@ -19,6 +19,7 @@
  */
 
 #include "config.h"
+#include "wine/port.h"
 #include "wine/asm.h"
 
 #ifdef __ASM_OBSOLETE
@@ -28,10 +29,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/types.h>
 #include <sys/stat.h>
-#include <unistd.h>
-#include <dlfcn.h>
+#ifdef HAVE_UNISTD_H
+# include <unistd.h>
+#endif
 #ifdef HAVE_PWD_H
 #include <pwd.h>
 #endif
@@ -108,6 +109,7 @@ static char *build_path( const char *dir, const char *name )
 /* return the directory that contains the library at run-time */
 static char *get_runtime_libdir(void)
 {
+#ifdef HAVE_DLADDR
     Dl_info info;
     char *libdir;
 
@@ -121,6 +123,7 @@ static char *get_runtime_libdir(void)
         libdir[len] = 0;
         return libdir;
     }
+#endif /* HAVE_DLADDR */
     return NULL;
 }
 

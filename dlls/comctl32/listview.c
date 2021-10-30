@@ -254,6 +254,10 @@ typedef struct tagLISTVIEW_INFO
   INT nItemHeight;
   INT nItemWidth;
 
+  /* sorting */
+  PFNLVCOMPARE pfnCompare;      /* sorting callback pointer */
+  LPARAM lParamSort;
+
   /* style */
   DWORD dwStyle;		/* the cached window GWL_STYLE */
   DWORD dwLvExStyle;		/* extended listview style */
@@ -4113,7 +4117,6 @@ static LRESULT LISTVIEW_MouseMove(LISTVIEW_INFO *infoPtr, WORD fwKeys, INT x, IN
 
                         /* Begin selection and capture mouse */
                         infoPtr->bMarqueeSelect = TRUE;
-                        infoPtr->marqueeRect = rect;
                         SetCapture(infoPtr->hwndSelf);
                     }
                 }
@@ -5966,6 +5969,20 @@ cleanup:
     return res;
 }
 
+/***
+ * DESCRIPTION:
+ * Subclassed edit control windproc function
+ *
+ * PARAMETER(S):
+ * [I] hwnd : the edit window handle
+ * [I] uMsg : the message that is to be processed
+ * [I] wParam : first message parameter
+ * [I] lParam : second message parameter
+ * [I] isW : TRUE if input is Unicode
+ *
+ * RETURN:
+ *   Zero.
+ */
 static LRESULT EditLblWndProcT(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL isW)
 {
     LISTVIEW_INFO *infoPtr = (LISTVIEW_INFO *)GetWindowLongPtrW(GetParent(hwnd), 0);
@@ -6008,16 +6025,52 @@ static LRESULT EditLblWndProcT(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lPara
     return 0;
 }
 
+/***
+ * DESCRIPTION:
+ * Subclassed edit control Unicode windproc function
+ *
+ * PARAMETER(S):
+ * [I] hwnd : the edit window handle
+ * [I] uMsg : the message that is to be processed
+ * [I] wParam : first message parameter
+ * [I] lParam : second message parameter
+ *
+ * RETURN:
+ */
 static LRESULT CALLBACK EditLblWndProcW(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     return EditLblWndProcT(hwnd, uMsg, wParam, lParam, TRUE);
 }
 
+/***
+ * DESCRIPTION:
+ * Subclassed edit control ANSI windproc function
+ *
+ * PARAMETER(S):
+ * [I] hwnd : the edit window handle
+ * [I] uMsg : the message that is to be processed
+ * [I] wParam : first message parameter
+ * [I] lParam : second message parameter
+ *
+ * RETURN:
+ */
 static LRESULT CALLBACK EditLblWndProcA(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     return EditLblWndProcT(hwnd, uMsg, wParam, lParam, FALSE);
 }
 
+/***
+ * DESCRIPTION:
+ * Creates a subclassed edit control
+ *
+ * PARAMETER(S):
+ * [I] infoPtr : valid pointer to the listview structure
+ * [I] text : initial text for the edit
+ * [I] style : the window style
+ * [I] isW : TRUE if input is Unicode
+ *
+ * RETURN:
+ */
 static HWND CreateEditLabelT(LISTVIEW_INFO *infoPtr, LPCWSTR text, BOOL isW)
 {
     static const DWORD style = WS_CHILDWINDOW|WS_CLIPSIBLINGS|ES_LEFT|ES_AUTOHSCROLL|WS_BORDER|WS_VISIBLE;
@@ -6044,6 +6097,19 @@ static HWND CreateEditLabelT(LISTVIEW_INFO *infoPtr, LPCWSTR text, BOOL isW)
     return hedit;
 }
 
+/***
+ * DESCRIPTION:
+ * Begin in place editing of specified list view item
+ *
+ * PARAMETER(S):
+ * [I] infoPtr : valid pointer to the listview structure
+ * [I] nItem : item index
+ * [I] isW : TRUE if it's a Unicode req, FALSE if ASCII
+ *
+ * RETURN:
+ *   SUCCESS : TRUE
+ *   FAILURE : FALSE
+ */
 static HWND LISTVIEW_EditLabelT(LISTVIEW_INFO *infoPtr, INT nItem, BOOL isW)
 {
     WCHAR disptextW[DISP_TEXT_SIZE] = { 0 };
@@ -9166,31 +9232,52 @@ static INT LISTVIEW_SetView(LISTVIEW_INFO *infoPtr, DWORD nView)
 
 /* LISTVIEW_SetWorkAreas */
 
-struct sorting_context
-{
-    HDPA items;
-    PFNLVCOMPARE compare_func;
-    LPARAM lParam;
-};
-
-/* DPA_Sort() callback used for LVM_SORTITEMS */
+/***
+ * DESCRIPTION:
+ * Callback internally used by LISTVIEW_SortItems() in response of LVM_SORTITEMS
+ *
+ * PARAMETER(S):
+ * [I] first : pointer to first ITEM_INFO to compare
+ * [I] second : pointer to second ITEM_INFO to compare
+ * [I] lParam : HWND of control
+ *
+ * RETURN:
+ *   if first comes before second : negative
+ *   if first comes after second : positive
+ *   if first and second are equivalent : zero
+ */
 static INT WINAPI LISTVIEW_CallBackCompare(LPVOID first, LPVOID second, LPARAM lParam)
 {
-    struct sorting_context *context = (struct sorting_context *)lParam;
-    ITEM_INFO* lv_first = DPA_GetPtr( first, 0 );
-    ITEM_INFO* lv_second = DPA_GetPtr( second, 0 );
+  LISTVIEW_INFO *infoPtr = (LISTVIEW_INFO *)lParam;
+  ITEM_INFO* lv_first = DPA_GetPtr( first, 0 );
+  ITEM_INFO* lv_second = DPA_GetPtr( second, 0 );
 
-    return context->compare_func(lv_first->lParam, lv_second->lParam, context->lParam);
+  /* Forward the call to the client defined callback */
+  return (infoPtr->pfnCompare)( lv_first->lParam , lv_second->lParam, infoPtr->lParamSort );
 }
 
-/* DPA_Sort() callback used for LVM_SORTITEMSEX */
+/***
+ * DESCRIPTION:
+ * Callback internally used by LISTVIEW_SortItems() in response of LVM_SORTITEMSEX
+ *
+ * PARAMETER(S):
+ * [I] first : pointer to first ITEM_INFO to compare
+ * [I] second : pointer to second ITEM_INFO to compare
+ * [I] lParam : HWND of control
+ *
+ * RETURN:
+ *   if first comes before second : negative
+ *   if first comes after second : positive
+ *   if first and second are equivalent : zero
+ */
 static INT WINAPI LISTVIEW_CallBackCompareEx(LPVOID first, LPVOID second, LPARAM lParam)
 {
-    struct sorting_context *context = (struct sorting_context *)lParam;
-    INT first_idx  = DPA_GetPtrIndex( context->items, first  );
-    INT second_idx = DPA_GetPtrIndex( context->items, second );
+  LISTVIEW_INFO *infoPtr = (LISTVIEW_INFO *)lParam;
+  INT first_idx  = DPA_GetPtrIndex( infoPtr->hdpaItems, first  );
+  INT second_idx = DPA_GetPtrIndex( infoPtr->hdpaItems, second );
 
-    return context->compare_func(first_idx, second_idx, context->lParam);
+  /* Forward the call to the client defined callback */
+  return (infoPtr->pfnCompare)( first_idx, second_idx, infoPtr->lParamSort );
 }
 
 /***
@@ -9210,11 +9297,10 @@ static INT WINAPI LISTVIEW_CallBackCompareEx(LPVOID first, LPVOID second, LPARAM
 static BOOL LISTVIEW_SortItems(LISTVIEW_INFO *infoPtr, PFNLVCOMPARE pfnCompare,
                                LPARAM lParamSort, BOOL IsEx)
 {
-    HDPA hdpaSubItems, hdpaItems;
+    HDPA hdpaSubItems;
     ITEM_INFO *lpItem;
     LPVOID selectionMarkItem = NULL;
     LPVOID focusedItem = NULL;
-    struct sorting_context context;
     int i;
 
     TRACE("(pfnCompare=%p, lParamSort=%lx)\n", pfnCompare, lParamSort);
@@ -9226,7 +9312,6 @@ static BOOL LISTVIEW_SortItems(LISTVIEW_INFO *infoPtr, PFNLVCOMPARE pfnCompare,
 
     /* if there are 0 or 1 items, there is no need to sort */
     if (infoPtr->nItemCount < 2) return TRUE;
-    if (!(hdpaItems = DPA_Clone(infoPtr->hdpaItems, NULL))) return FALSE;
 
     /* clear selection */
     ranges_clear(infoPtr->selectionRanges);
@@ -9237,15 +9322,12 @@ static BOOL LISTVIEW_SortItems(LISTVIEW_INFO *infoPtr, PFNLVCOMPARE pfnCompare,
     if (infoPtr->nFocusedItem >= 0)
         focusedItem = DPA_GetPtr(infoPtr->hdpaItems, infoPtr->nFocusedItem);
 
-    context.items = hdpaItems;
-    context.compare_func = pfnCompare;
-    context.lParam = lParamSort;
+    infoPtr->pfnCompare = pfnCompare;
+    infoPtr->lParamSort = lParamSort;
     if (IsEx)
-        DPA_Sort(hdpaItems, LISTVIEW_CallBackCompareEx, (LPARAM)&context);
+        DPA_Sort(infoPtr->hdpaItems, LISTVIEW_CallBackCompareEx, (LPARAM)infoPtr);
     else
-        DPA_Sort(hdpaItems, LISTVIEW_CallBackCompare, (LPARAM)&context);
-    DPA_Destroy(infoPtr->hdpaItems);
-    infoPtr->hdpaItems = hdpaItems;
+        DPA_Sort(infoPtr->hdpaItems, LISTVIEW_CallBackCompare, (LPARAM)infoPtr);
 
     /* restore selection ranges */
     for (i=0; i < infoPtr->nItemCount; i++)
@@ -9283,7 +9365,6 @@ static LRESULT LISTVIEW_ThemeChanged(const LISTVIEW_INFO *infoPtr)
     HTHEME theme = GetWindowTheme(infoPtr->hwndSelf);
     CloseThemeData(theme);
     OpenThemeData(infoPtr->hwndSelf, themeClass);
-    InvalidateRect(infoPtr->hwndSelf, NULL, TRUE);
     return 0;
 }
 
@@ -10531,11 +10612,11 @@ static LRESULT LISTVIEW_Notify(LISTVIEW_INFO *infoPtr, NMHDR *lpnmhdr)
  * [I] region : update region
  *
  * RETURN:
- *  0  - frame was painted
+ *  TRUE  - frame was painted
+ *  FALSE - call default window proc
  */
-static LRESULT LISTVIEW_NCPaint(const LISTVIEW_INFO *infoPtr, HRGN region)
+static BOOL LISTVIEW_NCPaint(const LISTVIEW_INFO *infoPtr, HRGN region)
 {
-    LONG exstyle = GetWindowLongW (infoPtr->hwndSelf, GWL_EXSTYLE);
     HTHEME theme = GetWindowTheme (infoPtr->hwndSelf);
     HDC dc;
     RECT r;
@@ -10543,7 +10624,7 @@ static LRESULT LISTVIEW_NCPaint(const LISTVIEW_INFO *infoPtr, HRGN region)
     int cxEdge = GetSystemMetrics (SM_CXEDGE),
         cyEdge = GetSystemMetrics (SM_CYEDGE);
 
-    if (!theme || !(exstyle & WS_EX_CLIENTEDGE))
+    if (!theme)
        return DefWindowProcW (infoPtr->hwndSelf, WM_NCPAINT, (WPARAM)region, 0);
 
     GetWindowRect(infoPtr->hwndSelf, &r);
@@ -10555,6 +10636,7 @@ static LRESULT LISTVIEW_NCPaint(const LISTVIEW_INFO *infoPtr, HRGN region)
     OffsetRect(&r, -r.left, -r.top);
 
     dc = GetDCEx(infoPtr->hwndSelf, region, DCX_WINDOW|DCX_INTERSECTRGN);
+    OffsetRect(&r, -r.left, -r.top);
 
     if (IsThemeBackgroundPartiallyTransparent (theme, 0, 0))
         DrawThemeParentBackground(infoPtr->hwndSelf, dc, &r);
@@ -10563,9 +10645,8 @@ static LRESULT LISTVIEW_NCPaint(const LISTVIEW_INFO *infoPtr, HRGN region)
 
     /* Call default proc to get the scrollbars etc. painted */
     DefWindowProcW (infoPtr->hwndSelf, WM_NCPAINT, (WPARAM)cliprgn, 0);
-    DeleteObject(cliprgn);
 
-    return 0;
+    return FALSE;
 }
 
 /***

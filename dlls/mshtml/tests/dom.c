@@ -77,7 +77,6 @@ static const char elem_test_str[] =
     "<script id=\"sc\" type=\"text/javascript\"><!--\nfunction Testing() {}\n// -->\n</script>"
     "<test /><object id=\"objid\" name=\"objname\" vspace=100></object><embed />"
     "<img id=\"imgid\" name=\"WineImg\"/>"
-    "<area id=\"area\" href=\"http://test\">"
     "<iframe src=\"about:blank\" id=\"ifr\"></iframe>"
     "<form id=\"frm\"></form>"
     "<div id=\"attr\" attr1=\"attr1\" attr2 attr3=\"attr3\"></div>"
@@ -107,11 +106,7 @@ static const char noscript_str[] =
     "<body><noscript><div>test</div></noscript></body></html>";
 static const char doctype_str[] =
     "<!DOCTYPE html>"
-    "<html>"
-    "  <head>"
-    "    <meta http-equiv=\"x-ua-compatible\" content=\"IE=8\" />"
-    "    <title>emptydiv test</title>"
-    "  </head>"
+    "<html><head><title>emptydiv test</title></head>"
     "<body><div id=\"divid\"></div></body></html>";
 
 static WCHAR characterW[] = {'c','h','a','r','a','c','t','e','r',0};
@@ -923,17 +918,6 @@ static IHTMLAnchorElement *_get_anchor_iface(unsigned line, IUnknown *unk)
     return anchor;
 }
 
-#define get_area_iface(u) _get_area_iface(__LINE__,u)
-static IHTMLAreaElement *_get_area_iface(unsigned line, IUnknown *unk)
-{
-    IHTMLAreaElement *area;
-    HRESULT hres;
-
-    hres = IUnknown_QueryInterface(unk, &IID_IHTMLAreaElement, (void**)&area);
-    ok_(__FILE__,line) (hres == S_OK, "Could not get IHTMLAreaElement: %08x\n", hres);
-    return area;
-}
-
 #define get_textarea_iface(u) _get_textarea_iface(__LINE__,u)
 static IHTMLTextAreaElement *_get_textarea_iface(unsigned line, IUnknown *unk)
 {
@@ -1718,36 +1702,6 @@ static void _test_anchor_hash(unsigned line, IHTMLElement *elem, const WCHAR *ex
     else
         ok_(__FILE__,line)(!str, "hash = %s, expected NULL\n", wine_dbgstr_w(str));
     SysFreeString(str);
-}
-
-#define test_area_href(a,h) _test_area_href(__LINE__,a,h)
-static void _test_area_href(unsigned line, IUnknown *unk, const WCHAR *exhref)
-{
-    IHTMLAreaElement *area = _get_area_iface(line, unk);
-    BSTR str;
-    HRESULT hres;
-
-    hres = IHTMLAreaElement_get_href(area, &str);
-    ok_(__FILE__,line)(hres == S_OK, "get_href failed: %08x\n", hres);
-    ok_(__FILE__,line)(!lstrcmpW(str, exhref), "href = %s, expected %s\n", wine_dbgstr_w(str), wine_dbgstr_w(exhref));
-    SysFreeString(str);
-
-    _test_disp_value(line, unk, exhref);
-}
-
-#define test_area_put_href(a,h) _test_area_put_href(__LINE__,a,h)
-static void _test_area_put_href(unsigned line, IUnknown *unk, const WCHAR *exhref)
-{
-    IHTMLAreaElement *area = _get_area_iface(line, unk);
-    BSTR str;
-    HRESULT hres;
-
-    str = SysAllocString(exhref);
-    hres = IHTMLAreaElement_put_href(area, str);
-    ok_(__FILE__,line)(hres == S_OK, "get_href failed: %08x\n", hres);
-    SysFreeString(str);
-
-    _test_disp_value(line, unk, exhref);
 }
 
 #define test_option_text(o,t) _test_option_text(__LINE__,o,t)
@@ -6346,13 +6300,12 @@ static void test_navigator(IHTMLDocument2 *doc)
 
     hres = IHTMLWindow2_get_navigator(window, &navigator2);
     ok(hres == S_OK, "get_navigator failed: %08x\n", hres);
-    todo_wine
     ok(navigator != navigator2, "navigator2 != navigator\n");
     IOmNavigator_Release(navigator2);
 
     hres = IHTMLWindow2_get_clientInformation(window, &navigator2);
     ok(hres == S_OK, "get_clientInformation failed: %08x\n", hres);
-    ok(iface_cmp((IUnknown*)navigator, (IUnknown*)navigator2), "navigator2 != navigator\n");
+    todo_wine ok(iface_cmp((IUnknown*)navigator, (IUnknown*)navigator2), "navigator2 != navigator\n");
     IOmNavigator_Release(navigator2);
 
     IHTMLWindow2_Release(window);
@@ -6436,6 +6389,16 @@ static void test_navigator(IHTMLDocument2 *doc)
     ok(!lstrcmpW(bstr, buf), "userAgent returned %s, expected \"%s\"\n", wine_dbgstr_w(bstr), wine_dbgstr_w(buf));
     SysFreeString(bstr);
 
+    if(!wcsncmp(buf, L"Mozilla/", 8)) {
+        bstr = NULL;
+        hres = IOmNavigator_get_appVersion(navigator, &bstr);
+        ok(hres == S_OK, "get_appVersion failed: %08x\n", hres);
+        ok(!lstrcmpW(bstr, buf+8), "appVersion returned %s, expected \"%s\"\n", wine_dbgstr_w(bstr), wine_dbgstr_w(buf+8));
+        SysFreeString(bstr);
+    }else {
+        skip("nonstandard user agent\n");
+    }
+
     hres = UrlMkSetSessionOption(URLMON_OPTION_USERAGENT, ua, sizeof(ua), 0);
     ok(hres == S_OK, "UrlMkSetSessionOption failed: %08x\n", hres);
     MultiByteToWideChar(CP_ACP, 0, ua, -1, buf, ARRAY_SIZE(buf));
@@ -6457,7 +6420,6 @@ static void test_navigator(IHTMLDocument2 *doc)
     test_mime_types_col(navigator);
 
     ref = IOmNavigator_Release(navigator);
-    todo_wine
     ok(!ref, "navigator should be destroyed here\n");
 }
 
@@ -8411,48 +8373,6 @@ static void test_iframe_elem(IHTMLElement *elem)
     IHTMLDocument2_Release(content_doc);
 }
 
-static void test_elem_spellcheck(IHTMLElement *iface)
-{
-    IHTMLElement7 *elem;
-    VARIANT v;
-    HRESULT hres;
-
-    hres = IUnknown_QueryInterface(iface, &IID_IHTMLElement7, (void**)&elem);
-    if(hres == E_NOINTERFACE) {
-        win_skip("IHTMLElement7 not supported\n");
-        return;
-    }
-    ok(hres == S_OK, "Could not get IHTMLElement7 interface: %08x\n", hres);
-
-    V_VT(&v) = VT_ERROR;
-    hres = IHTMLElement7_get_spellcheck(elem, &v);
-    ok(hres == S_OK, "get_spellcheck failed: %08x\n", hres);
-    ok(V_VT(&v) == VT_BOOL && !V_BOOL(&v), "spellcheck = %s\n", wine_dbgstr_variant(&v));
-
-    V_VT(&v) = VT_BOOL;
-    V_BOOL(&v) = VARIANT_TRUE;
-    hres = IHTMLElement7_put_spellcheck(elem, v);
-    ok(hres == S_OK, "put_spellcheck failed: %08x\n", hres);
-
-    V_VT(&v) = VT_ERROR;
-    hres = IHTMLElement7_get_spellcheck(elem, &v);
-    ok(hres == S_OK, "get_spellcheck failed: %08x\n", hres);
-    ok(V_VT(&v) == VT_BOOL && V_BOOL(&v) == VARIANT_TRUE, "spellcheck = %s\n",
-       wine_dbgstr_variant(&v));
-
-    V_VT(&v) = VT_BOOL;
-    V_BOOL(&v) = VARIANT_FALSE;
-    hres = IHTMLElement7_put_spellcheck(elem, v);
-    ok(hres == S_OK, "put_spellcheck failed: %08x\n", hres);
-
-    V_VT(&v) = VT_ERROR;
-    hres = IHTMLElement7_get_spellcheck(elem, &v);
-    ok(hres == S_OK, "get_spellcheck failed: %08x\n", hres);
-    ok(V_VT(&v) == VT_BOOL && !V_BOOL(&v), "spellcheck = %s\n", wine_dbgstr_variant(&v));
-
-    IHTMLElement7_Release(elem);
-}
-
 #define test_stylesheet_csstext(a,b,c) _test_stylesheet_csstext(__LINE__,a,b,c)
 static void _test_stylesheet_csstext(unsigned line, IHTMLStyleSheet *stylesheet, const WCHAR *exstr, BOOL is_todo)
 {
@@ -8809,7 +8729,6 @@ static void test_elems(IHTMLDocument2 *doc)
         ET_OBJECT,
         ET_EMBED,
         ET_IMG,
-        ET_AREA,
         ET_IFRAME,
         ET_FORM,
         ET_DIV
@@ -8850,8 +8769,8 @@ static void test_elems(IHTMLDocument2 *doc)
     ok(hres == S_OK, "get_links failed: %08x\n", hres);
     if(hres == S_OK)
     {
-        static const elem_type_t link_types[] = {ET_A,ET_AREA};
-        test_elem_collection((IUnknown*)collection, link_types, 2);
+        static const elem_type_t images_types[] = {ET_A};
+        test_elem_collection((IUnknown*)collection, images_types, 1);
 
         IHTMLElementCollection_Release(collection);
     }
@@ -9070,7 +8989,6 @@ static void test_elems(IHTMLDocument2 *doc)
         test_elem_client_size((IUnknown*)elem);
         test_input_type(input, L"text");
         test_elem_istextedit(elem, VARIANT_TRUE);
-        test_elem_spellcheck(elem);
 
         test_node_get_value_str((IUnknown*)elem, NULL);
         test_node_put_value_str((IUnknown*)elem, L"test");
@@ -9254,21 +9172,6 @@ static void test_elems(IHTMLDocument2 *doc)
         as part of the pathname, and cannot be accessed by get_search. */
         test_anchor_put_search((IUnknown*)elem, L"word=abc");
         test_anchor_search((IUnknown*)elem, L"?word=abc", TRUE);
-
-        IHTMLElement_Release(elem);
-    }
-
-    elem = get_elem_by_id(doc, L"area", TRUE);
-    if(elem) {
-        test_area_href((IUnknown*)elem, L"http://test/");
-
-        /* Change the href */
-        test_area_put_href((IUnknown*)elem, L"http://test1/");
-        test_area_href((IUnknown*)elem, L"http://test1/");
-
-        /* Restore the href */
-        test_area_put_href((IUnknown*)elem, L"http://test/");
-        test_area_href((IUnknown*)elem, L"http://test/");
 
         IHTMLElement_Release(elem);
     }
@@ -10162,7 +10065,6 @@ static void test_null_write(IHTMLDocument2 *doc)
 static void test_create_stylesheet(IHTMLDocument2 *doc)
 {
     IHTMLStyleSheet *stylesheet, *stylesheet2;
-    IHTMLStyleElement2 *style_elem2;
     IHTMLStyleElement *style_elem;
     IHTMLElement *doc_elem, *elem;
     HRESULT hres;
@@ -10205,18 +10107,8 @@ static void test_create_stylesheet(IHTMLDocument2 *doc)
     ok(hres == S_OK, "get_styleSheet failed: %08x\n", hres);
     ok(stylesheet2 != NULL, "stylesheet2 == NULL\n");
     ok(iface_cmp((IUnknown*)stylesheet, (IUnknown*)stylesheet2), "stylesheet != stylesheet2\n");
+
     IHTMLStyleSheet_Release(stylesheet2);
-
-    hres = IHTMLStyleElement_QueryInterface(style_elem, &IID_IHTMLStyleElement2, (void**)&style_elem2);
-    ok(hres == S_OK, "Could not get IHTMLStyleElement2: %08x\n", hres);
-
-    hres = IHTMLStyleElement2_get_sheet(style_elem2, &stylesheet2);
-    ok(hres == S_OK, "get_styleSheet failed: %08x\n", hres);
-    ok(stylesheet2 != NULL, "stylesheet2 == NULL\n");
-    ok(iface_cmp((IUnknown*)stylesheet, (IUnknown*)stylesheet2), "stylesheet != stylesheet2\n");
-    IHTMLStyleSheet_Release(stylesheet2);
-
-    IHTMLStyleElement2_Release(style_elem2);
     IHTMLStyleSheet_Release(stylesheet);
 
     IHTMLStyleElement_Release(style_elem);

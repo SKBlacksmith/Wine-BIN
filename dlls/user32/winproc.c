@@ -39,7 +39,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(win);
 
 typedef struct tagWINDOWPROC
 {
-    WNDPROC        procA;    /* ANSI window proc */
+    WNDPROC        procA;    /* ASCII window proc */
     WNDPROC        procW;    /* Unicode window proc */
 } WINDOWPROC;
 
@@ -172,7 +172,7 @@ static inline WINDOWPROC *alloc_winproc( WNDPROC func, BOOL unicode )
 }
 
 #ifdef __i386__
-/* Some window procedures modify registers they shouldn't, or are not
+/* Some window procedures modify register they shouldn't, or are not
  * properly declared stdcall; so we need a small assembly wrapper to
  * call them. */
 extern LRESULT WINPROC_wrapper( WNDPROC proc, HWND hwnd, UINT msg,
@@ -1046,7 +1046,7 @@ INT_PTR WINPROC_CallDlgProcA( DLGPROC func, HWND hwnd, UINT msg, WPARAM wParam, 
 
     if (!func) return 0;
 
-    if (!(proc = handle_to_proc( (WNDPROC)func )))
+    if (!(proc = handle_to_proc( func )))
         ret = call_dialog_proc( hwnd, msg, wParam, lParam, &result, func );
     else if (proc == WINPROC_PROC16)
     {
@@ -1071,7 +1071,7 @@ INT_PTR WINPROC_CallDlgProcW( DLGPROC func, HWND hwnd, UINT msg, WPARAM wParam, 
 
     if (!func) return 0;
 
-    if (!(proc = handle_to_proc( (WNDPROC)func )))
+    if (!(proc = handle_to_proc( func )))
         ret = call_dialog_proc( hwnd, msg, wParam, lParam, &result, func );
     else if (proc == WINPROC_PROC16)
     {

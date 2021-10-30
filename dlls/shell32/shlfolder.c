@@ -21,6 +21,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
@@ -48,6 +51,9 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL (shell);
 
+static const WCHAR wszDotShellClassInfo[] = {
+    '.','S','h','e','l','l','C','l','a','s','s','I','n','f','o',0};
+
 /***************************************************************************
  *  SHELL32_GetCustomFolderAttribute (internal function)
  *
@@ -69,9 +75,14 @@ static inline BOOL SHELL32_GetCustomFolderAttributeFromPath(
     LPWSTR pwszFolderPath, LPCWSTR pwszHeading, LPCWSTR pwszAttribute,
     LPWSTR pwszValue, DWORD cchValue)
 {
+    static const WCHAR wszDesktopIni[] =
+            {'d','e','s','k','t','o','p','.','i','n','i',0};
+    static const WCHAR wszDefault[] = {0};
+
     PathAddBackslashW(pwszFolderPath);
-    PathAppendW(pwszFolderPath, L"desktop.ini");
-    return GetPrivateProfileStringW(pwszHeading, pwszAttribute, L"", pwszValue, cchValue, pwszFolderPath);
+    PathAppendW(pwszFolderPath, wszDesktopIni);
+    return GetPrivateProfileStringW(pwszHeading, pwszAttribute, wszDefault, 
+                                    pwszValue, cchValue, pwszFolderPath);
 }
 
 BOOL SHELL32_GetCustomFolderAttribute(
@@ -249,7 +260,7 @@ static HRESULT SHELL32_CoCreateInitSF (LPCITEMIDLIST pidlRoot, LPCWSTR pathRoot,
  *  This function makes special assumptions on the shell namespace, which
  *  means you probably can't use it for your IShellFolder implementation.
  */
-HRESULT SHELL32_BindToChild (LPCITEMIDLIST pidlRoot, const CLSID *clsidChild,
+HRESULT SHELL32_BindToChild (LPCITEMIDLIST pidlRoot,
                              LPCWSTR pathRoot, LPCITEMIDLIST pidlComplete, REFIID riid, LPVOID * ppvOut)
 {
     GUID const *clsid;
@@ -274,9 +285,10 @@ HRESULT SHELL32_BindToChild (LPCITEMIDLIST pidlRoot, const CLSID *clsidChild,
         hr = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
     } else {
         /* file system folder */
-        CLSID clsidFolder = *clsidChild;
+        CLSID clsidFolder = CLSID_ShellFSFolder;
+        static const WCHAR wszCLSID[] = {'C','L','S','I','D',0};
         WCHAR wszCLSIDValue[CHARS_IN_GUID], wszFolderPath[MAX_PATH], *pwszPathTail = wszFolderPath;
-
+       
         /* see if folder CLSID should be overridden by desktop.ini file */
         if (pathRoot) {
             lstrcpynW(wszFolderPath, pathRoot, MAX_PATH);
@@ -286,7 +298,7 @@ HRESULT SHELL32_BindToChild (LPCITEMIDLIST pidlRoot, const CLSID *clsidChild,
         _ILSimpleGetTextW(pidlChild,pwszPathTail,MAX_PATH - (int)(pwszPathTail - wszFolderPath));
 
         if (SHELL32_GetCustomFolderAttributeFromPath (wszFolderPath,
-            L".ShellClassInfo", L"CLSID", wszCLSIDValue, CHARS_IN_GUID))
+            wszDotShellClassInfo, wszCLSID, wszCLSIDValue, CHARS_IN_GUID))
             CLSIDFromString (wszCLSIDValue, &clsidFolder);
 
         hr = SHELL32_CoCreateInitSF (pidlRoot, pathRoot, pidlChild,
@@ -415,9 +427,9 @@ HRESULT SHELL32_GetItemAttributes (IShellFolder2 *psf, LPCITEMIDLIST pidl, LPDWO
     } else if (has_guid && HCR_GetFolderAttributes(pidl, &dwAttributes)) {
 	*pdwAttributes = dwAttributes;
     } else if (_ILGetDataPointer (pidl)) {
-	DWORD file_attr = _ILGetFileAttributes (pidl, NULL, 0);
+	dwAttributes = _ILGetFileAttributes (pidl, NULL, 0);
 
-        if (!file_attr && has_guid) {
+        if (!dwAttributes && has_guid) {
 	    WCHAR path[MAX_PATH];
 	    STRRET strret;
 
@@ -429,28 +441,25 @@ HRESULT SHELL32_GetItemAttributes (IShellFolder2 *psf, LPCITEMIDLIST pidl, LPDWO
 
 		/* call GetFileAttributes() only for file system paths, not for parsing names like "::{...}" */
 		if (SUCCEEDED(hr) && path[0]!=':')
-		    file_attr = GetFileAttributesW(path);
+		    dwAttributes = GetFileAttributesW(path);
 	    }
 	}
 
         /* Set common attributes */
-        *pdwAttributes |= SFGAO_FILESYSTEM | SFGAO_DROPTARGET | SFGAO_HASPROPSHEET | SFGAO_CANDELETE |
+        *pdwAttributes |= SFGAO_FILESYSTEM | SFGAO_DROPTARGET | SFGAO_HASPROPSHEET | SFGAO_CANDELETE | 
                           SFGAO_CANRENAME | SFGAO_CANLINK | SFGAO_CANMOVE | SFGAO_CANCOPY;
 
-	if (file_attr & FILE_ATTRIBUTE_DIRECTORY)
-	    *pdwAttributes |=  (SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_STORAGE);
+	if (dwAttributes & FILE_ATTRIBUTE_DIRECTORY)
+	    *pdwAttributes |=  (SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR);
 	else
-        {
-	    *pdwAttributes &= ~(SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_STORAGE);
-	    *pdwAttributes |= SFGAO_STREAM;
-        }
+	    *pdwAttributes &= ~(SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR);
 
-	if (file_attr & FILE_ATTRIBUTE_HIDDEN)
+	if (dwAttributes & FILE_ATTRIBUTE_HIDDEN)
 	    *pdwAttributes |=  SFGAO_HIDDEN;
 	else
 	    *pdwAttributes &= ~SFGAO_HIDDEN;
 
-	if (file_attr & FILE_ATTRIBUTE_READONLY)
+	if (dwAttributes & FILE_ATTRIBUTE_READONLY)
 	    *pdwAttributes |=  SFGAO_READONLY;
 	else
 	    *pdwAttributes &= ~SFGAO_READONLY;
@@ -571,30 +580,6 @@ HRESULT shellfolder_map_column_to_scid(const shvheader *header, UINT column, SHC
     return S_OK;
 }
 
-HRESULT shellfolder_get_file_details(IShellFolder2 *iface, LPCITEMIDLIST pidl, const shvheader *header,
-                                     int column, SHELLDETAILS *psd)
-{
-    psd->str.uType = STRRET_CSTR;
-    switch (header[column].pid)
-    {
-    case PID_STG_NAME:
-        return IShellFolder2_GetDisplayNameOf( iface, pidl, SHGDN_NORMAL | SHGDN_INFOLDER, &psd->str );
-    case PID_STG_SIZE:
-        _ILGetFileSize( pidl, psd->str.u.cStr, MAX_PATH );
-        break;
-    case PID_STG_STORAGETYPE:
-        _ILGetFileType( pidl, psd->str.u.cStr, MAX_PATH );
-        break;
-    case PID_STG_WRITETIME:
-        _ILGetFileDate( pidl, psd->str.u.cStr, MAX_PATH );
-        break;
-    case PID_STG_ATTRIBUTES:
-        _ILGetFileAttributes( pidl, psd->str.u.cStr, MAX_PATH );
-        break;
-    }
-    return S_OK;
-}
-
 /***********************************************************************
  *  SHCreateLinks
  *
@@ -626,6 +611,8 @@ HRESULT WINAPI SHOpenFolderAndSelectItems( PCIDLIST_ABSOLUTE pidlFolder, UINT ci
  */
 HRESULT WINAPI SHGetSetFolderCustomSettings( LPSHFOLDERCUSTOMSETTINGS fcs, PCWSTR path, DWORD flag )
 {
+    static const WCHAR iconresourceW[] = {'I','c','o','n','R','e','s','o','u','r','c','e',0};
+    static const WCHAR desktop_iniW[] = {'D','e','s','k','t','o','p','.','i','n','i',0};
     WCHAR bufferW[MAX_PATH];
     HRESULT hr;
 
@@ -641,9 +628,9 @@ HRESULT WINAPI SHGetSetFolderCustomSettings( LPSHFOLDERCUSTOMSETTINGS fcs, PCWST
         {
             lstrcpyW(bufferW, path);
             PathAddBackslashW(bufferW);
-            lstrcatW(bufferW, L"desktop.ini");
+            lstrcatW(bufferW, desktop_iniW);
 
-            if (WritePrivateProfileStringW(L".ShellClassInfo", L"IconResource", fcs->pszIconFile, bufferW))
+            if (WritePrivateProfileStringW(wszDotShellClassInfo, iconresourceW, fcs->pszIconFile, bufferW))
             {
                 TRACE("Wrote an iconresource entry %s into %s\n", debugstr_w(fcs->pszIconFile), debugstr_w(bufferW));
                 hr = S_OK;

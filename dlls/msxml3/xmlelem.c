@@ -20,9 +20,13 @@
 
 #define COBJMACROS
 
+#include "config.h"
+
 #include <stdarg.h>
-#include <libxml/parser.h>
-#include <libxml/xmlerror.h>
+#ifdef HAVE_LIBXML2
+# include <libxml/parser.h>
+# include <libxml/xmlerror.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -34,6 +38,8 @@
 #include "wine/debug.h"
 
 #include "msxml_private.h"
+
+#ifdef HAVE_LIBXML2
 
 WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 
@@ -841,3 +847,5 @@ static HRESULT XMLElementCollection_create(xmlNodePtr node, LPVOID *ppObj)
     TRACE("returning iface %p\n", *ppObj);
     return S_OK;
 }
+
+#endif

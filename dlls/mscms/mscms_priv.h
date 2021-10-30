@@ -25,28 +25,31 @@
  *  call, i.e. PROFILE_READ or PROFILE_READWRITE.
  */
 
-#include <lcms2.h>
-
 struct profile
 {
     HANDLE      file;
     DWORD       access;
     char       *data;
     DWORD       size;
-    cmsHPROFILE cmsprofile;
+    void       *cmsprofile;
+};
+
+struct transform
+{
+    void       *cmstransform;
 };
 
 extern HPROFILE create_profile( struct profile * ) DECLSPEC_HIDDEN;
 extern BOOL close_profile( HPROFILE ) DECLSPEC_HIDDEN;
 
-extern HTRANSFORM create_transform( cmsHTRANSFORM ) DECLSPEC_HIDDEN;
+extern HTRANSFORM create_transform( struct transform * ) DECLSPEC_HIDDEN;
 extern BOOL close_transform( HTRANSFORM ) DECLSPEC_HIDDEN;
 
 struct profile *grab_profile( HPROFILE ) DECLSPEC_HIDDEN;
-cmsHTRANSFORM grab_transform( HTRANSFORM ) DECLSPEC_HIDDEN;
+struct transform *grab_transform( HTRANSFORM ) DECLSPEC_HIDDEN;
 
 void release_profile( struct profile * ) DECLSPEC_HIDDEN;
-void release_transform( cmsHTRANSFORM ) DECLSPEC_HIDDEN;
+void release_transform( struct transform * ) DECLSPEC_HIDDEN;
 
 extern void free_handle_tables( void ) DECLSPEC_HIDDEN;
 

@@ -31,6 +31,7 @@
 #include "windef.h"
 #include "winbase.h"
 #include "winternl.h"
+#include "wine/exception.h"
 #include "msvcrt.h"
 #include "excpt.h"
 #include "wincon.h"
@@ -473,7 +474,7 @@ void CDECL __CxxUnregisterExceptionObject(cxx_frame_info *frame_info, BOOL in_us
 
 struct __std_exception_data {
     char *what;
-    char dofree;
+    bool dofree;
 };
 
 #if _MSVCR_VER>=140

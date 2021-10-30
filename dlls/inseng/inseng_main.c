@@ -36,6 +36,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(inseng);
 
+static HINSTANCE instance;
+
 struct InstallEngine {
     IInstallEngine2 IInstallEngine2_iface;
     LONG ref;
@@ -356,6 +358,20 @@ static const IClassFactoryVtbl InstallEngineCFVtbl = {
 
 static IClassFactory InstallEngineCF = { &InstallEngineCFVtbl };
 
+BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
+{
+    switch(fdwReason)
+    {
+    case DLL_WINE_PREATTACH:
+        return FALSE;  /* prefer native version */
+    case DLL_PROCESS_ATTACH:
+        instance = hInstDLL;
+        DisableThreadLibraryCalls(hInstDLL);
+        break;
+    }
+    return TRUE;
+}
+
 /***********************************************************************
  *             DllGetClassObject (INSENG.@)
  */
@@ -368,6 +384,30 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID iid, LPVOID *ppv)
 
     FIXME("(%s %s %p)\n", debugstr_guid(rclsid), debugstr_guid(iid), ppv);
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+/***********************************************************************
+ *              DllCanUnloadNow (INSENG.@)
+ */
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
+}
+
+/***********************************************************************
+ *		DllRegisterServer (INSENG.@)
+ */
+HRESULT WINAPI DllRegisterServer(void)
+{
+    return __wine_register_resources( instance );
+}
+
+/***********************************************************************
+ *		DllUnregisterServer (INSENG.@)
+ */
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    return __wine_unregister_resources( instance );
 }
 
 BOOL WINAPI CheckTrustEx( LPVOID a, LPVOID b, LPVOID c, LPVOID d, LPVOID e )

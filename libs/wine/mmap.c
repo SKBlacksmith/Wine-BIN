@@ -19,6 +19,7 @@
  */
 
 #include "config.h"
+#include "wine/port.h"
 
 #include <assert.h>
 #include <ctype.h>
@@ -34,7 +35,9 @@
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
-#include <unistd.h>
+#ifdef HAVE_UNISTD_H
+# include <unistd.h>
+#endif
 #ifdef HAVE_STDINT_H
 # include <stdint.h>
 #endif

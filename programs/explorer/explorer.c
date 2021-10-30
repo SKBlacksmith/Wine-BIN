@@ -404,7 +404,7 @@ static void make_explorer_window(parameters_struct *params)
     if (params->root[0])
     {
         size = GetFullPathNameW(params->root, 0, NULL, NULL);
-        path = malloc( size * sizeof(WCHAR) );
+        path = malloc(size);
         GetFullPathNameW(params->root, size, path, NULL);
     }
 

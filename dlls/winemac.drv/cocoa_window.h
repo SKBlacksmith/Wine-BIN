@@ -51,6 +51,8 @@
     NSRect wineFrame;
     NSRect roundedWineFrame;
 
+    NSBezierPath* shape;
+    NSData* shapeData;
     BOOL shapeChangedSinceLastDraw;
 
     BOOL colorKeyed;

@@ -204,3 +204,21 @@ HRESULT WINAPI DllCanUnloadNow(void)
 
     return module_ref ? S_FALSE : S_OK;
 }
+
+/***********************************************************************
+ *          DllRegisterServer (jscript.@)
+ */
+HRESULT WINAPI DllRegisterServer(void)
+{
+    TRACE("()\n");
+    return __wine_register_resources(jscript_hinstance);
+}
+
+/***********************************************************************
+ *          DllUnregisterServer (jscript.@)
+ */
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    TRACE("()\n");
+    return __wine_unregister_resources(jscript_hinstance);
+}

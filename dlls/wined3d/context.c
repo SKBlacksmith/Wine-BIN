@@ -238,17 +238,16 @@ void wined3d_stream_info_from_declaration(struct wined3d_stream_info *stream_inf
             if (stream->flags & WINED3DSTREAMSOURCE_INSTANCEDATA)
             {
                 stream_info->elements[idx].divisor = 1;
-                stream_info->elements[idx].instanced = true;
             }
             else if (element->input_slot_class == WINED3D_INPUT_PER_INSTANCE_DATA)
             {
                 stream_info->elements[idx].divisor = element->instance_data_step_rate;
-                stream_info->elements[idx].instanced = true;
+                if (!element->instance_data_step_rate)
+                    FIXME("Instance step rate 0 not implemented.\n");
             }
             else
             {
                 stream_info->elements[idx].divisor = 0;
-                stream_info->elements[idx].instanced = false;
             }
 
             if (!d3d_info->vertex_bgra && element->format->id == WINED3DFMT_B8G8R8A8_UNORM)
@@ -304,7 +303,7 @@ void context_update_stream_info(struct wined3d_context *context, const struct wi
         else
         {
             wined3d_buffer_load(buffer, context, state);
-            wined3d_buffer_get_memory(buffer, context, &data);
+            wined3d_buffer_get_memory(buffer, &data, buffer->locations);
             element->data.buffer_object = data.buffer_object;
             element->data.addr += (ULONG_PTR)data.addr;
         }
@@ -335,23 +334,6 @@ void context_update_stream_info(struct wined3d_context *context, const struct wi
     }
 }
 
-static bool is_resource_rtv_bound(const struct wined3d_state *state,
-        const struct wined3d_resource *resource)
-{
-    unsigned int i;
-
-    if (!resource->rtv_bind_count_device)
-        return false;
-
-    for (i = 0; i < ARRAY_SIZE(state->fb.render_targets); ++i)
-    {
-        if (state->fb.render_targets[i] && state->fb.render_targets[i]->resource == resource)
-            return true;
-    }
-
-    return false;
-}
-
 /* Context activation is done by the caller. */
 static void context_preload_texture(struct wined3d_context *context,
         const struct wined3d_state *state, unsigned int idx)
@@ -361,7 +343,7 @@ static void context_preload_texture(struct wined3d_context *context,
     if (!(texture = state->textures[idx]))
         return;
 
-    if (is_resource_rtv_bound(state, &texture->resource)
+    if ((texture->resource.rtv_full_bind_count_device + texture->resource.rtv_partial_bind_count_device)
             || (state->fb.depth_stencil && state->fb.depth_stencil->resource == &texture->resource))
         context->uses_fbo_attached_resources = 1;
 

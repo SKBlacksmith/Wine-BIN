@@ -169,7 +169,6 @@ static const tid_t HTMLTitleElement_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLTitleElement_dispex = {
-    L"HTMLTitleElement",
     NULL,
     DispHTMLTitleElement_tid,
     HTMLTitleElement_iface_tids,
@@ -353,7 +352,6 @@ static const tid_t HTMLHtmlElement_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLHtmlElement_dispex = {
-    L"HTMLHtmlElement",
     NULL,
     DispHTMLHtmlElement_tid,
     HTMLHtmlElement_iface_tids,
@@ -590,7 +588,6 @@ static const tid_t HTMLMetaElement_iface_tids[] = {
 };
 
 static dispex_static_data_t HTMLMetaElement_dispex = {
-    L"HTMLMetaElement",
     NULL,
     DispHTMLMetaElement_tid,
     HTMLMetaElement_iface_tids,
@@ -754,7 +751,6 @@ static const tid_t HTMLHeadElement_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLHeadElement_dispex = {
-    L"HTMLHeadElement",
     NULL,
     DispHTMLHeadElement_tid,
     HTMLHeadElement_iface_tids,

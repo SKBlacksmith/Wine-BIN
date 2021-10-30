@@ -90,6 +90,8 @@ static unsigned int nb_services;
 static HANDLE service_event;
 static BOOL stop_service;
 
+extern HANDLE CDECL __wine_make_process_system(void);
+
 static WCHAR *heap_strdupAtoW( const char *src )
 {
     WCHAR *dst = NULL;
@@ -531,10 +533,10 @@ BOOL WINAPI DECLSPEC_HOTPATCH ChangeServiceConfig2W( SC_HANDLE service, DWORD le
 
             rpc_privinfo.cbRequiredPrivileges = multisz_size( privinfo->pmszRequiredPrivileges );
             rpc_privinfo.pRequiredPrivileges = (BYTE *)privinfo->pmszRequiredPrivileges;
-            rpc_info.privinfo = &rpc_privinfo;
+            rpc_info.u.privinfo = &rpc_privinfo;
         }
         else
-            rpc_info.descr = info;
+            rpc_info.u.descr = info;
         err = svcctl_ChangeServiceConfig2W( service, rpc_info );
     }
     __EXCEPT(rpc_filter)
@@ -1020,7 +1022,7 @@ BOOL WINAPI DECLSPEC_HOTPATCH StartServiceA( SC_HANDLE service, DWORD argc, cons
     BOOL r;
 
     if (argc)
-        argvW = heap_alloc( argc * sizeof(*argvW) );
+        argvW = heap_alloc( argc * sizeof(WCHAR) );
 
     for (i = 0; i < argc; i++)
         argvW[i] = heap_strdupAtoW( argv[i] );
@@ -1307,7 +1309,7 @@ static DWORD WINAPI notify_thread(void *user)
 
     if (err == ERROR_SUCCESS && list)
     {
-        cparams = list->NotifyParamsArray[0].params;
+        cparams = list->NotifyParamsArray[0].u.params;
 
         data->notify_buffer->dwNotificationStatus = cparams->dwNotificationStatus;
         memcpy(&data->notify_buffer->ServiceStatus, &cparams->ServiceStatus,
@@ -1370,7 +1372,7 @@ DWORD WINAPI DECLSPEC_HOTPATCH NotifyServiceStatusChangeW( SC_HANDLE service, DW
     }
 
     data->params.dwInfoLevel = 2;
-    data->params.params = &data->cparams;
+    data->params.u.params = &data->cparams;
 
     data->cparams.dwNotifyMask = mask;
 
@@ -1843,8 +1845,7 @@ static BOOL service_run_main_thread(void)
     stop_service  = FALSE;
 
     /* FIXME: service_control_dispatcher should be merged into the main thread */
-    NtSetInformationProcess( GetCurrentProcess(), ProcessWineMakeProcessSystem,
-                             &wait_handles[0], sizeof(HANDLE *) );
+    wait_handles[0] = __wine_make_process_system();
     wait_handles[1] = CreateThread( NULL, 0, service_control_dispatcher, disp, 0, NULL );
     wait_handles[2] = service_event;
 

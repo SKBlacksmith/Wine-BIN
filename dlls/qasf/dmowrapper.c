@@ -20,7 +20,7 @@
 
 #include "qasf_private.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+WINE_DEFAULT_DEBUG_CHANNEL(qasf);
 
 struct buffer
 {
@@ -582,7 +582,7 @@ static HRESULT WINAPI dmo_wrapper_filter_Init(IDMOWrapperFilter *iface, REFCLSID
                 FALSE, &sinks[0].pin.IPin_iface);
     }
 
-    EnterCriticalSection(&filter->filter.filter_cs);
+    EnterCriticalSection(&filter->filter.csFilter);
 
     filter->dmo = unk;
     filter->sink_count = input_count;
@@ -591,7 +591,7 @@ static HRESULT WINAPI dmo_wrapper_filter_Init(IDMOWrapperFilter *iface, REFCLSID
     filter->sources = sources;
     filter->buffers = buffers;
 
-    LeaveCriticalSection(&filter->filter.filter_cs);
+    LeaveCriticalSection(&filter->filter.csFilter);
 
     IMediaObject_Release(dmo);
 

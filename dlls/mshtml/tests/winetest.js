@@ -90,11 +90,3 @@ function sync_test(name, f)
         next_test();
     });
 }
-
-function async_test(name, f)
-{
-    tests.push(function() {
-        test_name = name;
-        f();
-    });
-}

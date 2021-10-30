@@ -19,6 +19,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,6 +42,7 @@
 #include "winerror.h"
 
 #include "undocshell.h"
+#include "wine/unicode.h"
 #include "shell32_main.h"
 
 #include "wine/debug.h"
@@ -65,7 +68,6 @@ static const struct {
 
 	{&CLSID_ApplicationAssociationRegistration, ApplicationAssociationRegistration_Constructor},
 	{&CLSID_ApplicationDestinations, ApplicationDestinations_Constructor},
-	{&CLSID_ApplicationDocumentLists, ApplicationDocumentLists_Constructor},
 	{&CLSID_AutoComplete,   IAutoComplete_Constructor},
 	{&CLSID_ControlPanel,	IControlPanel_Constructor},
 	{&CLSID_DragDropHelper, IDropTargetHelper_Constructor},
@@ -87,7 +89,6 @@ static const struct {
 	{&CLSID_Shell,          IShellDispatch_Constructor},
 	{&CLSID_DestinationList, CustomDestinationList_Constructor},
 	{&CLSID_ShellImageDataFactory, ShellImageDataFactory_Constructor},
-	{&CLSID_FileOperation, IFileOperation_Constructor},
 	{NULL, NULL}
 };
 
@@ -118,7 +119,10 @@ HRESULT WINAPI SHCoCreateInstance(
 	IID	iid;
 	const	CLSID * myclsid = clsid;
 	WCHAR	sKeyName[MAX_PATH];
+	static const WCHAR sCLSID[] = {'C','L','S','I','D','\\','\0'};
 	WCHAR	sClassID[60];
+	static const WCHAR sInProcServer32[] = {'\\','I','n','p','r','o','c','S','e','r','v','e','r','3','2','\0'};
+	static const WCHAR sLoadWithoutCOM[] = {'L','o','a','d','W','i','t','h','o','u','t','C','O','M','\0'};
 	WCHAR	sDllPath[MAX_PATH];
 	HKEY	hKey = 0;
 	DWORD	dwSize;
@@ -147,13 +151,15 @@ HRESULT WINAPI SHCoCreateInstance(
 
 	/* we look up the dll path in the registry */
         SHStringFromGUIDW(myclsid, sClassID, ARRAY_SIZE(sClassID));
-        swprintf( sKeyName, ARRAY_SIZE(sKeyName), L"CLSID\\%s\\InprocServer32", sClassID );
+	lstrcpyW(sKeyName, sCLSID);
+	lstrcatW(sKeyName, sClassID);
+	lstrcatW(sKeyName, sInProcServer32);
 
 	if (RegOpenKeyExW(HKEY_CLASSES_ROOT, sKeyName, 0, KEY_READ, &hKey))
             return E_ACCESSDENIED;
 
         /* if a special registry key is set, we load a shell extension without help of OLE32 */
-        if (!SHQueryValueExW(hKey, L"LoadWithoutCOM", 0, 0, 0, 0))
+        if (!SHQueryValueExW(hKey, sLoadWithoutCOM, 0, 0, 0, 0))
         {
 	    /* load an external dll without ole32 */
 	    HANDLE hLibrary;
@@ -660,7 +666,7 @@ UINT WINAPI DragQueryFileW(
 	  }
 	}
 
-	i = lstrlenW(lpwDrop);
+	i = strlenW(lpwDrop);
 	if ( !lpszwFile) goto end;   /* needed buffer size */
 	lstrcpynW (lpszwFile, lpwDrop, lLength);
 end:
@@ -711,7 +717,7 @@ HRESULT WINAPI SHPropStgCreate(IPropertySetStorage *psstg, REFFMTID fmtid,
             if(FAILED(hres) || ret.vt!=VT_I2)
                 *puCodePage = 0;
             else
-                *puCodePage = ret.iVal;
+                *puCodePage = ret.u.iVal;
         }
     }
 
@@ -744,7 +750,7 @@ HRESULT WINAPI SHPropStgReadMultiple(IPropertyStorage *pps, UINT uCodePage,
         if(FAILED(hres) || ret.vt!=VT_I2)
             return S_OK;
 
-        uCodePage = ret.iVal;
+        uCodePage = ret.u.iVal;
     }
 
     hres = IPropertyStorage_Stat(pps, &stat);
@@ -782,10 +788,10 @@ HRESULT WINAPI SHPropStgWriteMultiple(IPropertyStorage *pps, UINT *uCodePage,
         hres = IPropertyStorage_ReadMultiple(pps, 1, &prop, &ret);
         if(FAILED(hres))
             return hres;
-        if(ret.vt!=VT_I2 || !ret.iVal)
+        if(ret.vt!=VT_I2 || !ret.u.iVal)
             return E_FAIL;
 
-        codepage = ret.iVal;
+        codepage = ret.u.iVal;
         if(uCodePage)
             *uCodePage = codepage;
     }

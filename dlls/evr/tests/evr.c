@@ -49,14 +49,10 @@ static HWND create_window(void)
             0, 0, r.right - r.left, r.bottom - r.top, NULL, NULL, NULL, NULL);
 }
 
-static IDirect3DDevice9 *create_device(HWND focus_window)
+static IDirect3DDevice9 *create_device(IDirect3D9 *d3d9, HWND focus_window)
 {
     D3DPRESENT_PARAMETERS present_parameters = {0};
     IDirect3DDevice9 *device = NULL;
-    IDirect3D9 *d3d9;
-
-    d3d9 = Direct3DCreate9(D3D_SDK_VERSION);
-    ok(!!d3d9, "Failed to create a D3D object.\n");
 
     present_parameters.BackBufferWidth = 640;
     present_parameters.BackBufferHeight = 480;
@@ -69,8 +65,6 @@ static IDirect3DDevice9 *create_device(HWND focus_window)
 
     IDirect3D9_CreateDevice(d3d9, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, focus_window,
             D3DCREATE_HARDWARE_VERTEXPROCESSING, &present_parameters, &device);
-
-    IDirect3D9_Release(d3d9);
 
     return device;
 }
@@ -259,7 +253,6 @@ static void test_interfaces(void)
 
     todo_wine check_interface(filter, &IID_IAMFilterMiscFlags, TRUE);
     check_interface(filter, &IID_IBaseFilter, TRUE);
-    check_interface(filter, &IID_IEVRFilterConfig, TRUE);
     check_interface(filter, &IID_IMediaFilter, TRUE);
     check_interface(filter, &IID_IMediaPosition, TRUE);
     check_interface(filter, &IID_IMediaSeeking, TRUE);
@@ -725,13 +718,16 @@ static void test_surface_sample(void)
     DWORD flags, count, length;
     IDirect3DDevice9 *device;
     IMFSample *sample;
+    IDirect3D9 *d3d;
     IUnknown *unk;
     HWND window;
     HRESULT hr;
     BYTE *data;
 
     window = create_window();
-    if (!(device = create_device(window)))
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+    if (!(device = create_device(d3d, window)))
     {
         skip("Failed to create a D3D device, skipping tests.\n");
         goto done;
@@ -933,6 +929,7 @@ static void test_surface_sample(void)
 done:
     if (backbuffer)
         IDirect3DSurface9_Release(backbuffer);
+    IDirect3D9_Release(d3d);
     DestroyWindow(window);
 }
 
@@ -942,11 +939,12 @@ static void test_default_mixer_type_negotiation(void)
     IDirect3DDeviceManager9 *manager;
     DXVA2_VideoProcessorCaps caps;
     IMFVideoProcessor *processor;
-    GUID subtype, guid, *guids;
     IDirect3DDevice9 *device;
     IMFMediaType *video_type;
     IMFTransform *transform;
     DWORD index, count;
+    GUID guid, *guids;
+    IDirect3D9 *d3d;
     IUnknown *unk;
     HWND window;
     HRESULT hr;
@@ -982,7 +980,9 @@ static void test_default_mixer_type_negotiation(void)
     /* Now try with device manager. */
 
     window = create_window();
-    if (!(device = create_device(window)))
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+    if (!(device = create_device(d3d, window)))
     {
         skip("Failed to create a D3D device, skipping tests.\n");
         goto done;
@@ -1045,73 +1045,19 @@ static void test_default_mixer_type_negotiation(void)
     while (SUCCEEDED(IMFTransform_GetOutputAvailableType(transform, 0, index++, &media_type)))
     {
         UINT64 frame_size;
-        GUID subtype, major;
+        GUID subtype;
         UINT32 value;
 
-        hr = IMFMediaType_GetGUID(media_type, &MF_MT_MAJOR_TYPE, &major);
-        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
         hr = IMFMediaType_GetGUID(media_type, &MF_MT_SUBTYPE, &subtype);
         ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
         hr = IMFMediaType_GetUINT64(media_type, &MF_MT_FRAME_SIZE, &frame_size);
         ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
         hr = IMFMediaType_GetUINT32(media_type, &MF_MT_ALL_SAMPLES_INDEPENDENT, &value);
         ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-        hr = IMFMediaType_GetUINT32(media_type, &MF_MT_INTERLACE_MODE, &value);
-        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-        ok(value == MFVideoInterlace_Progressive, "Unexpected interlace mode.\n");
 
         IMFMediaType_Release(media_type);
     }
     ok(index > 1, "Unexpected number of available types.\n");
-
-    /* Cloned type is returned. */
-    hr = IMFTransform_GetOutputAvailableType(transform, 0, 0, &media_type);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    hr = IMFTransform_GetOutputAvailableType(transform, 0, 0, &media_type2);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(media_type != media_type2, "Unexpected media type instance.\n");
-    IMFMediaType_Release(media_type);
-    IMFMediaType_Release(media_type2);
-
-    /* Minimal valid attribute set for output type. */
-    hr = IMFTransform_GetOutputAvailableType(transform, 0, 0, &media_type);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = MFCreateMediaType(&media_type2);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IMFMediaType_GetGUID(media_type, &MF_MT_SUBTYPE, &subtype);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IMFMediaType_SetGUID(media_type2, &MF_MT_MAJOR_TYPE, &MFMediaType_Video);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    hr = IMFMediaType_SetGUID(media_type2, &MF_MT_SUBTYPE, &subtype);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IMFTransform_SetOutputType(transform, 1, NULL, MFT_SET_TYPE_TEST_ONLY);
-    ok(hr == MF_E_INVALIDSTREAMNUMBER, "Unexpected hr %#x.\n", hr);
-
-    hr = IMFTransform_SetOutputType(transform, 0, NULL, MFT_SET_TYPE_TEST_ONLY);
-    ok(hr == E_INVALIDARG, "Unexpected hr %#x.\n", hr);
-
-    hr = IMFTransform_SetOutputType(transform, 0, media_type2, MFT_SET_TYPE_TEST_ONLY);
-    ok(hr == MF_E_INVALIDMEDIATYPE, "Unexpected hr %#x.\n", hr);
-
-    hr = IMFMediaType_SetUINT32(media_type2, &MF_MT_ALL_SAMPLES_INDEPENDENT, TRUE);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IMFTransform_SetOutputType(transform, 0, media_type2, MFT_SET_TYPE_TEST_ONLY);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    /* Candidate type have frame size set, mismatching size is accepted. */
-    hr = IMFMediaType_SetUINT64(media_type2, &MF_MT_FRAME_SIZE, (UINT64)64 << 32 | 64);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IMFTransform_SetOutputType(transform, 0, media_type2, MFT_SET_TYPE_TEST_ONLY);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    IMFMediaType_Release(media_type2);
-    IMFMediaType_Release(media_type);
 
     hr = IMFTransform_QueryInterface(transform, &IID_IMFVideoProcessor, (void **)&processor);
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
@@ -1171,6 +1117,7 @@ todo_wine
 
 done:
     IMFTransform_Release(transform);
+    IDirect3D9_Release(d3d);
     DestroyWindow(window);
 }
 
@@ -1207,7 +1154,7 @@ static void test_default_presenter(void)
     check_interface(presenter, &IID_IMFVideoDeviceID, TRUE);
     check_interface(presenter, &IID_IMFQualityAdvise, TRUE);
     check_interface(presenter, &IID_IDirect3DDeviceManager9, TRUE);
-    check_interface(presenter, &IID_IMFQualityAdviseLimits, TRUE);
+    todo_wine check_interface(presenter, &IID_IMFQualityAdviseLimits, TRUE);
     check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFVideoPositionMapper, TRUE);
     check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFVideoDisplayControl, TRUE);
     check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFVideoPresenter, TRUE);
@@ -1218,7 +1165,7 @@ static void test_default_presenter(void)
     check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFGetService, TRUE);
     check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFVideoDeviceID, TRUE);
     check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFQualityAdvise, TRUE);
-    check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFQualityAdviseLimits, TRUE);
+    todo_wine check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFQualityAdviseLimits, TRUE);
     check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IMFTransform, FALSE);
     check_service_interface(presenter, &MR_VIDEO_RENDER_SERVICE, &IID_IDirect3DDeviceManager9, TRUE);
     check_service_interface(presenter, &MR_VIDEO_ACCELERATION_SERVICE, &IID_IDirect3DDeviceManager9, TRUE);
@@ -1393,6 +1340,7 @@ static void test_MFCreateVideoSampleAllocator(void)
     LONG refcount, count;
     unsigned int token;
     IMFGetService *gs;
+    IDirect3D9 *d3d;
     IUnknown *unk;
     HWND window;
     HRESULT hr;
@@ -1474,13 +1422,16 @@ static void test_MFCreateVideoSampleAllocator(void)
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
     ok(count == 4, "Unexpected count %d.\n", count);
 
-    check_interface(sample, &IID_IMFDesiredSample, TRUE);
-    check_interface(sample, &IID_IMFTrackedSample, TRUE);
+    hr = IMFSample_QueryInterface(sample, &IID_IMFDesiredSample, (void **)&unk);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    IUnknown_Release(unk);
+
+    hr = IMFSample_QueryInterface(sample, &IID_IMFTrackedSample, (void **)&unk);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    IUnknown_Release(unk);
 
     hr = IMFSample_GetBufferByIndex(sample, 0, &buffer);
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    check_interface(buffer, &IID_IMF2DBuffer, TRUE);
 
     hr = IMFMediaBuffer_QueryInterface(buffer, &IID_IMFGetService, (void **)&gs);
     ok(hr == S_OK || broken(hr == E_NOINTERFACE) /* Win7 */, "Unexpected hr %#x.\n", hr);
@@ -1492,6 +1443,10 @@ static void test_MFCreateVideoSampleAllocator(void)
         ok(hr == E_NOTIMPL, "Unexpected hr %#x.\n", hr);
         IMFGetService_Release(gs);
     }
+
+    hr = IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer, (void **)&unk);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    IUnknown_Release(unk);
 
     IMFMediaBuffer_Release(buffer);
 
@@ -1507,7 +1462,9 @@ static void test_MFCreateVideoSampleAllocator(void)
 
     /* Using device manager */
     window = create_window();
-    if (!(device = create_device(window)))
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+    if (!(device = create_device(d3d, window)))
     {
         skip("Failed to create a D3D device, skipping tests.\n");
         goto done;
@@ -1532,15 +1489,14 @@ static void test_MFCreateVideoSampleAllocator(void)
     hr = IMFVideoSampleAllocator_AllocateSample(allocator, &sample);
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
 
-    check_interface(sample, &IID_IMFTrackedSample, TRUE);
-    check_interface(sample, &IID_IMFDesiredSample, TRUE);
-
     hr = IMFSample_GetBufferByIndex(sample, 0, &buffer);
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
 
     check_service_interface(buffer, &MR_BUFFER_SERVICE, &IID_IDirect3DSurface9, TRUE);
-    check_interface(buffer, &IID_IMF2DBuffer, TRUE);
-    check_interface(buffer, &IID_IMF2DBuffer2, TRUE);
+
+    hr = IMFMediaBuffer_QueryInterface(buffer, &IID_IMF2DBuffer, (void **)&unk);
+    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
+    IUnknown_Release(unk);
 
     hr = IMFMediaBuffer_Lock(buffer, &data, NULL, NULL);
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
@@ -1556,6 +1512,7 @@ static void test_MFCreateVideoSampleAllocator(void)
     IDirect3DDeviceManager9_Release(manager);
     IDirect3DDevice9_Release(device);
 done:
+    IDirect3D9_Release(d3d);
     DestroyWindow(window);
 }
 
@@ -2067,32 +2024,30 @@ static void test_presenter_quality_control(void)
     ok(hr == S_OK, "Failed to create default presenter, hr %#x.\n", hr);
 
     hr = IMFVideoPresenter_QueryInterface(presenter, &IID_IMFQualityAdviseLimits, (void **)&qa_limits);
+todo_wine
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
 
     hr = IMFVideoPresenter_QueryInterface(presenter, &IID_IMFQualityAdvise, (void **)&advise);
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
 
+if (qa_limits)
+{
     hr = IMFQualityAdviseLimits_GetMaximumDropMode(qa_limits, NULL);
-todo_wine
     ok(hr == E_POINTER, "Unexpected hr %#x.\n", hr);
 
     hr = IMFQualityAdviseLimits_GetMaximumDropMode(qa_limits, &mode);
-todo_wine
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    if (SUCCEEDED(hr))
-        ok(mode == MF_DROP_MODE_NONE, "Unexpected mode %d.\n", mode);
+    ok(mode == MF_DROP_MODE_NONE, "Unexpected mode %d.\n", mode);
 
     hr = IMFQualityAdviseLimits_GetMinimumQualityLevel(qa_limits, NULL);
-todo_wine
     ok(hr == E_POINTER, "Unexpected hr %#x.\n", hr);
 
     hr = IMFQualityAdviseLimits_GetMinimumQualityLevel(qa_limits, &level);
-todo_wine
     ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    if (SUCCEEDED(hr))
-        ok(level == MF_QUALITY_NORMAL, "Unexpected level %d.\n", level);
+    ok(level == MF_QUALITY_NORMAL, "Unexpected level %d.\n", level);
 
     IMFQualityAdviseLimits_Release(qa_limits);
+}
 
 todo_wine {
     mode = 1;
@@ -2150,6 +2105,7 @@ static void test_presenter_media_type(void)
     IDirect3DDeviceManager9 *manager;
     HRESULT hr;
     IMFTransform *mixer;
+    IDirect3D9 *d3d;
     IDirect3DDevice9 *device;
     unsigned int token;
     SIZE frame_size;
@@ -2159,7 +2115,9 @@ static void test_presenter_media_type(void)
     RECT dst;
 
     window = create_window();
-    if (!(device = create_device(window)))
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+    if (!(device = create_device(d3d, window)))
     {
         skip("Failed to create a D3D device, skipping tests.\n");
         goto done;
@@ -2241,6 +2199,7 @@ todo_wine {
     IMFTransform_Release(mixer);
 
 done:
+    IDirect3D9_Release(d3d);
     DestroyWindow(window);
 }
 
@@ -2483,13 +2442,16 @@ static void test_mixer_samples(void)
     DWORD count, flags, color, status;
     IMFTransform *mixer;
     IMFSample *sample, *sample2;
+    IDirect3D9 *d3d;
     HWND window;
     UINT token;
     HRESULT hr;
     LONGLONG pts, duration;
 
     window = create_window();
-    if (!(device = create_device(window)))
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+    if (!(device = create_device(d3d, window)))
     {
         skip("Failed to create a D3D device, skipping tests.\n");
         goto done;
@@ -2719,48 +2681,8 @@ static void test_mixer_samples(void)
     IDirect3DDeviceManager9_Release(manager);
 
 done:
+    IDirect3D9_Release(d3d);
     DestroyWindow(window);
-}
-
-static void test_MFIsFormatYUV(void)
-{
-    static const DWORD formats[] =
-    {
-        D3DFMT_UYVY,
-        D3DFMT_YUY2,
-        MAKEFOURCC('A','Y','U','V'),
-        MAKEFOURCC('I','M','C','1'),
-        MAKEFOURCC('I','M','C','2'),
-        MAKEFOURCC('Y','V','1','2'),
-        MAKEFOURCC('N','V','1','1'),
-        MAKEFOURCC('N','V','1','2'),
-        MAKEFOURCC('Y','2','1','0'),
-        MAKEFOURCC('Y','2','1','6'),
-    };
-    static const DWORD unsupported_formats[] =
-    {
-        D3DFMT_A8R8G8B8,
-        MAKEFOURCC('I','Y','U','V'),
-        MAKEFOURCC('I','4','2','0'),
-        MAKEFOURCC('Y','V','Y','U'),
-        MAKEFOURCC('Y','V','U','9'),
-        MAKEFOURCC('Y','4','1','0'),
-        MAKEFOURCC('Y','4','1','6'),
-    };
-    unsigned int i;
-    BOOL ret;
-
-    for (i = 0; i < ARRAY_SIZE(formats); ++i)
-    {
-        ret = MFIsFormatYUV(formats[i]);
-        ok(ret, "Unexpected ret %d, format %s.\n", ret, debugstr_an((char *)&formats[i], 4));
-    }
-
-    for (i = 0; i < ARRAY_SIZE(unsupported_formats); ++i)
-    {
-        ret = MFIsFormatYUV(unsupported_formats[i]);
-        ok(!ret, "Unexpected ret %d, format %s.\n", ret, debugstr_an((char *)&unsupported_formats[i], 4));
-    }
 }
 
 START_TEST(evr)
@@ -2787,7 +2709,6 @@ START_TEST(evr)
     test_mixer_output_rectangle();
     test_mixer_zorder();
     test_mixer_samples();
-    test_MFIsFormatYUV();
 
     CoUninitialize();
 }

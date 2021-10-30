@@ -22,11 +22,6 @@
 #include "winbase.h"
 #include "dhcpcsdk.h"
 #include "winioctl.h"
-#include "winternl.h"
-#include "ws2def.h"
-#include "ws2ipdef.h"
-#include "iphlpapi.h"
-#include "netioapi.h"
 #define WINE_MOUNTMGR_EXTENSIONS
 #include "ddk/mountmgr.h"
 
@@ -34,6 +29,21 @@
 #include "wine/heap.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dhcpcsvc);
+
+BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
+{
+    TRACE("%p, %u, %p\n", hinst, reason, reserved);
+
+    switch (reason)
+    {
+        case DLL_WINE_PREATTACH:
+            return FALSE;    /* prefer native version */
+        case DLL_PROCESS_ATTACH:
+            DisableThreadLibraryCalls( hinst );
+            break;
+    }
+    return TRUE;
+}
 
 void WINAPI DhcpCApiCleanup(void)
 {
@@ -47,37 +57,20 @@ DWORD WINAPI DhcpCApiInitialize(LPDWORD version)
     return ERROR_SUCCESS;
 }
 
-static DWORD get_adapter_luid( const WCHAR *adapter, NET_LUID *luid )
-{
-    UNICODE_STRING ustr;
-    NTSTATUS status;
-    GUID guid;
-
-    if (adapter[0] == '{')
-    {
-        RtlInitUnicodeString( &ustr, adapter );
-        status = RtlGUIDFromString( &ustr, &guid );
-        if (!status) return ConvertInterfaceGuidToLuid( &guid, luid );
-    }
-    return ConvertInterfaceNameToLuidW( adapter, luid );
-}
-
 DWORD WINAPI DhcpRequestParams( DWORD flags, void *reserved, WCHAR *adapter, DHCPCAPI_CLASSID *class_id,
                                 DHCPCAPI_PARAMS_ARRAY send_params, DHCPCAPI_PARAMS_ARRAY recv_params, BYTE *buf,
                                 DWORD *buflen, WCHAR *request_id )
 {
     struct mountmgr_dhcp_request_params *query;
-    DWORD i, size, err;
+    DWORD i, size, err = ERROR_OUTOFMEMORY;
     BYTE *src, *dst;
-    NET_LUID luid;
     HANDLE mgr;
 
     TRACE( "(%08x, %p, %s, %p, %u, %u, %p, %p, %s)\n", flags, reserved, debugstr_w(adapter), class_id,
            send_params.nParams, recv_params.nParams, buf, buflen, debugstr_w(request_id) );
 
-    if (!adapter || !buflen) return ERROR_INVALID_PARAMETER;
+    if (!adapter || lstrlenW(adapter) > IF_MAX_STRING_SIZE || !buflen) return ERROR_INVALID_PARAMETER;
     if (flags != DHCPCAPI_REQUEST_SYNCHRONOUS) FIXME( "unsupported flags %08x\n", flags );
-    if ((err = get_adapter_luid( adapter, &luid ))) return err;
 
     for (i = 0; i < send_params.nParams; i++)
         FIXME( "send option %u not supported\n", send_params.Params->OptionId );
@@ -87,14 +80,11 @@ DWORD WINAPI DhcpRequestParams( DWORD flags, void *reserved, WCHAR *adapter, DHC
     if (mgr == INVALID_HANDLE_VALUE) return GetLastError();
 
     size = FIELD_OFFSET(struct mountmgr_dhcp_request_params, params[recv_params.nParams]) + *buflen;
-    if (!(query = heap_alloc_zero( size )))
-    {
-        err = ERROR_OUTOFMEMORY;
-        goto done;
-    }
+    if (!(query = heap_alloc_zero( size ))) goto done;
+
     for (i = 0; i < recv_params.nParams; i++) query->params[i].id = recv_params.Params[i].OptionId;
     query->count = recv_params.nParams;
-    query->adapter = luid;
+    lstrcpyW( query->adapter, adapter );
 
     if (!DeviceIoControl( mgr, IOCTL_MOUNTMGR_QUERY_DHCP_REQUEST_PARAMS, query, size, query, size, NULL, NULL ))
     {

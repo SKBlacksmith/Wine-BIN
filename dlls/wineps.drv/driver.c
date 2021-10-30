@@ -29,7 +29,6 @@
 
 #include "wine/debug.h"
 #include "psdrv.h"
-#include "ddk/winddiui.h"
 
 #include "winuser.h"
 #include "wine/wingdi16.h"
@@ -435,11 +434,80 @@ static INT_PTR CALLBACK PSDRV_PaperDlgProc(HWND hwnd, UINT msg,
 static HPROPSHEETPAGE (WINAPI *pCreatePropertySheetPage) (LPCPROPSHEETPAGEW);
 static int (WINAPI *pPropertySheet) (LPCPROPSHEETHEADERW);
 
-/******************************************************************************
- *           DrvDocumentProperties    (wineps.drv.@)
+static PRINTERINFO *PSDRV_FindPrinterInfoA(LPCSTR name)
+{
+    int len = MultiByteToWideChar( CP_ACP, 0, name, -1, NULL, 0 );
+    WCHAR *nameW = HeapAlloc( GetProcessHeap(), 0, len * sizeof(WCHAR) );
+    PRINTERINFO *pi;
+
+    MultiByteToWideChar( CP_ACP, 0, name, -1, nameW, len );
+    pi = PSDRV_FindPrinterInfo( nameW );
+    HeapFree( GetProcessHeap(), 0, nameW );
+
+    return pi;
+}
+
+/***********************************************************
+ *      DEVMODEdupWtoA
+ *
+ * Creates an ascii copy of supplied devmode on the process heap
+ *
+ * Copied from dlls/winspool/info.c until full unicodification
+ */
+static DEVMODEA *DEVMODEdupWtoA( const DEVMODEW *dmW )
+{
+    DEVMODEA *dmA;
+    DWORD size;
+    BOOL formname;
+    /* there is no pointer dereference here, if your code checking tool complains it's broken */
+    ptrdiff_t off_formname = (const char *)dmW->dmFormName - (const char *)dmW;
+
+    if (!dmW) return NULL;
+    formname = (dmW->dmSize > off_formname);
+    size = dmW->dmSize - CCHDEVICENAME - (formname ? CCHFORMNAME : 0);
+    dmA = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, size + dmW->dmDriverExtra );
+    WideCharToMultiByte( CP_ACP, 0, dmW->dmDeviceName, -1, (LPSTR)dmA->dmDeviceName,
+                         CCHDEVICENAME, NULL, NULL );
+    if (!formname)
+    {
+        memcpy( &dmA->dmSpecVersion, &dmW->dmSpecVersion,
+                dmW->dmSize - CCHDEVICENAME * sizeof(WCHAR) );
+    }
+    else
+    {
+        memcpy( &dmA->dmSpecVersion, &dmW->dmSpecVersion,
+               off_formname - CCHDEVICENAME * sizeof(WCHAR) );
+        WideCharToMultiByte( CP_ACP, 0, dmW->dmFormName, -1, (LPSTR)dmA->dmFormName,
+                             CCHFORMNAME, NULL, NULL );
+        memcpy( &dmA->dmLogPixels, &dmW->dmLogPixels, dmW->dmSize -
+                (off_formname + CCHFORMNAME * sizeof(WCHAR)) );
+    }
+    dmA->dmSize = size;
+    memcpy( (char *)dmA + dmA->dmSize, (const char *)dmW + dmW->dmSize,
+            dmW->dmDriverExtra );
+    return dmA;
+}
+
+ /******************************************************************
+ *         PSDRV_ExtDeviceMode
  *
  *  Retrieves or modifies device-initialization information for the PostScript
  *  driver, or displays a driver-supplied dialog box for configuring the driver.
+ *
+ * PARAMETERS
+ *  lpszDriver  -- Driver name
+ *  hwnd        -- Parent window for the dialog box
+ *  lpdmOutput  -- Address of a DEVMODE structure for writing initialization information
+ *  lpszDevice  -- Device name
+ *  lpszPort    -- Port name
+ *  lpdmInput   -- Address of a DEVMODE structure for reading initialization information
+ *  lpProfile   -- Name of initialization file, defaults to WIN.INI if NULL
+ *  wMode      -- Operation to perform.  Can be a combination if > 0.
+ *      (0)             -- Returns number of bytes required by DEVMODE structure
+ *      DM_UPDATE (1)   -- Write current settings to environment and initialization file
+ *      DM_COPY (2)     -- Write current settings to lpdmOutput
+ *      DM_PROMPT (4)   -- Presents the driver's modal dialog box (USER.240)
+ *      DM_MODIFY (8)   -- Changes current settings according to lpdmInput before any other operation
  *
  * RETURNS
  *  Returns size of DEVMODE structure if wMode is 0.  Otherwise, IDOK is returned for success
@@ -450,29 +518,31 @@ static int (WINAPI *pPropertySheet) (LPCPROPSHEETHEADERW);
  *
  * Just returns default devmode at the moment.  No use of initialization file.
  */
-INT WINAPI DrvDocumentProperties(HWND hwnd, const WCHAR *device, DEVMODEW *output,
-                                 DEVMODEW *input, DWORD mode)
+INT CDECL PSDRV_ExtDeviceMode(LPSTR lpszDriver, HWND hwnd, LPDEVMODEA lpdmOutput,
+                              LPSTR lpszDevice, LPSTR lpszPort, LPDEVMODEA lpdmInput,
+                              LPSTR lpszProfile, DWORD dwMode)
 {
-  PRINTERINFO *pi;
+  PRINTERINFO *pi = PSDRV_FindPrinterInfoA(lpszDevice);
+  if(!pi) return -1;
 
-  TRACE("(hwnd=%p, Device='%s', devOut=%p, devIn=%p, Mode=%04x)\n",
-        hwnd, debugstr_w(device), output, input, mode);
+  TRACE("(Driver=%s, hwnd=%p, devOut=%p, Device='%s', Port='%s', devIn=%p, Profile='%s', Mode=%04x)\n",
+  lpszDriver, hwnd, lpdmOutput, lpszDevice, lpszPort, lpdmInput, debugstr_a(lpszProfile), dwMode);
 
-  if (!(pi = PSDRV_FindPrinterInfo(device))) return -1;
-
-  /* If mode == 0, return size of DEVMODE structure */
-  if (!mode)
-      return pi->Devmode->dmPublic.dmSize + pi->Devmode->dmPublic.dmDriverExtra;
+  /* If dwMode == 0, return size of DEVMODE structure */
+  if(!dwMode)
+      return pi->Devmode->dmPublic.dmSize + pi->Devmode->dmPublic.dmDriverExtra - CCHDEVICENAME - CCHFORMNAME;
 
   /* If DM_MODIFY is set, change settings in accordance with lpdmInput */
-  if ((mode & DM_MODIFY) && input)
+  if((dwMode & DM_MODIFY) && lpdmInput)
   {
-    TRACE("DM_MODIFY set. devIn->dmFields = %08x\n", input->dmFields);
-    PSDRV_MergeDevmodes(pi->Devmode, (PSDRV_DEVMODE *)input, pi);
+    DEVMODEW *dmW = GdiConvertToDevmodeW( lpdmInput );
+    TRACE("DM_MODIFY set. devIn->dmFields = %08x\n", lpdmInput->dmFields);
+    if (dmW) PSDRV_MergeDevmodes(pi->Devmode, (PSDRV_DEVMODE *)dmW, pi);
+    HeapFree( GetProcessHeap(), 0, dmW );
   }
 
   /* If DM_PROMPT is set, present modal dialog box */
-  if (mode & DM_PROMPT) {
+  if(dwMode & DM_PROMPT) {
     HINSTANCE hinstComctl32;
     HPROPSHEETPAGE hpsp[1];
     PROPSHEETPAGEW psp;
@@ -510,49 +580,72 @@ INT WINAPI DrvDocumentProperties(HWND hwnd, const WCHAR *device, DEVMODEW *outpu
   }
   
   /* If DM_UPDATE is set, should write settings to environment and initialization file */
-  if (mode & DM_UPDATE)
+  if(dwMode & DM_UPDATE)
     FIXME("Mode DM_UPDATE.  Just do the same as DM_COPY\n");
 
   /* If DM_COPY is set, should write settings to lpdmOutput */
-  if (output && (mode & (DM_COPY | DM_UPDATE)))
-    memcpy( output, &pi->Devmode->dmPublic,
-            pi->Devmode->dmPublic.dmSize + pi->Devmode->dmPublic.dmDriverExtra );
+  if((dwMode & DM_COPY) || (dwMode & DM_UPDATE)) {
+    if (lpdmOutput)
+    {
+        DEVMODEA *dmA = DEVMODEdupWtoA( &pi->Devmode->dmPublic );
+        if (dmA) memcpy( lpdmOutput, dmA, dmA->dmSize + dmA->dmDriverExtra );
+        HeapFree( GetProcessHeap(), 0, dmA );
+    }
+    else
+        FIXME("lpdmOutput is NULL what should we do??\n");
+  }
   return IDOK;
 }
-
-/******************************************************************************
- *           DrvDeviceCapabilities    (wineps.drv.@)
+/***********************************************************************
+ *	PSDRV_DeviceCapabilities	
+ *
+ *      Retrieves the capabilities of a printer device driver.
+ *
+ * Parameters
+ *      lpszDriver -- printer driver name
+ *      lpszDevice -- printer name
+ *      lpszPort -- port name
+ *      fwCapability -- device capability
+ *      lpszOutput -- output buffer
+ *      lpDevMode -- device data buffer
+ *
+ * Returns
+ *      Result depends on the setting of fwCapability.  -1 indicates failure.
  */
-DWORD WINAPI DrvDeviceCapabilities(HANDLE printer, WCHAR *device_name, WORD capability,
-                                   void *output, DEVMODEW *devmode)
+DWORD CDECL PSDRV_DeviceCapabilities(LPSTR lpszDriver, LPCSTR lpszDevice, LPCSTR lpszPort,
+                                     WORD fwCapability, LPSTR lpszOutput, LPDEVMODEA lpDevMode)
 {
   PRINTERINFO *pi;
   DEVMODEW *lpdm;
   DWORD ret;
+  pi = PSDRV_FindPrinterInfoA(lpszDevice);
 
-  TRACE("%s %u, %p, %p\n", debugstr_w(device_name), capability, output, devmode);
+  TRACE("%s %s %s, %u, %p, %p\n", debugstr_a(lpszDriver), debugstr_a(lpszDevice),
+        debugstr_a(lpszPort), fwCapability, lpszOutput, lpDevMode);
 
-  if (!(pi = PSDRV_FindPrinterInfo(device_name))) {
-      ERR("no printer info for %s, return 0!\n", debugstr_w(device_name));
+  if (!pi) {
+      ERR("no printer info for %s %s, return 0!\n",
+          debugstr_a(lpszDriver), debugstr_a(lpszDevice));
       return 0;
   }
 
   lpdm = &pi->Devmode->dmPublic;
-  if (devmode) lpdm = devmode;
+  if (lpDevMode) lpdm = GdiConvertToDevmodeW( lpDevMode );
 
-  switch(capability) {
+  switch(fwCapability) {
 
   case DC_PAPERS:
     {
       PAGESIZE *ps;
-      WORD *wp = output;
+      WORD *wp = (WORD *)lpszOutput;
       int i = 0;
 
       LIST_FOR_EACH_ENTRY(ps, &pi->ppd->PageSizes, PAGESIZE, entry)
       {
         TRACE("DC_PAPERS: %u\n", ps->WinPage);
         i++;
-        if (output != NULL) *wp++ = ps->WinPage;
+	if(lpszOutput != NULL)
+	  *wp++ = ps->WinPage;
       }
       ret = i;
       break;
@@ -561,14 +654,14 @@ DWORD WINAPI DrvDeviceCapabilities(HANDLE printer, WCHAR *device_name, WORD capa
   case DC_PAPERSIZE:
     {
       PAGESIZE *ps;
-      POINT16 *pt = output;
+      POINT16 *pt = (POINT16 *)lpszOutput;
       int i = 0;
 
       LIST_FOR_EACH_ENTRY(ps, &pi->ppd->PageSizes, PAGESIZE, entry)
       {
         TRACE("DC_PAPERSIZE: %f x %f\n", ps->PaperDimension->x, ps->PaperDimension->y);
         i++;
-        if (output != NULL) {
+	if(lpszOutput != NULL) {
           pt->x = paper_size_from_points( ps->PaperDimension->x );
           pt->y = paper_size_from_points( ps->PaperDimension->y );
 	  pt++;
@@ -581,15 +674,15 @@ DWORD WINAPI DrvDeviceCapabilities(HANDLE printer, WCHAR *device_name, WORD capa
   case DC_PAPERNAMES:
     {
       PAGESIZE *ps;
-      WCHAR *cp = output;
+      char *cp = lpszOutput;
       int i = 0;
 
       LIST_FOR_EACH_ENTRY(ps, &pi->ppd->PageSizes, PAGESIZE, entry)
       {
         TRACE("DC_PAPERNAMES: %s\n", debugstr_a(ps->FullName));
         i++;
-        if (output != NULL) {
-          MultiByteToWideChar(CP_ACP, 0, ps->FullName, -1, cp, 64);
+	if(lpszOutput != NULL) {
+	  lstrcpynA(cp, ps->FullName, 64);
 	  cp += 64;
 	}
       }
@@ -604,13 +697,13 @@ DWORD WINAPI DrvDeviceCapabilities(HANDLE printer, WCHAR *device_name, WORD capa
   case DC_BINS:
     {
       INPUTSLOT *slot;
-      WORD *wp = output;
+      WORD *wp = (WORD *)lpszOutput;
       int i = 0;
 
       LIST_FOR_EACH_ENTRY( slot, &pi->ppd->InputSlots, INPUTSLOT, entry )
       {
           i++;
-          if (output != NULL)
+          if (lpszOutput != NULL)
               *wp++ = slot->WinBin;
       }
       ret = i;
@@ -620,15 +713,15 @@ DWORD WINAPI DrvDeviceCapabilities(HANDLE printer, WCHAR *device_name, WORD capa
   case DC_BINNAMES:
     {
       INPUTSLOT *slot;
-      WCHAR *cp = output;
+      char *cp = lpszOutput;
       int i = 0;
 
       LIST_FOR_EACH_ENTRY( slot, &pi->ppd->InputSlots, INPUTSLOT, entry )
       {
           i++;
-          if (output != NULL)
+          if (lpszOutput != NULL)
           {
-              MultiByteToWideChar(CP_ACP, 0, slot->FullName, -1, cp, 24);
+              lstrcpynA( cp, slot->FullName, 24 );
               cp += 24;
           }
       }
@@ -644,13 +737,13 @@ DWORD WINAPI DrvDeviceCapabilities(HANDLE printer, WCHAR *device_name, WORD capa
   case DC_ENUMRESOLUTIONS:
     {
         RESOLUTION *res;
-        LONG *lp = output;
+        LONG *lp = (LONG *)lpszOutput;
         int i = 0;
 
         LIST_FOR_EACH_ENTRY(res, &pi->ppd->Resolutions, RESOLUTION, entry)
         {
             i++;
-            if (output != NULL)
+            if (lpszOutput != NULL)
             {
                 lp[0] = res->resx;
                 lp[1] = res->resy;
@@ -843,10 +936,11 @@ DWORD WINAPI DrvDeviceCapabilities(HANDLE printer, WCHAR *device_name, WORD capa
     break;
 
   default:
-    FIXME("Unsupported capability %d\n", capability);
+    FIXME("Unsupported capability %d\n", fwCapability);
     ret = -1;
   }
 
+  if (lpDevMode) HeapFree( GetProcessHeap(), 0, lpdm );
   return ret;
 }
 

@@ -78,8 +78,8 @@
 @ cdecl ?set_unexpected@@YAP6AXXZP6AXXZ@Z(ptr) set_unexpected
 @ cdecl ?terminate@@YAXXZ() terminate
 @ cdecl ?unexpected@@YAXXZ() unexpected
-@ thiscall -arch=i386 ?what@exception@@UBEPBDXZ(ptr) exception_what
-@ cdecl -arch=win64 ?what@exception@@UEBAPEBDXZ(ptr) exception_what
+@ thiscall -arch=i386 ?what@exception@@UBEPBDXZ(ptr) what_exception
+@ cdecl -arch=win64 ?what@exception@@UEBAPEBDXZ(ptr) what_exception
 @ cdecl -arch=i386 _CIacos()
 @ cdecl -arch=i386 _CIasin()
 @ cdecl -arch=i386 _CIatan()
@@ -173,7 +173,7 @@
 @ cdecl __p__osver()
 @ cdecl __p__pctype()
 @ cdecl __p__pgmptr()
-@ cdecl __p__pwctype()
+@ stub __p__pwctype()
 @ cdecl __p__timezone()
 @ cdecl __p__tzname()
 @ cdecl __p__wcmdln()
@@ -184,7 +184,6 @@
 @ cdecl __p__wpgmptr()
 @ cdecl __pctype_func()
 @ extern __pioinfo MSVCRT___pioinfo
-@ cdecl __pwctype_func()
 @ cdecl __pxcptinfoptrs()
 @ cdecl __set_app_type(long)
 @ extern __setlc_active MSVCRT___setlc_active
@@ -552,7 +551,7 @@
 @ cdecl _unlock(long)
 @ cdecl -arch=win32 _utime(str ptr) _utime32
 @ cdecl -arch=win64 _utime(str ptr) _utime64
-@ cdecl -norelay _vsnprintf(ptr long str ptr)
+@ cdecl _vsnprintf(ptr long str ptr)
 @ cdecl _vsnwprintf(ptr long wstr ptr)
 @ cdecl _waccess(wstr long)
 @ cdecl _wasctime(ptr)

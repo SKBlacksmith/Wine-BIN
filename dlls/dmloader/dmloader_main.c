@@ -36,6 +36,7 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(dmloader);
 
+static HINSTANCE instance;
 LONG module_ref = 0;
 
 typedef struct {
@@ -124,6 +125,18 @@ static IClassFactoryImpl dm_loader_CF = {{&classfactory_vtbl}, create_dmloader};
 static IClassFactoryImpl dm_container_CF = {{&classfactory_vtbl}, create_dmcontainer};
 
 /******************************************************************
+ *		DllMain
+ */
+BOOL WINAPI DllMain (HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
+	if (fdwReason == DLL_PROCESS_ATTACH) {
+                instance = hinstDLL;
+		DisableThreadLibraryCalls(hinstDLL);
+	}
+	return TRUE;
+}
+
+
+/******************************************************************
  *		DllCanUnloadNow (DMLOADER.@)
  */
 HRESULT WINAPI DllCanUnloadNow (void)
@@ -151,4 +164,20 @@ HRESULT WINAPI DllGetClassObject (REFCLSID rclsid, REFIID riid, LPVOID *ppv)
 
     WARN(": no class found\n");
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+/***********************************************************************
+ *		DllRegisterServer (DMLOADER.@)
+ */
+HRESULT WINAPI DllRegisterServer(void)
+{
+    return __wine_register_resources( instance );
+}
+
+/***********************************************************************
+ *		DllUnregisterServer (DMLOADER.@)
+ */
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    return __wine_unregister_resources( instance );
 }

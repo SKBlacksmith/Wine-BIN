@@ -18,6 +18,7 @@
 
 
 #include <stdarg.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -484,7 +485,6 @@ static const tid_t HTMLDOMAttribute_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLDOMAttribute_dispex = {
-    L"Attr",
     NULL,
     DispHTMLDOMAttribute_tid,
     HTMLDOMAttribute_iface_tids
@@ -495,7 +495,7 @@ HTMLDOMAttribute *unsafe_impl_from_IHTMLDOMAttribute(IHTMLDOMAttribute *iface)
     return iface->lpVtbl == &HTMLDOMAttributeVtbl ? impl_from_IHTMLDOMAttribute(iface) : NULL;
 }
 
-HRESULT HTMLDOMAttribute_Create(const WCHAR *name, HTMLElement *elem, DISPID dispid, compat_mode_t compat_mode, HTMLDOMAttribute **attr)
+HRESULT HTMLDOMAttribute_Create(const WCHAR *name, HTMLElement *elem, DISPID dispid, HTMLDOMAttribute **attr)
 {
     HTMLAttributeCollection *col;
     HTMLDOMAttribute *ret;
@@ -511,8 +511,8 @@ HRESULT HTMLDOMAttribute_Create(const WCHAR *name, HTMLElement *elem, DISPID dis
     ret->dispid = dispid;
     ret->elem = elem;
 
-    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLDOMAttribute_iface,
-                  &HTMLDOMAttribute_dispex, compat_mode);
+    init_dispex(&ret->dispex, (IUnknown*)&ret->IHTMLDOMAttribute_iface,
+            &HTMLDOMAttribute_dispex);
 
     /* For attributes attached to an element, (elem,dispid) pair should be valid used for its operation. */
     if(elem) {

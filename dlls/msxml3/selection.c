@@ -22,11 +22,15 @@
 
 #define COBJMACROS
 
+#include "config.h"
+
 #include <stdarg.h>
-#include <libxml/parser.h>
-#include <libxml/xmlerror.h>
-#include <libxml/xpath.h>
-#include <libxml/xpathInternals.h>
+#ifdef HAVE_LIBXML2
+# include <libxml/parser.h>
+# include <libxml/xmlerror.h>
+# include <libxml/xpath.h>
+# include <libxml/xpathInternals.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -47,6 +51,8 @@
  *  - supports IXMLDOMSelection
  *
  */
+
+#ifdef HAVE_LIBXML2
 
 WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 
@@ -832,3 +838,5 @@ cleanup:
     xmlXPathFreeContext(ctxt);
     return hr;
 }
+
+#endif

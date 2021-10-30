@@ -19,7 +19,6 @@
  */
 
 #include <stdarg.h>
-#include <stdlib.h>
 
 #include "windef.h"
 #include "winbase.h"
@@ -105,11 +104,8 @@ static const WCHAR AddInterface[] = {'A','d','d','I','n','t','e','r','f','a','c'
 static const WCHAR backslashW[] = {'\\',0};
 static const WCHAR emptyW[] = {0};
 
-#define SERVICE_CONTROL_REENUMERATE_ROOT_DEVICES 128
-
 struct driver
 {
-    DWORD rank;
     WCHAR inf_path[MAX_PATH];
     WCHAR manufacturer[LINE_LEN];
     WCHAR mfg_key[LINE_LEN];
@@ -561,7 +557,7 @@ static LONG open_driver_key(struct device *device, REGSAM access, HKEY *key)
             RegCloseKey(class_key);
             return l;
         }
-        TRACE("Failed to open driver key, error %u.\n", l);
+        ERR("Failed to open driver key, error %u.\n", l);
     }
 
     RegCloseKey(class_key);
@@ -691,81 +687,6 @@ static void delete_device_iface(struct device_iface *iface)
     heap_free(iface);
 }
 
-/* remove all interfaces associated with the device, including those not
- * enumerated in the set */
-static void remove_all_device_ifaces(struct device *device)
-{
-    HKEY classes_key;
-    DWORD i, len;
-    LONG ret;
-
-    if ((ret = RegOpenKeyExW(HKEY_LOCAL_MACHINE, DeviceClasses, 0, KEY_READ, &classes_key)))
-    {
-        WARN("Failed to open classes key, error %u.\n", ret);
-        return;
-    }
-
-    for (i = 0; ; ++i)
-    {
-        WCHAR class_name[40];
-        HKEY class_key;
-        DWORD j;
-
-        len = ARRAY_SIZE(class_name);
-        if ((ret = RegEnumKeyExW(classes_key, i, class_name, &len, NULL, NULL, NULL, NULL)))
-        {
-            if (ret != ERROR_NO_MORE_ITEMS) ERR("Failed to enumerate classes, error %u.\n", ret);
-            break;
-        }
-
-        if ((ret = RegOpenKeyExW(classes_key, class_name, 0, KEY_READ, &class_key)))
-        {
-            ERR("Failed to open class %s, error %u.\n", debugstr_w(class_name), ret);
-            continue;
-        }
-
-        for (j = 0; ; ++j)
-        {
-            WCHAR iface_name[MAX_DEVICE_ID_LEN + 39], device_name[MAX_DEVICE_ID_LEN];
-            HKEY iface_key;
-
-            len = ARRAY_SIZE(iface_name);
-            if ((ret = RegEnumKeyExW(class_key, j, iface_name, &len, NULL, NULL, NULL, NULL)))
-            {
-                if (ret != ERROR_NO_MORE_ITEMS) ERR("Failed to enumerate interfaces, error %u.\n", ret);
-                break;
-            }
-
-            if ((ret = RegOpenKeyExW(class_key, iface_name, 0, KEY_ALL_ACCESS, &iface_key)))
-            {
-                ERR("Failed to open interface %s, error %u.\n", debugstr_w(iface_name), ret);
-                continue;
-            }
-
-            len = sizeof(device_name);
-            if ((ret = RegQueryValueExW(iface_key, L"DeviceInstance", NULL, NULL, (BYTE *)device_name, &len)))
-            {
-                ERR("Failed to query device instance, error %u.\n", ret);
-                RegCloseKey(iface_key);
-                continue;
-            }
-
-            if (!wcsicmp(device_name, device->instanceId))
-            {
-                if ((ret = RegDeleteTreeW(iface_key, NULL)))
-                    ERR("Failed to delete interface %s subkeys, error %u.\n", debugstr_w(iface_name), ret);
-                if ((ret = RegDeleteKeyW(iface_key, L"")))
-                    ERR("Failed to delete interface %s, error %u.\n", debugstr_w(iface_name), ret);
-            }
-
-            RegCloseKey(iface_key);
-        }
-        RegCloseKey(class_key);
-    }
-
-    RegCloseKey(classes_key);
-}
-
 static void remove_device(struct device *device)
 {
     WCHAR id[MAX_DEVICE_ID_LEN], *p;
@@ -811,10 +732,7 @@ static void delete_device(struct device *device)
     SetupDiCallClassInstaller(DIF_DESTROYPRIVATEDATA, device->set, &device_data);
 
     if (device->phantom)
-    {
         remove_device(device);
-        remove_all_device_ifaces(device);
-    }
 
     RegCloseKey(device->key);
     heap_free(device->instanceId);
@@ -1772,40 +1690,14 @@ BOOL WINAPI SetupDiRegisterDeviceInfo(HDEVINFO devinfo, SP_DEVINFO_DATA *device_
  */
 BOOL WINAPI SetupDiRemoveDevice(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data)
 {
-    SC_HANDLE manager = NULL, service = NULL;
     struct device *device;
-    WCHAR *service_name = NULL;
-    DWORD size;
 
     TRACE("devinfo %p, device_data %p.\n", devinfo, device_data);
 
     if (!(device = get_device(devinfo, device_data)))
         return FALSE;
 
-    if (!(manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT)))
-        return FALSE;
-
-    if (!RegGetValueW(device->key, NULL, L"Service", RRF_RT_REG_SZ, NULL, NULL, &size))
-    {
-        service_name = malloc(size);
-        if (!RegGetValueW(device->key, NULL, L"Service", RRF_RT_REG_SZ, NULL, service_name, &size))
-            service = OpenServiceW(manager, service_name, SERVICE_USER_DEFINED_CONTROL);
-    }
-
     remove_device(device);
-
-    if (service)
-    {
-        SERVICE_STATUS status;
-        if (!ControlService(service, SERVICE_CONTROL_REENUMERATE_ROOT_DEVICES, &status))
-            ERR("Failed to control service %s, error %u.\n", debugstr_w(service_name), GetLastError());
-        CloseServiceHandle(service);
-    }
-    CloseServiceHandle(manager);
-
-    free(service_name);
-
-    remove_all_device_ifaces(device);
 
     return TRUE;
 }
@@ -4589,23 +4481,21 @@ BOOL WINAPI SetupDiRegisterCoDeviceInstallers(HDEVINFO devinfo, SP_DEVINFO_DATA 
 
 /* Check whether the given hardware or compatible ID matches any of the device's
  * own hardware or compatible IDs. */
-static BOOL device_matches_id(const struct device *device, const WCHAR *id_type, const WCHAR *id,
-                              DWORD *driver_rank)
+static BOOL device_matches_id(const struct device *device, const WCHAR *id_type, const WCHAR *id)
 {
     WCHAR *device_ids;
     const WCHAR *p;
-    DWORD i, size;
+    DWORD size;
 
     if (!RegGetValueW(device->key, NULL, id_type, RRF_RT_REG_MULTI_SZ, NULL, NULL, &size))
     {
         device_ids = heap_alloc(size);
         if (!RegGetValueW(device->key, NULL, id_type, RRF_RT_REG_MULTI_SZ, NULL, device_ids, &size))
         {
-            for (p = device_ids, i = 0; *p; p += lstrlenW(p) + 1, i++)
+            for (p = device_ids; *p; p += lstrlenW(p) + 1)
             {
                 if (!wcsicmp(p, id))
                 {
-                    *driver_rank += min(i, 0xff);
                     heap_free(device_ids);
                     return TRUE;
                 }
@@ -4647,11 +4537,9 @@ static BOOL version_is_compatible(const WCHAR *version)
 static void enum_compat_drivers_from_file(struct device *device, const WCHAR *path)
 {
     static const WCHAR manufacturerW[] = {'M','a','n','u','f','a','c','t','u','r','e','r',0};
-    WCHAR mfg_key[LINE_LEN], id[MAX_DEVICE_ID_LEN], version[MAX_DEVICE_ID_LEN];
-    DWORD i, j, k, driver_count = device->driver_count;
-    struct driver driver, *drivers = device->drivers;
+    WCHAR mfg_name[LINE_LEN], mfg_key[LINE_LEN], mfg_key_ext[LINE_LEN], id[MAX_DEVICE_ID_LEN], version[MAX_DEVICE_ID_LEN];
     INFCONTEXT ctx;
-    BOOL found;
+    DWORD i, j, k;
     HINF hinf;
 
     TRACE("Enumerating drivers from %s.\n", debugstr_w(path));
@@ -4659,13 +4547,11 @@ static void enum_compat_drivers_from_file(struct device *device, const WCHAR *pa
     if ((hinf = SetupOpenInfFileW(path, NULL, INF_STYLE_WIN4, NULL)) == INVALID_HANDLE_VALUE)
         return;
 
-    lstrcpyW(driver.inf_path, path);
-
     for (i = 0; SetupGetLineByIndexW(hinf, manufacturerW, i, &ctx); ++i)
     {
-        SetupGetStringFieldW(&ctx, 0, driver.manufacturer, ARRAY_SIZE(driver.manufacturer), NULL);
+        SetupGetStringFieldW(&ctx, 0, mfg_name, ARRAY_SIZE(mfg_name), NULL);
         if (!SetupGetStringFieldW(&ctx, 1, mfg_key, ARRAY_SIZE(mfg_key), NULL))
-            lstrcpyW(mfg_key, driver.manufacturer);
+            lstrcpyW(mfg_key, mfg_name);
 
         if (SetupGetFieldCount(&ctx) >= 2)
         {
@@ -4682,43 +4568,37 @@ static void enum_compat_drivers_from_file(struct device *device, const WCHAR *pa
                 continue;
         }
 
-        if (!SetupDiGetActualSectionToInstallW(hinf, mfg_key, driver.mfg_key,
-                ARRAY_SIZE(driver.mfg_key), NULL, NULL))
+        if (!SetupDiGetActualSectionToInstallW(hinf, mfg_key, mfg_key_ext, ARRAY_SIZE(mfg_key_ext), NULL, NULL))
         {
             WARN("Failed to find section for %s, skipping.\n", debugstr_w(mfg_key));
             continue;
         }
 
-        for (j = 0; SetupGetLineByIndexW(hinf, driver.mfg_key, j, &ctx); ++j)
+        for (j = 0; SetupGetLineByIndexW(hinf, mfg_key_ext, j, &ctx); ++j)
         {
-            driver.rank = 0;
-            for (k = 2, found = FALSE; SetupGetStringFieldW(&ctx, k, id, ARRAY_SIZE(id), NULL); ++k)
+            for (k = 2; SetupGetStringFieldW(&ctx, k, id, ARRAY_SIZE(id), NULL); ++k)
             {
-                if ((found = device_matches_id(device, HardwareId, id, &driver.rank))) break;
-                driver.rank += 0x2000;
-                if ((found = device_matches_id(device, CompatibleIDs, id, &driver.rank))) break;
-                driver.rank = 0x1000 + min(0x0100 * (k - 2), 0xf00);
-            }
+                if (device_matches_id(device, HardwareId, id) || device_matches_id(device, CompatibleIDs, id))
+                {
+                    unsigned int count = ++device->driver_count;
 
-            if (found)
-            {
-                SetupGetStringFieldW(&ctx, 0, driver.description, ARRAY_SIZE(driver.description), NULL);
-                SetupGetStringFieldW(&ctx, 1, driver.section, ARRAY_SIZE(driver.section), NULL);
+                    device->drivers = heap_realloc(device->drivers, count * sizeof(*device->drivers));
+                    lstrcpyW(device->drivers[count - 1].inf_path, path);
+                    lstrcpyW(device->drivers[count - 1].manufacturer, mfg_name);
+                    lstrcpyW(device->drivers[count - 1].mfg_key, mfg_key_ext);
+                    SetupGetStringFieldW(&ctx, 0, device->drivers[count - 1].description,
+                            ARRAY_SIZE(device->drivers[count - 1].description), NULL);
+                    SetupGetStringFieldW(&ctx, 1, device->drivers[count - 1].section,
+                            ARRAY_SIZE(device->drivers[count - 1].section), NULL);
 
-                TRACE("Found compatible driver: rank %#x manufacturer %s, desc %s.\n",
-                        driver.rank, debugstr_w(driver.manufacturer), debugstr_w(driver.description));
-
-                driver_count++;
-                drivers = heap_realloc(drivers, driver_count * sizeof(*drivers));
-                drivers[driver_count - 1] = driver;
+                    TRACE("Found compatible driver: manufacturer %s, desc %s.\n",
+                            debugstr_w(mfg_name), debugstr_w(device->drivers[count - 1].description));
+                }
             }
         }
     }
 
     SetupCloseInfFile(hinf);
-
-    device->drivers = drivers;
-    device->driver_count = driver_count;
 }
 
 /***********************************************************************
@@ -4873,8 +4753,6 @@ BOOL WINAPI SetupDiEnumDriverInfoA(HDEVINFO devinfo, SP_DEVINFO_DATA *device_dat
 BOOL WINAPI SetupDiSelectBestCompatDrv(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data)
 {
     struct device *device;
-    struct driver *best;
-    DWORD i;
 
     TRACE("devinfo %p, device_data %p.\n", devinfo, device_data);
 
@@ -4888,17 +4766,10 @@ BOOL WINAPI SetupDiSelectBestCompatDrv(HDEVINFO devinfo, SP_DEVINFO_DATA *device
         return FALSE;
     }
 
-    best = device->drivers;
-    for (i = 1; i < device->driver_count; ++i)
-    {
-        if (device->drivers[i].rank >= best->rank) continue;
-        best = device->drivers + i;
-    }
+    WARN("Semi-stub, selecting the first available driver.\n");
 
-    TRACE("selected driver: rank %#x manufacturer %s, desc %s.\n",
-            best->rank, debugstr_w(best->manufacturer), debugstr_w(best->description));
+    device->selected_driver = &device->drivers[0];
 
-    device->selected_driver = best;
     return TRUE;
 }
 
@@ -5252,18 +5123,11 @@ BOOL WINAPI SetupDiInstallDevice(HDEVINFO devinfo, SP_DEVINFO_DATA *device_data)
     if (!wcsnicmp(device->instanceId, rootW, lstrlenW(rootW)) && svc_name[0]
             && (manager = OpenSCManagerW(NULL, NULL, SC_MANAGER_CONNECT)))
     {
-        if ((service = OpenServiceW(manager, svc_name, SERVICE_START | SERVICE_USER_DEFINED_CONTROL)))
+        if ((service = OpenServiceW(manager, svc_name, SERVICE_START)))
         {
-            SERVICE_STATUS status;
-
             if (!StartServiceW(service, 0, NULL) && GetLastError() != ERROR_SERVICE_ALREADY_RUNNING)
             {
                 ERR("Failed to start service %s for device %s, error %u.\n",
-                        debugstr_w(svc_name), debugstr_w(device->instanceId), GetLastError());
-            }
-            if (!ControlService(service, SERVICE_CONTROL_REENUMERATE_ROOT_DEVICES, &status))
-            {
-                ERR("Failed to control service %s for device %s, error %u.\n",
                         debugstr_w(svc_name), debugstr_w(device->instanceId), GetLastError());
             }
             CloseServiceHandle(service);

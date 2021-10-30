@@ -24,7 +24,6 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-#include <math.h>
 
 #include "windef.h"
 #include "winbase.h"
@@ -564,7 +563,7 @@ INT WINAPI wglChoosePixelFormat(HDC hdc, const PIXELFORMATDESCRIPTOR* ppfd)
                 continue;
             }
         }
-        if (ppfd->cDepthBits && !(ppfd->dwFlags & PFD_DEPTH_DONTCARE))
+        if (ppfd->cDepthBits)
         {
             if (((ppfd->cDepthBits > best.cDepthBits) && (format.cDepthBits > best.cDepthBits)) ||
                 ((format.cDepthBits >= ppfd->cDepthBits) && (format.cDepthBits < best.cDepthBits)))
@@ -600,9 +599,6 @@ INT WINAPI wglChoosePixelFormat(HDC hdc, const PIXELFORMATDESCRIPTOR* ppfd)
                 continue;
             }
         }
-        if (ppfd->dwFlags & PFD_DEPTH_DONTCARE && format.cDepthBits < best.cDepthBits)
-            goto found;
-
         continue;
 
     found:

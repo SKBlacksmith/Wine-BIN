@@ -33,8 +33,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(vcomp);
 
-#define MAX_VECT_PARALLEL_CALLBACK_ARGS 128
-
 typedef CRITICAL_SECTION *omp_lock_t;
 typedef CRITICAL_SECTION *omp_nest_lock_t;
 
@@ -43,7 +41,6 @@ static DWORD   vcomp_context_tls = TLS_OUT_OF_INDEXES;
 static HMODULE vcomp_module;
 static int     vcomp_max_threads;
 static int     vcomp_num_threads;
-static int     vcomp_num_procs;
 static BOOL    vcomp_nested_fork = FALSE;
 
 static RTL_CRITICAL_SECTION vcomp_section;
@@ -94,7 +91,7 @@ struct vcomp_team_data
     /* callback arguments */
     int                     nargs;
     void                    *wrapper;
-    va_list                 valist;
+    __ms_va_list            valist;
 
     /* barrier */
     unsigned int            barrier;
@@ -120,22 +117,9 @@ struct vcomp_task_data
     unsigned int            dynamic_chunksize;
 };
 
-static void **ptr_from_va_list(va_list valist)
-{
-    return *(void ***)&valist;
-}
-
-static void copy_va_list_data(void **args, va_list valist, int args_count)
-{
-    unsigned int i;
-
-    for (i = 0; i < args_count; ++i)
-        args[i] = va_arg(valist, void *);
-}
-
 #if defined(__i386__)
 
-extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, void **args);
+extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, __ms_va_list args);
 __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
                    "pushl %ebp\n\t"
                    __ASM_CFI(".cfi_adjust_cfa_offset 4\n\t")
@@ -170,7 +154,7 @@ __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
 
 #elif defined(__x86_64__)
 
-extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, void **args);
+extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, __ms_va_list args);
 __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
                    "pushq %rbp\n\t"
                    __ASM_SEH(".seh_pushreg %rbp\n\t")
@@ -214,8 +198,9 @@ __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
 
 #elif defined(__arm__)
 
-extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, void **args);
+extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, __ms_va_list args);
 __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
+                   ".arm\n\t"
                    "push {r4, r5, LR}\n\t"
                    "mov r4, r0\n\t"
                    "mov r5, SP\n\t"
@@ -224,7 +209,6 @@ __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
                    "beq 5f\n\t"
                    "sub SP, SP, r3\n\t"
                    "tst r1, #1\n\t"
-                   "it eq\n\t"
                    "subeq SP, SP, #4\n\t"
                    "1:\tsub r3, r3, #4\n\t"
                    "ldr r0, [r2, r3]\n\t"
@@ -250,7 +234,7 @@ __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
 
 #elif defined(__aarch64__)
 
-extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, void **args);
+extern void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, __ms_va_list args);
 __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
                    "stp x29, x30, [SP,#-16]!\n\t"
                    "mov x29, SP\n\t"
@@ -279,7 +263,7 @@ __ASM_GLOBAL_FUNC( _vcomp_fork_call_wrapper,
 
 #else
 
-static void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, void **args)
+static void CDECL _vcomp_fork_call_wrapper(void *wrapper, int nargs, __ms_va_list args)
 {
     ERR("Not implemented for this architecture\n");
 }
@@ -1002,8 +986,8 @@ int CDECL omp_get_nested(void)
 
 int CDECL omp_get_num_procs(void)
 {
-    TRACE("\n");
-    return vcomp_num_procs;
+    TRACE("stub\n");
+    return 1;
 }
 
 int CDECL omp_get_num_threads(void)
@@ -1422,7 +1406,7 @@ static DWORD WINAPI _vcomp_fork_worker(void *param)
         if (team != NULL)
         {
             LeaveCriticalSection(&vcomp_section);
-            _vcomp_fork_call_wrapper(team->wrapper, team->nargs, ptr_from_va_list(team->valist));
+            _vcomp_fork_call_wrapper(team->wrapper, team->nargs, team->valist);
             EnterCriticalSection(&vcomp_section);
 
             thread_data->team = NULL;
@@ -1474,7 +1458,7 @@ void WINAPIV _vcomp_fork(BOOL ifval, int nargs, void *wrapper, ...)
     team_data.finished_threads  = 0;
     team_data.nargs             = nargs;
     team_data.wrapper           = wrapper;
-    va_start(team_data.valist, wrapper);
+    __ms_va_start(team_data.valist, wrapper);
     team_data.barrier           = 0;
     team_data.barrier_count     = 0;
 
@@ -1556,7 +1540,7 @@ void WINAPIV _vcomp_fork(BOOL ifval, int nargs, void *wrapper, ...)
     }
 
     vcomp_set_thread_data(&thread_data);
-    _vcomp_fork_call_wrapper(team_data.wrapper, team_data.nargs, ptr_from_va_list(team_data.valist));
+    _vcomp_fork_call_wrapper(team_data.wrapper, team_data.nargs, team_data.valist);
     vcomp_set_thread_data(prev_thread_data);
     prev_thread_data->fork_threads = 0;
 
@@ -1572,7 +1556,7 @@ void WINAPIV _vcomp_fork(BOOL ifval, int nargs, void *wrapper, ...)
         assert(list_empty(&thread_data.entry));
     }
 
-    va_end(team_data.valist);
+    __ms_va_end(team_data.valist);
 }
 
 static CRITICAL_SECTION *alloc_critsect(void)
@@ -1676,154 +1660,6 @@ void CDECL _vcomp_leave_critsect(CRITICAL_SECTION *critsect)
     LeaveCriticalSection(critsect);
 }
 
-static unsigned int get_step_count(int start, int end, int range_offset, int step)
-{
-    int range = end - start + step - range_offset;
-
-    if (step < 0)
-        return (unsigned)-range / -step;
-    else
-        return (unsigned)range / step;
-}
-
-static void CDECL c2vectparallel_wrapper(int start, int end, int step, int end_included, BOOL dynamic_distribution,
-        int volatile *dynamic_start, void *function, int nargs, va_list valist)
-{
-    void *wrapper_args[MAX_VECT_PARALLEL_CALLBACK_ARGS];
-    unsigned int step_count, steps_per_call, remainder;
-    int thread_count = omp_get_num_threads();
-    int curr_start, curr_end, range_offset;
-    int thread = _vcomp_get_thread_num();
-    int step_sign;
-
-    copy_va_list_data(&wrapper_args[2], valist, nargs - 2);
-
-    step_sign = step > 0 ? 1 : -1;
-    range_offset = step_sign * !end_included;
-
-    if (dynamic_distribution)
-    {
-        int next_start, new_start, end_value;
-
-        start = *dynamic_start;
-        end_value = end + !!end_included * step;
-        while (start != end_value)
-        {
-            step_count = get_step_count(start, end, range_offset, step);
-
-            curr_end = start + (step_count + thread_count - 1) / thread_count * step
-                    + range_offset;
-
-            if ((curr_end - end) * step_sign > 0)
-            {
-                next_start = end_value;
-                curr_end = end;
-            }
-            else
-            {
-                next_start = curr_end - range_offset;
-                curr_end -= step;
-            }
-
-            if ((new_start = InterlockedCompareExchange(dynamic_start, next_start, start)) != start)
-            {
-                start = new_start;
-                continue;
-            }
-
-            wrapper_args[0] = (void *)(ULONG_PTR)start;
-            wrapper_args[1] = (void *)(ULONG_PTR)curr_end;
-            _vcomp_fork_call_wrapper(function, nargs, wrapper_args);
-            start = *dynamic_start;
-        }
-        return;
-    }
-
-    step_count = get_step_count(start, end, range_offset, step);
-
-    /* According to the tests native vcomp still makes extra calls
-     * with empty range from excessive threads under certain conditions
-     * for unclear reason. */
-    if (thread >= step_count && (end_included || (step != 1 && step != -1)))
-        return;
-
-    steps_per_call = step_count / thread_count;
-    remainder = step_count % thread_count;
-
-    if (thread < remainder)
-    {
-        curr_start = thread * (steps_per_call + 1);
-        curr_end = curr_start + steps_per_call + 1;
-    }
-    else if (thread < step_count)
-    {
-        curr_start = remainder + steps_per_call * thread;
-        curr_end = curr_start + steps_per_call;
-    }
-    else
-    {
-        curr_start = curr_end = 0;
-    }
-
-    curr_start = start + curr_start * step;
-    curr_end = start + (curr_end - 1) * step + range_offset;
-
-    wrapper_args[0] = (void *)(ULONG_PTR)curr_start;
-    wrapper_args[1] = (void *)(ULONG_PTR)curr_end;
-    _vcomp_fork_call_wrapper(function, nargs, wrapper_args);
-}
-
-void WINAPIV C2VectParallel(int start, int end, int step, BOOL end_included, int thread_count,
-        BOOL dynamic_distribution, void *function, int nargs, ...)
-{
-    struct vcomp_thread_data *thread_data;
-    int volatile dynamic_start;
-    int prev_thread_count;
-    va_list valist;
-
-    TRACE("start %d, end %d, step %d, end_included %d, thread_count %d, dynamic_distribution %#x,"
-            " function %p, nargs %d.\n", start, end, step, end_included, thread_count,
-            dynamic_distribution, function, nargs);
-
-    if (nargs > MAX_VECT_PARALLEL_CALLBACK_ARGS)
-    {
-        FIXME("Number of arguments %u exceeds supported maximum %u"
-                " (not calling the loop code, expect problems).\n",
-                nargs, MAX_VECT_PARALLEL_CALLBACK_ARGS);
-        return;
-    }
-
-    va_start(valist, nargs);
-
-    /* This expression can result in integer overflow. According to the tests,
-     * native vcomp runs the function as a single thread both for empty range
-     * and (end - start) not fitting the integer range. */
-    if ((step > 0 && end < start) || (step < 0 && end > start)
-            || (end - start) / step < 2 || thread_count < 0)
-    {
-        void *wrapper_args[MAX_VECT_PARALLEL_CALLBACK_ARGS];
-
-        wrapper_args[0] = (void *)(ULONG_PTR)start;
-        wrapper_args[1] = (void *)(ULONG_PTR)end;
-        copy_va_list_data(&wrapper_args[2], valist, nargs - 2);
-        _vcomp_fork_call_wrapper(function, nargs, wrapper_args);
-        va_end(valist);
-        return;
-    }
-
-    thread_data = vcomp_init_thread_data();
-    prev_thread_count = thread_data->fork_threads;
-    thread_data->fork_threads = thread_count;
-
-    dynamic_start = start;
-
-    _vcomp_fork(TRUE, 9, c2vectparallel_wrapper, start, end, step, end_included, dynamic_distribution,
-            &dynamic_start, function, nargs, valist);
-
-    thread_data->fork_threads = prev_thread_count;
-    va_end(valist);
-}
-
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
 {
     TRACE("(%p, %d, %p)\n", instance, reason, reserved);
@@ -1844,7 +1680,6 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
             vcomp_module      = instance;
             vcomp_max_threads = sysinfo.dwNumberOfProcessors;
             vcomp_num_threads = sysinfo.dwNumberOfProcessors;
-            vcomp_num_procs   = sysinfo.dwNumberOfProcessors;
             break;
         }
 

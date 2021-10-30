@@ -25,16 +25,8 @@
 #define __WINE_USE_MSVCRT
 #endif
 
-#ifdef __WINE_CONFIG_H
-# error You cannot use config.h with msvcrt
-#endif
-
-#ifndef _WIN32
-# define _WIN32
-#endif
-
-#ifndef WIN32
-# define WIN32
+#ifdef __WINE_WINE_PORT_H
+# error You cannot use both wine/port.h and msvcrt headers
 #endif
 
 #if (defined(__x86_64__) || defined(__powerpc64__) || defined(__aarch64__)) && !defined(_WIN64)
@@ -49,25 +41,12 @@
 # define _UCRT
 #endif
 
-#include <sal.h>
-
-#ifndef _MSC_VER
-#  ifndef __int8
-#    define __int8  char
-#  endif
-#  ifndef __int16
-#    define __int16 short
-#  endif
-#  ifndef __int32
-#    define __int32 int
-#  endif
-#  ifndef __int64
-#    if defined(_WIN64) && !defined(__MINGW64__)
-#      define __int64 long
-#    else
-#      define __int64 long long
-#    endif
-#  endif
+#if !defined(_MSC_VER) && !defined(__int64)
+# if defined(_WIN64) && !defined(__MINGW64__)
+#   define __int64 long
+# else
+#   define __int64 long long
+# endif
 #endif
 
 #ifndef NULL
@@ -100,7 +79,7 @@
 #  else
 #   define __stdcall __attribute__((ms_abi))
 #  endif
-# elif defined(__arm__) && defined (__GNUC__) && !defined(__SOFTFP__) && !defined(__MINGW32__) && !defined(__CYGWIN__)
+# elif defined(__arm__) && defined (__GNUC__) && !defined(__SOFTFP__) && !defined(_WIN32)
 #   define __stdcall __attribute__((pcs("aapcs-vfp")))
 # elif defined(__aarch64__) && defined (__GNUC__) && __has_attribute(ms_abi)
 #  define __stdcall __attribute__((ms_abi))
@@ -122,20 +101,26 @@
 # endif
 #endif
 
-#if (defined(__x86_64__) || (defined(__aarch64__) && __has_attribute(ms_abi))) && defined (__GNUC__)
-# include <stdarg.h>
-# undef va_list
-# undef va_start
-# undef va_end
-# undef va_copy
-# define va_list __builtin_ms_va_list
-# define va_start(list,arg) __builtin_ms_va_start(list,arg)
-# define va_end(list) __builtin_ms_va_end(list)
-# define va_copy(dest,src) __builtin_ms_va_copy(dest,src)
+#ifndef __ms_va_list
+# if (defined(__x86_64__) || (defined(__aarch64__) && __has_attribute(ms_abi))) && defined (__GNUC__)
+#  define __ms_va_list __builtin_ms_va_list
+#  define __ms_va_start(list,arg) __builtin_ms_va_start(list,arg)
+#  define __ms_va_end(list) __builtin_ms_va_end(list)
+#  define __ms_va_copy(dest,src) __builtin_ms_va_copy(dest,src)
+# else
+#  define __ms_va_list va_list
+#  define __ms_va_start(list,arg) va_start(list,arg)
+#  define __ms_va_end(list) va_end(list)
+#  ifdef va_copy
+#   define __ms_va_copy(dest,src) va_copy(dest,src)
+#  else
+#   define __ms_va_copy(dest,src) ((dest) = (src))
+#  endif
+# endif
 #endif
 
 #ifndef WINAPIV
-# if defined(__arm__) && defined (__GNUC__) && !defined(__SOFTFP__) && !defined(__MINGW32__) && !defined(__CYGWIN__)
+# if defined(__arm__) && defined (__GNUC__) && !defined(__SOFTFP__) && !defined(_WIN32)
 #  define WINAPIV __attribute__((pcs("aapcs")))
 # else
 #  define WINAPIV __cdecl

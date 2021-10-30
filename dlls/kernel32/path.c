@@ -275,13 +275,11 @@ DWORD /*BOOLEAN*/ WINAPI KERNEL32_Wow64EnableWow64FsRedirection( BOOLEAN enable 
 char * CDECL wine_get_unix_file_name( LPCWSTR dosW )
 {
     UNICODE_STRING nt_name;
-    OBJECT_ATTRIBUTES attr;
     NTSTATUS status;
-    ULONG size = 256;
+    SIZE_T size = 256;
     char *buffer;
 
     if (!RtlDosPathNameToNtPathName_U( dosW, &nt_name, NULL, NULL )) return NULL;
-    InitializeObjectAttributes( &attr, &nt_name, 0, 0, NULL );
     for (;;)
     {
         if (!(buffer = HeapAlloc( GetProcessHeap(), 0, size )))
@@ -289,7 +287,7 @@ char * CDECL wine_get_unix_file_name( LPCWSTR dosW )
             RtlFreeUnicodeString( &nt_name );
             return NULL;
         }
-        status = wine_nt_to_unix_file_name( &attr, buffer, &size, FILE_OPEN_IF );
+        status = wine_nt_to_unix_file_name( &nt_name, buffer, &size, FILE_OPEN_IF );
         if (status != STATUS_BUFFER_TOO_SMALL) break;
         HeapFree( GetProcessHeap(), 0, buffer );
     }
@@ -315,7 +313,7 @@ WCHAR * CDECL wine_get_dos_file_name( LPCSTR str )
     UNICODE_STRING nt_name;
     NTSTATUS status;
     WCHAR *buffer;
-    ULONG len = strlen(str) + 1;
+    SIZE_T len = strlen(str) + 1;
 
     if (str[0] != '/')  /* relative path name */
     {

@@ -28,21 +28,22 @@
  */
 
 #include <stdlib.h>
+
+#include "winsock2.h"
+#include "ws2ipdef.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <time.h>
 #include <assert.h>
 #include <errno.h>
 #include <limits.h>
-#include <zlib.h>
 
 #include "windef.h"
 #include "winbase.h"
 #include "wininet.h"
 #include "winerror.h"
 #include "winternl.h"
-#include "winsock2.h"
-#include "ws2ipdef.h"
 #define NO_SHLWAPI_STREAM
 #define NO_SHLWAPI_REG
 #define NO_SHLWAPI_GDI
@@ -52,6 +53,7 @@
 #include "winuser.h"
 
 #include "internet.h"
+#include "zlib.h"
 #include "resource.h"
 #include "wine/debug.h"
 #include "wine/exception.h"
@@ -2320,19 +2322,6 @@ static DWORD HTTPREQ_QueryOption(object_header_t *hdr, DWORD option, void *buffe
         *(ULONG*)buffer = hdr->ErrorMask;
         *size = sizeof(ULONG);
         return ERROR_SUCCESS;
-    case INTERNET_OPTION_SERVER_CERT_CHAIN_CONTEXT:
-        TRACE("INTERNET_OPTION_SERVER_CERT_CHAIN_CONTEXT\n");
-
-        if (*size < sizeof(PCCERT_CHAIN_CONTEXT))
-            return ERROR_INSUFFICIENT_BUFFER;
-
-        if (!req->server->cert_chain)
-            return ERROR_INTERNET_INCORRECT_HANDLE_STATE;
-
-        *(PCCERT_CHAIN_CONTEXT *)buffer = CertDuplicateCertificateChain(req->server->cert_chain);
-        *size = sizeof(PCCERT_CHAIN_CONTEXT);
-
-        return ERROR_SUCCESS;
     }
 
     return INET_QueryOption(hdr, option, buffer, size, unicode);
@@ -2929,12 +2918,7 @@ static DWORD set_content_length(http_request_t *request)
     WCHAR encoding[20];
     DWORD size;
 
-    if(request->status_code == HTTP_STATUS_NO_CONTENT || request->status_code == HTTP_STATUS_NOT_MODIFIED ||
-       !wcscmp(request->verb, L"HEAD"))
-    {
-        if (HTTP_GetCustomHeaderIndex(request, L"Content-Length", 0, FALSE) == -1 ||
-            !wcscmp(request->verb, L"HEAD"))
-            request->read_size = 0;
+    if(request->status_code == HTTP_STATUS_NO_CONTENT || !wcscmp(request->verb, L"HEAD")) {
         request->contentLength = request->netconn_stream.content_length = 0;
         return ERROR_SUCCESS;
     }
@@ -5141,8 +5125,6 @@ static DWORD HTTP_HttpSendRequestW(http_request_t *request, LPCWSTR lpszHeaders,
                             loop_next = TRUE;
                             break;
                         }
-
-                        dwBufferSize = 2048;
                     }
                     heap_free( host );
 
@@ -5171,8 +5153,6 @@ static DWORD HTTP_HttpSendRequestW(http_request_t *request, LPCWSTR lpszHeaders,
                             loop_next = TRUE;
                             break;
                         }
-
-                        dwBufferSize = 2048;
                     }
 
                     if(!loop_next) {
@@ -6330,10 +6310,13 @@ static BOOL HTTP_DeleteCustomHeader(http_request_t *request, DWORD index)
 
 
 /***********************************************************************
- *          IsHostInProxyBypassList (WININET.@)
+ *          IsHostInProxyBypassList (@)
+ *
+ * Undocumented
+ *
  */
-BOOL WINAPI IsHostInProxyBypassList(INTERNET_SCHEME scheme, LPCSTR szHost, DWORD length)
+BOOL WINAPI IsHostInProxyBypassList(DWORD flags, LPCSTR szHost, DWORD length)
 {
-    FIXME("STUB: scheme=%d host=%s length=%d\n", scheme, szHost, length);
-    return FALSE;
+   FIXME("STUB: flags=%d host=%s length=%d\n",flags,szHost,length);
+   return FALSE;
 }

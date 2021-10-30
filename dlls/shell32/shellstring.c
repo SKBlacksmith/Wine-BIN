@@ -35,6 +35,7 @@
 #include "shlwapi.h"
 #include "shell32_main.h"
 #include "undocshell.h"
+#include "wine/unicode.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(shell);
@@ -154,8 +155,8 @@ static int StrToOleStrW (LPWSTR lpWideCharStr, LPCWSTR lpWString)
 	TRACE("(%p, %p %s)\n",
 	lpWideCharStr, lpWString, debugstr_w(lpWString));
 
-	lstrcpyW (lpWideCharStr, lpWString );
-	return lstrlenW(lpWideCharStr);
+	strcpyW (lpWideCharStr, lpWString );
+	return strlenW(lpWideCharStr);
 }
 
 BOOL WINAPI StrToOleStrAW (LPWSTR lpWideCharStr, LPCVOID lpString)
@@ -254,6 +255,8 @@ DWORD WINAPI CheckEscapesA(
 	return ret;
 }
 
+static const WCHAR strEscapedChars[] = {' ','"',',',';','^',0};
+
 /*************************************************************************
  * CheckEscapesW             [SHELL32.@]
  *
@@ -268,7 +271,7 @@ DWORD WINAPI CheckEscapesW(
 
 	TRACE("%s, %u.\n", debugstr_w(string), len);
 
-	if (StrPBrkW(string, L" \",;^") && size + 2 <= len)
+	if (StrPBrkW(string, strEscapedChars) && size + 2 <= len)
 	{
 	  s = &string[size - 1];
 	  d = &string[size + 2];

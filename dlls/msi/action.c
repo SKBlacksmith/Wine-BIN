@@ -1998,7 +1998,7 @@ static WCHAR *create_temp_dir( MSIDATABASE *db )
  *  A \ will not be added after the last segment, however if the
  *  last segment is NULL, then the last character will be a \
  */
-WCHAR * WINAPIV msi_build_directory_name( DWORD count, ... )
+WCHAR *msi_build_directory_name( DWORD count, ... )
 {
     DWORD sz = 1, i;
     WCHAR *dir;
@@ -4042,7 +4042,7 @@ static UINT msi_publish_product_properties(MSIPACKAGE *package, HKEY hkey)
     msi_reg_set_val_dword(hkey, L"Assignment", 0);
     msi_reg_set_val_dword(hkey, L"AdvertiseFlags", 0x184);
     msi_reg_set_val_dword(hkey, INSTALLPROPERTY_INSTANCETYPEW, 0);
-    msi_reg_set_val_multi_str(hkey, L"Clients", L":\0");
+    msi_reg_set_val_str(hkey, L"Clients", L":");
 
     if (!(guids = msi_get_package_code(package->db))) return ERROR_OUTOFMEMORY;
     if ((ptr = wcschr(guids, ';'))) *ptr = 0;

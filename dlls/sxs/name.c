@@ -56,17 +56,19 @@ static inline struct name *impl_from_IAssemblyName( IAssemblyName *iface )
 static HRESULT WINAPI name_QueryInterface(
     IAssemblyName *iface,
     REFIID riid,
-    void **ret_iface )
+    void **obj )
 {
-    TRACE("%p, %s, %p\n", iface, debugstr_guid(riid), ret_iface);
+    struct name *name = impl_from_IAssemblyName( iface );
 
-    *ret_iface = NULL;
+    TRACE("%p, %s, %p\n", name, debugstr_guid(riid), obj);
+
+    *obj = NULL;
 
     if (IsEqualIID( riid, &IID_IUnknown ) ||
         IsEqualIID( riid, &IID_IAssemblyName ))
     {
         IAssemblyName_AddRef( iface );
-        *ret_iface = iface;
+        *obj = name;
         return S_OK;
     }
 

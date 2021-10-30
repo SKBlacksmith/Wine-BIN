@@ -46,6 +46,8 @@ static BOOL MSSTYLES_GetNextToken(LPCWSTR lpStringStart, LPCWSTR lpStringEnd, LP
 static void MSSTYLES_ParseThemeIni(PTHEME_FILE tf, BOOL setMetrics);
 static HRESULT MSSTYLES_GetFont (LPCWSTR lpStringStart, LPCWSTR lpStringEnd, LPCWSTR *lpValEnd, LOGFONTW* logfont);
 
+extern int alphaBlendMode;
+
 #define MSSTYLES_VERSION 0x0003
 
 static PTHEME_FILE tfActiveTheme;
@@ -245,16 +247,6 @@ HRESULT MSSTYLES_SetActiveTheme(PTHEME_FILE tf, BOOL setMetrics)
 PUXINI_FILE MSSTYLES_GetThemeIni(PTHEME_FILE tf)
 {
     return UXINI_LoadINI(tf->hTheme, L"themes_ini");
-}
-
-/***********************************************************************
- *      MSSTYLES_GetThemeDPI
- *
- * Retrieves the DPI from a theme handle when it was opened
- */
-UINT MSSTYLES_GetThemeDPI(PTHEME_CLASS tc)
-{
-    return tc->dpi;
 }
 
 /***********************************************************************
@@ -733,18 +725,12 @@ struct PARSENONCLIENTSTATE
 
 static inline void parse_init_nonclient (struct PARSENONCLIENTSTATE* state)
 {
-    DPI_AWARENESS_CONTEXT old_context;
-
-    old_context = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
-
     memset (state, 0, sizeof (*state));
     state->metrics.cbSize = sizeof (NONCLIENTMETRICSW);
     SystemParametersInfoW (SPI_GETNONCLIENTMETRICS, sizeof (NONCLIENTMETRICSW),
         &state->metrics, 0);
     SystemParametersInfoW (SPI_GETICONTITLELOGFONT, sizeof (LOGFONTW),
         &state->iconTitleFont, 0);
-
-    SetThreadDpiAwarenessContext(old_context);
 }
 
 static BOOL parse_handle_nonclient_font (struct PARSENONCLIENTSTATE* state, 
@@ -844,16 +830,12 @@ static BOOL parse_handle_nonclient_size (struct PARSENONCLIENTSTATE* state,
 
 static void parse_apply_nonclient (struct PARSENONCLIENTSTATE* state)
 {
-    DPI_AWARENESS_CONTEXT old_context;
-
     if (state->metricsDirty)
     {
-        old_context = SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_UNAWARE);
         SystemParametersInfoW (SPI_SETNONCLIENTMETRICS, sizeof (state->metrics),
             &state->metrics, 0);
         SystemParametersInfoW (SPI_SETICONTITLELOGFONT, sizeof (state->iconTitleFont),
             &state->iconTitleFont, 0);
-        SetThreadDpiAwarenessContext(old_context);
     }
 }
 
@@ -991,9 +973,8 @@ static void MSSTYLES_ParseThemeIni(PTHEME_FILE tf, BOOL setMetrics)
  *     pszAppName          Application name, for theme styles specific
  *                         to a particular application
  *     pszClassList        List of requested classes, semicolon delimited
- *     dpi                 DPI for theme parts
  */
-PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, UINT dpi)
+PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList)
 {
     PTHEME_CLASS cls = NULL;
     WCHAR szClassName[MAX_THEME_CLASS_NAME];
@@ -1025,7 +1006,6 @@ PTHEME_CLASS MSSTYLES_OpenThemeClass(LPCWSTR pszAppName, LPCWSTR pszClassList, U
         TRACE("Opened app %s, class %s from list %s\n", debugstr_w(cls->szAppName), debugstr_w(cls->szClassName), debugstr_w(pszClassList));
 	cls->tf = tfActiveTheme;
 	cls->tf->dwRefCount++;
-        cls->dpi = dpi;
     }
     return cls;
 }
@@ -1094,18 +1074,11 @@ static BOOL prepare_alpha (HBITMAP bmp, BOOL* hasAlpha)
     if (!bmp || GetObjectW( bmp, sizeof(dib), &dib ) != sizeof(dib))
         return FALSE;
 
-    if (dib.dsBm.bmBitsPixel != 32 || dib.dsBmih.biCompression != BI_RGB)
+    if(dib.dsBm.bmBitsPixel != 32)
         /* nothing to do */
         return TRUE;
 
-    /* If all alpha values are 0xff, don't use alpha blending */
-    for (n = 0, p = dib.dsBm.bmBits; n < dib.dsBmih.biWidth * dib.dsBmih.biHeight; n++, p += 4)
-        if ((*hasAlpha = (p[3] != 0xff)))
-            break;
-
-    if (!*hasAlpha)
-        return TRUE;
-
+    *hasAlpha = TRUE;
     p = dib.dsBm.bmBits;
     n = dib.dsBmih.biHeight * dib.dsBmih.biWidth;
     /* AlphaBlend() wants premultiplied alpha, so do that now */

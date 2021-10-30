@@ -377,7 +377,7 @@
 @ stdcall DeleteVolumeMountPointA(str)
 @ stdcall -import DeleteVolumeMountPointW(wstr)
 @ stdcall -arch=x86_64 DequeueUmsCompletionListItems(ptr long ptr)
-@ stdcall DeviceIoControl(long long ptr long ptr long ptr ptr) KERNEL32_DeviceIoControl
+@ stdcall DeviceIoControl(long long ptr long ptr long ptr ptr)
 @ stdcall -import DisableThreadLibraryCalls(long)
 @ stdcall -import DisconnectNamedPipe(long)
 @ stdcall DnsHostnameToComputerNameA (str ptr ptr)
@@ -630,7 +630,6 @@
 @ stdcall GetCurrentPackageFamilyName(ptr ptr) kernelbase.GetCurrentPackageFamilyName
 @ stdcall GetCurrentPackageFullName(ptr ptr) kernelbase.GetCurrentPackageFullName
 @ stdcall GetCurrentPackageId(ptr ptr) kernelbase.GetCurrentPackageId
-@ stdcall GetCurrentPackagePath(ptr ptr) kernelbase.GetCurrentPackagePath
 @ stdcall -norelay GetCurrentProcess() KERNEL32_GetCurrentProcess
 @ stdcall -norelay GetCurrentProcessId() KERNEL32_GetCurrentProcessId
 @ stdcall GetCurrentProcessorNumber() ntdll.NtGetCurrentProcessorNumber
@@ -719,7 +718,7 @@
 @ stdcall -import GetLongPathNameW(wstr ptr long)
 @ stdcall GetMailslotInfo(long ptr ptr ptr ptr)
 @ stdcall GetMaximumProcessorCount(long)
-@ stdcall GetMaximumProcessorGroupCount()
+# @ stub GetMaximumProcessorGroupCount
 @ stdcall -import GetModuleFileNameA(long ptr long)
 @ stdcall -import GetModuleFileNameW(long ptr long)
 @ stdcall -import GetModuleHandleA(str)
@@ -763,12 +762,9 @@
 @ stdcall -import GetOEMCP()
 @ stdcall -import GetOverlappedResult(long ptr ptr long)
 @ stdcall -import GetOverlappedResultEx(long ptr ptr long long)
-@ stdcall -import GetUserDefaultGeoName(ptr long)
 @ stdcall -import GetUserPreferredUILanguages(long ptr ptr ptr)
-@ stdcall -import GetPackagesByPackageFamily(wstr ptr ptr ptr ptr)
 @ stdcall GetPackageFamilyName(long ptr ptr) kernelbase.GetPackageFamilyName
 @ stdcall GetPackageFullName(long ptr ptr) kernelbase.GetPackageFullName
-@ stdcall -import GetPackagePath(ptr long ptr ptr)
 @ stdcall -import GetPhysicallyInstalledSystemMemory(ptr)
 @ stdcall -import GetPriorityClass(long)
 @ stdcall GetPrivateProfileIntA(str str long str)
@@ -785,7 +781,7 @@
 @ stdcall GetProcessAffinityMask(long ptr ptr)
 @ stdcall GetProcessDEPPolicy(long ptr ptr)
 @ stdcall GetProcessFlags(long)
-@ stdcall -import GetProcessGroupAffinity(long ptr ptr)
+# @ stub GetProcessGroupAffinity
 @ stdcall -import GetProcessHandleCount(long ptr)
 @ stdcall -import GetProcessHeap()
 @ stdcall -import GetProcessHeaps(long ptr) RtlGetProcessHeaps
@@ -824,7 +820,6 @@
 @ stdcall GetStringTypeExA(long long str long ptr)
 @ stdcall -import GetStringTypeExW(long long wstr long ptr)
 @ stdcall -import GetStringTypeW(long wstr long ptr)
-@ stdcall -import GetSystemCpuSetInformation(ptr long ptr ptr long)
 @ stdcall -import GetSystemFileCacheSize(ptr ptr ptr)
 @ stdcall -import GetSystemDefaultLCID()
 @ stdcall -import GetSystemDefaultLangID()
@@ -1154,8 +1149,6 @@
 @ stdcall -import PeekConsoleInputW(ptr ptr long ptr)
 @ stdcall -import PeekNamedPipe(long ptr long ptr ptr ptr)
 @ stdcall -import PostQueuedCompletionStatus(long long ptr ptr)
-@ stdcall -import PackageFullNameFromId(ptr ptr ptr)
-@ stdcall -import PackageIdFromFullName(wstr long ptr ptr)
 @ stdcall PowerClearRequest(long long)
 @ stdcall PowerCreateRequest(ptr)
 @ stdcall PowerSetRequest(long long)
@@ -1474,7 +1467,6 @@
 @ stdcall -import SetThreadPreferredUILanguages(long ptr ptr)
 @ stdcall -import SetThreadPriority(long long)
 @ stdcall -import SetThreadPriorityBoost(long long)
-@ stdcall -import SetThreadSelectedCpuSets(ptr ptr long)
 @ stdcall -import SetThreadStackGuarantee(ptr)
 # @ stub SetThreadToken
 @ stdcall -import SetThreadUILanguage(long)
@@ -1488,7 +1480,6 @@
 @ stdcall -arch=x86_64 SetUmsThreadInformation(ptr long ptr long)
 @ stdcall -import SetUnhandledExceptionFilter(ptr)
 @ stdcall -import SetUserGeoID(long)
-@ stdcall -import SetUserGeoName(wstr)
 @ stub SetVDMCurrentDirectories
 @ stdcall SetVolumeLabelA(str str)
 @ stdcall SetVolumeLabelW(wstr wstr)
@@ -1623,7 +1614,7 @@
 @ stdcall Wow64EnableWow64FsRedirection(long) KERNEL32_Wow64EnableWow64FsRedirection
 @ stdcall -import Wow64DisableWow64FsRedirection(ptr)
 @ stdcall Wow64GetThreadContext(long ptr)
-@ stdcall Wow64GetThreadSelectorEntry(long long ptr)
+# @ stub Wow64GetThreadSelectorEntry
 @ stdcall -import Wow64RevertWow64FsRedirection(ptr)
 @ stdcall Wow64SetThreadContext(long ptr)
 # @ stub Wow64SuspendThread
@@ -1655,7 +1646,7 @@
 @ stdcall WriteTapemark(ptr long long long)
 @ stdcall -import ZombifyActCtx(ptr)
 @ stdcall -arch=x86_64 -private __C_specific_handler(ptr long ptr ptr) ntdll.__C_specific_handler
-@ cdecl -arch=arm,x86_64 -norelay __chkstk() ntdll.__chkstk
+@ cdecl -arch=arm,arm64,x86_64 -norelay __chkstk() ntdll.__chkstk
 @ stub _DebugOut
 @ stub _DebugPrintf
 @ stdcall _hread(long ptr long)

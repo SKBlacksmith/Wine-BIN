@@ -119,8 +119,6 @@
 #include "wine/unicode.h"
 #include "wine/debug.h"
 #include "wine/list.h"
-#include "wine/rbtree.h"
-#include "wine/heap.h"
 #include "winnls.h"
 
 #include "ddk/winsplp.h"
@@ -179,24 +177,19 @@ typedef struct {
     LPCWSTR  versionsubdir;
 } printenv_t;
 
-typedef struct
-{
-    struct wine_rb_entry entry;
-    HMODULE module;
-    LONG ref;
-
-    /* entry points */
-    DWORD (WINAPI *pDrvDeviceCapabilities)(HANDLE, const WCHAR *, WORD, void *, const DEVMODEW *);
-    INT   (WINAPI *pDrvDocumentProperties)(HWND, const WCHAR *, DEVMODEW *, DEVMODEW *, DWORD);
-
-    WCHAR name[1];
-} config_module_t;
-
 /* ############################### */
 
 static opened_printer_t **printer_handles;
 static UINT nb_printer_handles;
 static LONG next_job_id = 1;
+
+static DWORD (WINAPI *GDI_CallDeviceCapabilities16)( LPCSTR lpszDevice, LPCSTR lpszPort,
+                                                     WORD fwCapability, LPSTR lpszOutput,
+                                                     LPDEVMODEA lpdm );
+static INT (WINAPI *GDI_CallExtDeviceMode16)( HWND hwnd, LPDEVMODEA lpdmOutput,
+                                              LPSTR lpszDevice, LPSTR lpszPort,
+                                              LPDEVMODEA lpdmInput, LPSTR lpszProfile,
+                                              DWORD fwMode );
 
 static const WCHAR DriversW[] = { 'S','y','s','t','e','m','\\',
                                   'C','u', 'r','r','e','n','t','C','o','n','t','r','o','l','S','e','t','\\',
@@ -232,13 +225,9 @@ static const WCHAR WinNT_CV_PrinterPortsW[] = { 'S','o','f','t','w','a','r','e',
 static       WCHAR envname_win40W[] = {'W','i','n','d','o','w','s',' ','4','.','0',0};
 static const WCHAR envname_x64W[] =   {'W','i','n','d','o','w','s',' ','x','6','4',0};
 static       WCHAR envname_x86W[] =   {'W','i','n','d','o','w','s',' ','N','T',' ','x','8','6',0};
-static const WCHAR envname_armW[] =   {'W','i','n','d','o','w','s',' ','A','R','M',0};
-static const WCHAR envname_arm64W[] = {'W','i','n','d','o','w','s',' ','A','R','M','6','4',0};
 static const WCHAR subdir_win40W[] = {'w','i','n','4','0',0};
 static const WCHAR subdir_x64W[] =   {'x','6','4',0};
 static const WCHAR subdir_x86W[] =   {'w','3','2','x','8','6',0};
-static const WCHAR subdir_armW[] =   {'a','r','m',0};
-static const WCHAR subdir_arm64W[] =   {'a','r','m','6','4',0};
 static const WCHAR Version0_RegPathW[] = {'\\','V','e','r','s','i','o','n','-','0',0};
 static const WCHAR Version0_SubdirW[] = {'\\','0',0};
 static const WCHAR Version3_RegPathW[] = {'\\','V','e','r','s','i','o','n','-','3',0};
@@ -314,23 +303,9 @@ static const DWORD pi_sizeof[] = {0, sizeof(PRINTER_INFO_1W), sizeof(PRINTER_INF
 
 static const printenv_t env_x64 = {envname_x64W, subdir_x64W, 3, Version3_RegPathW, Version3_SubdirW};
 static const printenv_t env_x86 = {envname_x86W, subdir_x86W, 3, Version3_RegPathW, Version3_SubdirW};
-static const printenv_t env_arm = {envname_armW, subdir_armW, 3, Version3_RegPathW, Version3_SubdirW};
-static const printenv_t env_arm64 = {envname_arm64W, subdir_arm64W, 3, Version3_RegPathW, Version3_SubdirW};
 static const printenv_t env_win40 = {envname_win40W, subdir_win40W, 0, Version0_RegPathW, Version0_SubdirW};
 
-static const printenv_t * const all_printenv[] = {&env_x86, &env_x64, &env_arm, &env_arm64, &env_win40};
-
-#ifdef __i386__
-#define env_arch env_x86
-#elif defined __x86_64__
-#define env_arch env_x64
-#elif defined __arm__
-#define env_arch env_arm
-#elif defined __aarch64__
-#define env_arch env_arm64
-#else
-#error not defined for this cpu
-#endif
+static const printenv_t * const all_printenv[] = {&env_x86, &env_x64, &env_win40};
 
 /******************************************************************
  *  validate the user-supplied printing-environment [internal]
@@ -373,7 +348,7 @@ static const  printenv_t * validate_envW(LPCWSTR env)
     }
     else
     {
-        result = (GetVersion() & 0x80000000) ? &env_win40 : &env_arch;
+        result = (GetVersion() & 0x80000000) ? &env_win40 : &env_x86;
     }
     TRACE("using %p: %s\n", result, debugstr_w(result ? result->envname : NULL));
 
@@ -404,6 +379,18 @@ static LPWSTR strdupW(LPCWSTR p)
     len = (strlenW(p) + 1) * sizeof(WCHAR);
     ret = HeapAlloc(GetProcessHeap(), 0, len);
     memcpy(ret, p, len);
+    return ret;
+}
+
+static LPSTR strdupWtoA( LPCWSTR str )
+{
+    LPSTR ret;
+    INT len;
+
+    if (!str) return NULL;
+    len = WideCharToMultiByte( CP_ACP, 0, str, -1, NULL, 0, NULL, NULL );
+    ret = HeapAlloc( GetProcessHeap(), 0, len );
+    if(ret) WideCharToMultiByte( CP_ACP, 0, str, -1, ret, len, NULL, NULL );
     return ret;
 }
 
@@ -456,183 +443,6 @@ static DEVMODEA *DEVMODEdupWtoA( const DEVMODEW *dmW )
     return dmA;
 }
 
-static void packed_string_WtoA( WCHAR *strW )
-{
-    DWORD len = strlenW( strW ), size = (len + 1) * sizeof(WCHAR), ret;
-    char *str;
-
-    if (!len) return;
-    str = heap_alloc( size );
-    ret = WideCharToMultiByte( CP_ACP, 0, strW, len, str, size - 1, NULL, NULL );
-    memcpy( strW, str, ret );
-    memset( (BYTE *)strW + ret, 0, size - ret );
-    heap_free( str );
-}
-
-/*********************************************************************
- *                 packed_struct_WtoA
- *
- * Convert a packed struct from W to A overwriting the unicode strings
- * with their ansi equivalents.
- */
-static void packed_struct_WtoA( BYTE *data, const DWORD *string_info )
-{
-    WCHAR *strW;
-
-    string_info++; /* sizeof */
-    while (*string_info != ~0u)
-    {
-        strW = *(WCHAR **)(data + *string_info);
-        if (strW) packed_string_WtoA( strW );
-        string_info++;
-    }
-}
-
-static inline const DWORD *form_string_info( DWORD level )
-{
-    static const DWORD info_1[] =
-    {
-        sizeof( FORM_INFO_1W ),
-        FIELD_OFFSET( FORM_INFO_1W, pName ),
-        ~0u
-    };
-    static const DWORD info_2[] =
-    {
-        sizeof( FORM_INFO_2W ),
-        FIELD_OFFSET( FORM_INFO_2W, pName ),
-        FIELD_OFFSET( FORM_INFO_2W, pMuiDll ),
-        FIELD_OFFSET( FORM_INFO_2W, pDisplayName ),
-        ~0u
-    };
-
-    if (level == 1) return info_1;
-    if (level == 2) return info_2;
-
-    SetLastError( ERROR_INVALID_LEVEL );
-    return NULL;
-}
-
-/*****************************************************************************
- *          WINSPOOL_OpenDriverReg [internal]
- *
- * opens the registry for the printer drivers depending on the given input
- * variable pEnvironment
- *
- * RETURNS:
- *    the opened hkey on success
- *    NULL on error
- */
-static HKEY WINSPOOL_OpenDriverReg(const void *pEnvironment)
-{
-    HKEY  retval = NULL;
-    LPWSTR buffer;
-    const printenv_t *env;
-
-    TRACE("(%s)\n", debugstr_w(pEnvironment));
-
-    env = validate_envW(pEnvironment);
-    if (!env) return NULL;
-
-    buffer = HeapAlloc( GetProcessHeap(), 0,
-                (strlenW(DriversW) + strlenW(env->envname) +
-                 strlenW(env->versionregpath) + 1) * sizeof(WCHAR));
-    if(buffer) {
-        wsprintfW(buffer, DriversW, env->envname, env->versionregpath);
-        RegCreateKeyW(HKEY_LOCAL_MACHINE, buffer, &retval);
-        HeapFree(GetProcessHeap(), 0, buffer);
-    }
-    return retval;
-}
-
-static CRITICAL_SECTION config_modules_cs;
-static CRITICAL_SECTION_DEBUG config_modules_cs_debug =
-{
-    0, 0, &config_modules_cs,
-    { &config_modules_cs_debug.ProcessLocksList, &config_modules_cs_debug.ProcessLocksList },
-      0, 0, { (DWORD_PTR)(__FILE__ ": config_modules_cs") }
-};
-static CRITICAL_SECTION config_modules_cs = { &config_modules_cs_debug, -1, 0, 0, 0, 0 };
-
-static int compare_config_modules(const void *key, const struct wine_rb_entry *entry)
-{
-    config_module_t *module = WINE_RB_ENTRY_VALUE(entry, config_module_t, entry);
-    return lstrcmpiW(key, module->name);
-}
-
-static struct wine_rb_tree config_modules = { compare_config_modules };
-
-static void release_config_module(config_module_t *config_module)
-{
-    if (InterlockedDecrement(&config_module->ref)) return;
-    FreeLibrary(config_module->module);
-    HeapFree(GetProcessHeap(), 0, config_module);
-}
-
-static config_module_t *get_config_module(const WCHAR *device, BOOL grab)
-{
-    WCHAR driver[MAX_PATH];
-    DWORD size, len;
-    HKEY driver_key, device_key;
-    HMODULE driver_module;
-    config_module_t *ret = NULL;
-    struct wine_rb_entry *entry;
-    DWORD type;
-    LSTATUS res;
-
-    EnterCriticalSection(&config_modules_cs);
-    entry = wine_rb_get(&config_modules, device);
-    if (entry) {
-        ret = WINE_RB_ENTRY_VALUE(entry, config_module_t, entry);
-        if (grab) InterlockedIncrement(&ret->ref);
-        goto ret;
-    }
-    if (!grab) goto ret;
-
-    if (!(driver_key = WINSPOOL_OpenDriverReg(NULL))) goto ret;
-
-    res = RegOpenKeyW(driver_key, device, &device_key);
-    RegCloseKey(driver_key);
-    if (res) {
-        WARN("Device %s key not found\n", debugstr_w(device));
-        goto ret;
-    }
-
-    size = sizeof(driver);
-    if (!GetPrinterDriverDirectoryW(NULL, NULL, 1, (LPBYTE)driver, size, &size)) goto ret;
-
-    len = size / sizeof(WCHAR) - 1;
-    driver[len++] = '\\';
-    driver[len++] = '3';
-    driver[len++] = '\\';
-    size = sizeof(driver) - len * sizeof(WCHAR);
-    res = RegQueryValueExW(device_key, Configuration_FileW, NULL, &type,
-                           (BYTE *)(driver + len), &size);
-    RegCloseKey(device_key);
-    if (res || type != REG_SZ) {
-        WARN("no configuration file: %u\n", res);
-        goto ret;
-    }
-
-    if (!(driver_module = LoadLibraryW(driver))) {
-        WARN("Could not load %s\n", debugstr_w(driver));
-        goto ret;
-    }
-
-    len = lstrlenW(device);
-    if (!(ret = HeapAlloc(GetProcessHeap(), 0, FIELD_OFFSET(config_module_t, name[len + 1]))))
-        goto ret;
-
-    ret->ref = 2; /* one for config_module and one for the caller */
-    ret->module = driver_module;
-    ret->pDrvDeviceCapabilities = (void *)GetProcAddress(driver_module, "DrvDeviceCapabilities");
-    ret->pDrvDocumentProperties = (void *)GetProcAddress(driver_module, "DrvDocumentProperties");
-    lstrcpyW(ret->name, device);
-
-    wine_rb_put(&config_modules, ret->name, &ret->entry);
-ret:
-    LeaveCriticalSection(&config_modules_cs);
-    return ret;
-}
 
 /******************************************************************
  * verify, that the filename is a local file
@@ -714,13 +524,6 @@ static LPCWSTR get_opened_printer_name(HANDLE hprn)
     opened_printer_t *printer = get_opened_printer(hprn);
     if(!printer) return NULL;
     return printer->name;
-}
-
-static HANDLE get_backend_handle( HANDLE hprn )
-{
-    opened_printer_t *printer = get_opened_printer( hprn );
-    if (!printer) return NULL;
-    return printer->backend_printer;
 }
 
 static DWORD open_printer_reg_key( const WCHAR *name, HKEY *key )
@@ -1881,6 +1684,36 @@ static job_t *get_job(HANDLE hprn, DWORD JobId)
     return NULL;
 }
 
+/***********************************************************
+ *      DEVMODEcpyAtoW
+ */
+static LPDEVMODEW DEVMODEcpyAtoW(DEVMODEW *dmW, const DEVMODEA *dmA)
+{
+    BOOL Formname;
+    ptrdiff_t off_formname = (const char *)dmA->dmFormName - (const char *)dmA;
+    DWORD size;
+
+    Formname = (dmA->dmSize > off_formname);
+    size = dmA->dmSize + CCHDEVICENAME + (Formname ? CCHFORMNAME : 0);
+    MultiByteToWideChar(CP_ACP, 0, (LPCSTR)dmA->dmDeviceName, -1,
+                        dmW->dmDeviceName, CCHDEVICENAME);
+    if(!Formname) {
+      memcpy(&dmW->dmSpecVersion, &dmA->dmSpecVersion,
+	     dmA->dmSize - CCHDEVICENAME);
+    } else {
+      memcpy(&dmW->dmSpecVersion, &dmA->dmSpecVersion,
+	     off_formname - CCHDEVICENAME);
+      MultiByteToWideChar(CP_ACP, 0, (LPCSTR)dmA->dmFormName, -1,
+                          dmW->dmFormName, CCHFORMNAME);
+      memcpy(&dmW->dmLogPixels, &dmA->dmLogPixels, dmA->dmSize -
+	     (off_formname + CCHFORMNAME));
+    }
+    dmW->dmSize = size;
+    memcpy((char *)dmW + dmW->dmSize, (const char *)dmA + dmA->dmSize,
+	   dmA->dmDriverExtra);
+    return dmW;
+}
+
 /******************************************************************
  * convert_printerinfo_W_to_A [internal]
  *
@@ -2434,163 +2267,172 @@ static void free_printer_info( void *data, DWORD level )
  *              DeviceCapabilitiesA    [WINSPOOL.@]
  *
  */
-INT WINAPI DeviceCapabilitiesA(const char *device, const char *portA, WORD cap,
-                               char *output, DEVMODEA *devmodeA)
+INT WINAPI DeviceCapabilitiesA(LPCSTR pDevice,LPCSTR pPort, WORD cap,
+			       LPSTR pOutput, LPDEVMODEA lpdm)
 {
-    WCHAR *device_name = NULL, *port = NULL;
-    DEVMODEW *devmode = NULL;
-    DWORD ret, len;
+    INT ret;
 
-    len = MultiByteToWideChar(CP_ACP, 0, device, -1, NULL, 0);
-    if (len) {
-        device_name = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR));
-        MultiByteToWideChar(CP_ACP, 0, device, -1, device_name, len);
+    TRACE("%s,%s,%u,%p,%p\n", debugstr_a(pDevice), debugstr_a(pPort), cap, pOutput, lpdm);
+
+    if (!GDI_CallDeviceCapabilities16)
+    {
+        GDI_CallDeviceCapabilities16 = (void*)GetProcAddress( GetModuleHandleA("gdi32"),
+                                                              (LPCSTR)104 );
+        if (!GDI_CallDeviceCapabilities16) return -1;
     }
+    ret = GDI_CallDeviceCapabilities16(pDevice, pPort, cap, pOutput, lpdm);
 
-    len = MultiByteToWideChar(CP_ACP, 0, portA, -1, NULL, 0);
-    if (len) {
-        port = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR));
-        MultiByteToWideChar(CP_ACP, 0, portA, -1, port, len);
-    }
-
-    if (devmodeA) devmode = GdiConvertToDevmodeW( devmodeA );
-
-    if (output && (cap == DC_BINNAMES || cap == DC_FILEDEPENDENCIES || cap == DC_PAPERNAMES)) {
-        /* These need A -> W translation */
-        unsigned int size = 0, i;
-        WCHAR *outputW;
-
-        ret = DeviceCapabilitiesW(device_name, port, cap, NULL, devmode);
-        if (ret == -1) return ret;
-
-        switch (cap) {
-        case DC_BINNAMES:
-            size = 24;
-            break;
-        case DC_PAPERNAMES:
-        case DC_FILEDEPENDENCIES:
-            size = 64;
-            break;
+    /* If DC_PAPERSIZE map POINT16s to POINTs */
+    if(ret != -1 && cap == DC_PAPERSIZE && pOutput) {
+        POINT16 *tmp = HeapAlloc( GetProcessHeap(), 0, ret * sizeof(POINT16) );
+        POINT *pt = (POINT *)pOutput;
+	INT i;
+	memcpy(tmp, pOutput, ret * sizeof(POINT16));
+	for(i = 0; i < ret; i++, pt++)
+        {
+            pt->x = tmp[i].x;
+            pt->y = tmp[i].y;
         }
-        outputW = HeapAlloc(GetProcessHeap(), 0, size * ret * sizeof(WCHAR));
-        ret = DeviceCapabilitiesW(device_name, port, cap, outputW, devmode);
-        for (i = 0; i < ret; i++)
-            WideCharToMultiByte(CP_ACP, 0, outputW + (i * size), -1,
-                                output + (i * size), size, NULL, NULL);
-        HeapFree(GetProcessHeap(), 0, outputW);
-    } else {
-        ret = DeviceCapabilitiesW(device_name, port, cap, (WCHAR *)output, devmode);
+	HeapFree( GetProcessHeap(), 0, tmp );
     }
-    HeapFree(GetProcessHeap(), 0, device_name);
-    HeapFree(GetProcessHeap(), 0, devmode);
-    HeapFree(GetProcessHeap(), 0, port);
     return ret;
 }
 
+
 /*****************************************************************************
  *          DeviceCapabilitiesW        [WINSPOOL.@]
+ *
+ * Call DeviceCapabilitiesA since we later call 16bit stuff anyway
  *
  */
 INT WINAPI DeviceCapabilitiesW(LPCWSTR pDevice, LPCWSTR pPort,
 			       WORD fwCapability, LPWSTR pOutput,
 			       const DEVMODEW *pDevMode)
 {
-    config_module_t *config;
-    int ret;
+    LPDEVMODEA dmA = DEVMODEdupWtoA(pDevMode);
+    LPSTR pDeviceA = strdupWtoA(pDevice);
+    LPSTR pPortA = strdupWtoA(pPort);
+    INT ret;
 
-    TRACE("%s,%s,%u,%p,%p\n", debugstr_w(pDevice), debugstr_w(pPort), fwCapability,
-          pOutput, pDevMode);
+    TRACE("%s,%s,%u,%p,%p\n", debugstr_w(pDevice), debugstr_w(pPort), fwCapability, pOutput, pDevMode);
 
-    if (!(config = get_config_module(pDevice, TRUE))) {
-        WARN("Could not load config module for %s\n", debugstr_w(pDevice));
-        return 0;
+    if(pOutput && (fwCapability == DC_BINNAMES ||
+		   fwCapability == DC_FILEDEPENDENCIES ||
+		   fwCapability == DC_PAPERNAMES)) {
+      /* These need A -> W translation */
+        INT size = 0, i;
+	LPSTR pOutputA;
+        ret = DeviceCapabilitiesA(pDeviceA, pPortA, fwCapability, NULL,
+				  dmA);
+	if(ret == -1)
+	    return ret;
+	switch(fwCapability) {
+	case DC_BINNAMES:
+	    size = 24;
+	    break;
+	case DC_PAPERNAMES:
+	case DC_FILEDEPENDENCIES:
+	    size = 64;
+	    break;
+	}
+	pOutputA = HeapAlloc(GetProcessHeap(), 0, size * ret);
+	ret = DeviceCapabilitiesA(pDeviceA, pPortA, fwCapability, pOutputA,
+				  dmA);
+	for(i = 0; i < ret; i++)
+	    MultiByteToWideChar(CP_ACP, 0, pOutputA + (i * size), -1,
+				pOutput + (i * size), size);
+	HeapFree(GetProcessHeap(), 0, pOutputA);
+    } else {
+        ret = DeviceCapabilitiesA(pDeviceA, pPortA, fwCapability,
+				  (LPSTR)pOutput, dmA);
     }
-
-    ret = config->pDrvDeviceCapabilities(NULL /* FIXME */, pDevice, fwCapability,
-                                         pOutput, pDevMode);
-    release_config_module(config);
+    HeapFree(GetProcessHeap(),0,pPortA);
+    HeapFree(GetProcessHeap(),0,pDeviceA);
+    HeapFree(GetProcessHeap(),0,dmA);
     return ret;
 }
 
 /******************************************************************
  *              DocumentPropertiesA   [WINSPOOL.@]
+ *
+ * FIXME: implement DocumentPropertiesA via DocumentPropertiesW, not vice versa
  */
-LONG WINAPI DocumentPropertiesA(HWND hwnd, HANDLE printer, char *device_name, DEVMODEA *output,
-				DEVMODEA *input, DWORD mode)
+LONG WINAPI DocumentPropertiesA(HWND hWnd,HANDLE hPrinter,
+                                LPSTR pDeviceName, LPDEVMODEA pDevModeOutput,
+				LPDEVMODEA pDevModeInput,DWORD fMode )
 {
-    DEVMODEW *outputW = NULL, *inputW = NULL;
-    WCHAR *device = NULL;
-    unsigned int len;
-    int ret;
+    LPSTR lpName = pDeviceName, dupname = NULL;
+    static CHAR port[] = "LPT1:";
+    LONG ret;
 
-    TRACE("(%p,%p,%s,%p,%p,%d)\n", hwnd, printer, debugstr_a(device_name), output, input, mode);
+    TRACE("(%p,%p,%s,%p,%p,%d)\n",
+	hWnd,hPrinter,pDeviceName,pDevModeOutput,pDevModeInput,fMode
+    );
 
-    len = MultiByteToWideChar(CP_ACP, 0, device_name, -1, NULL, 0);
-    if (len) {
-        device = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR));
-        MultiByteToWideChar(CP_ACP, 0, device_name, -1, device, len);
+    if(!pDeviceName || !*pDeviceName) {
+        LPCWSTR lpNameW = get_opened_printer_name(hPrinter);
+        if(!lpNameW) {
+		ERR("no name from hPrinter?\n");
+                SetLastError(ERROR_INVALID_HANDLE);
+		return -1;
+	}
+	lpName = dupname = strdupWtoA(lpNameW);
     }
 
-    if (output && (mode & (DM_COPY | DM_UPDATE))) {
-        ret = DocumentPropertiesW(hwnd, printer, device, NULL, NULL, 0);
-        if (ret <= 0) {
-            HeapFree(GetProcessHeap(), 0, device);
-            return -1;
-        }
-        outputW = HeapAlloc(GetProcessHeap(), 0, ret);
+    if (!GDI_CallExtDeviceMode16)
+    {
+        GDI_CallExtDeviceMode16 = (void*)GetProcAddress( GetModuleHandleA("gdi32"),
+                                                         (LPCSTR)102 );
+        if (!GDI_CallExtDeviceMode16) {
+		ERR("No CallExtDeviceMode16?\n");
+		ret = -1;
+		goto end;
+	}
     }
+    ret = GDI_CallExtDeviceMode16(hWnd, pDevModeOutput, lpName, port,
+				  pDevModeInput, NULL, fMode);
 
-    if (input) inputW = GdiConvertToDevmodeW(input);
-
-    ret = DocumentPropertiesW(hwnd, printer, device, outputW, inputW, mode);
-
-    if (ret >= 0 && outputW && (mode & (DM_COPY | DM_UPDATE))) {
-        DEVMODEA *dmA = DEVMODEdupWtoA( outputW );
-        if (dmA) memcpy(output, dmA, dmA->dmSize + dmA->dmDriverExtra);
-        HeapFree(GetProcessHeap(), 0, dmA);
-    }
-
-    HeapFree(GetProcessHeap(), 0, device);
-    HeapFree(GetProcessHeap(), 0, inputW);
-    HeapFree(GetProcessHeap(), 0, outputW);
-
-    if (!mode && ret > 0) ret -= CCHDEVICENAME + CCHFORMNAME;
+end:
+    HeapFree(GetProcessHeap(), 0, dupname);
     return ret;
 }
 
 
 /*****************************************************************************
  *          DocumentPropertiesW (WINSPOOL.@)
+ *
+ * FIXME: implement DocumentPropertiesA via DocumentPropertiesW, not vice versa
  */
 LONG WINAPI DocumentPropertiesW(HWND hWnd, HANDLE hPrinter,
 				LPWSTR pDeviceName,
 				LPDEVMODEW pDevModeOutput,
 				LPDEVMODEW pDevModeInput, DWORD fMode)
 {
-    config_module_t *config = NULL;
-    const WCHAR *device = NULL;
+
+    LPSTR pDeviceNameA = strdupWtoA(pDeviceName);
+    LPDEVMODEA pDevModeInputA;
+    LPDEVMODEA pDevModeOutputA = NULL;
     LONG ret;
 
     TRACE("(%p,%p,%s,%p,%p,%d)\n",
-          hWnd, hPrinter, debugstr_w(pDeviceName), pDevModeOutput, pDevModeInput, fMode);
-
-    device = pDeviceName && pDeviceName[0] ? pDeviceName : get_opened_printer_name(hPrinter);
-    if (!device) {
-        ERR("no device name\n");
-        return -1;
+          hWnd,hPrinter,debugstr_w(pDeviceName),pDevModeOutput,pDevModeInput,
+	  fMode);
+    if(pDevModeOutput) {
+        ret = DocumentPropertiesA(hWnd, hPrinter, pDeviceNameA, NULL, NULL, 0);
+	if(ret < 0) return ret;
+	pDevModeOutputA = HeapAlloc(GetProcessHeap(), 0, ret);
     }
-
-    config = get_config_module(device, TRUE);
-    if (!config) {
-        ERR("Could not load config module for %s\n", debugstr_w(device));
-        return -1;
+    pDevModeInputA = (fMode & DM_IN_BUFFER) ? DEVMODEdupWtoA(pDevModeInput) : NULL;
+    ret = DocumentPropertiesA(hWnd, hPrinter, pDeviceNameA, pDevModeOutputA,
+			      pDevModeInputA, fMode);
+    if(pDevModeOutput) {
+        DEVMODEcpyAtoW(pDevModeOutput, pDevModeOutputA);
+	HeapFree(GetProcessHeap(),0,pDevModeOutputA);
     }
-
-    /* FIXME: This uses Wine-specific config file entry point.
-     * We should use DrvDevicePropertySheets instead (requires CPSUI support first).
-     */
-    ret = config->pDrvDocumentProperties(hWnd, device, pDevModeOutput, pDevModeInput, fMode);
-    release_config_module(config);
+    if(fMode == 0 && ret > 0)
+        ret += (CCHDEVICENAME + CCHFORMNAME);
+    HeapFree(GetProcessHeap(),0,pDevModeInputA);
+    HeapFree(GetProcessHeap(),0,pDeviceNameA);
     return ret;
 }
 
@@ -3062,19 +2904,10 @@ BOOL WINAPI AddFormA(HANDLE hPrinter, DWORD Level, LPBYTE pForm)
 /*****************************************************************************
  *          AddFormW  [WINSPOOL.@]
  */
-BOOL WINAPI AddFormW( HANDLE printer, DWORD level, BYTE *form )
+BOOL WINAPI AddFormW(HANDLE hPrinter, DWORD Level, LPBYTE pForm)
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %d, %p)\n", printer, level, form );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    return backend->fpAddForm( handle, level, form );
+    FIXME("(%p,%d,%p): stub\n", hPrinter, Level, pForm);
+    return TRUE;
 }
 
 /*****************************************************************************
@@ -3279,6 +3112,38 @@ BOOL WINAPI GetPrintProcessorDirectoryW(LPWSTR server, LPWSTR env,
     }
 
     return backend->fpGetPrintProcessorDirectory(server, env, level, Info, cbBuf, pcbNeeded);
+}
+
+/*****************************************************************************
+ *          WINSPOOL_OpenDriverReg [internal]
+ *
+ * opens the registry for the printer drivers depending on the given input
+ * variable pEnvironment
+ *
+ * RETURNS:
+ *    the opened hkey on success
+ *    NULL on error
+ */
+static HKEY WINSPOOL_OpenDriverReg( LPCVOID pEnvironment)
+{   
+    HKEY  retval = NULL;
+    LPWSTR buffer;
+    const printenv_t * env;
+
+    TRACE("(%s)\n", debugstr_w(pEnvironment));
+
+    env = validate_envW(pEnvironment);
+    if (!env) return NULL;
+
+    buffer = HeapAlloc( GetProcessHeap(), 0,
+                (strlenW(DriversW) + strlenW(env->envname) + 
+                 strlenW(env->versionregpath) + 1) * sizeof(WCHAR));
+    if(buffer) {
+        wsprintfW(buffer, DriversW, env->envname, env->versionregpath);
+        RegCreateKeyW(HKEY_LOCAL_MACHINE, buffer, &retval);
+        HeapFree(GetProcessHeap(), 0, buffer);
+    }
+    return retval;
 }
 
 /*****************************************************************************
@@ -3541,19 +3406,10 @@ BOOL WINAPI DeleteFormA(HANDLE hPrinter, LPSTR pFormName)
 /*****************************************************************************
  *          DeleteFormW  [WINSPOOL.@]
  */
-BOOL WINAPI DeleteFormW( HANDLE printer, WCHAR *name )
+BOOL WINAPI DeleteFormW(HANDLE hPrinter, LPWSTR pFormName)
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %s)\n", printer, debugstr_w( name ) );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    return backend->fpDeleteForm( handle, name );
+    FIXME("(%p,%s): stub\n", hPrinter, debugstr_w(pFormName));
+    return TRUE;
 }
 
 /*****************************************************************************
@@ -3562,7 +3418,6 @@ BOOL WINAPI DeleteFormW( HANDLE printer, WCHAR *name )
 BOOL WINAPI DeletePrinter(HANDLE hPrinter)
 {
     LPCWSTR lpNameW = get_opened_printer_name(hPrinter);
-    config_module_t *config_module;
     HKEY hkeyPrinters, hkey;
     WCHAR def[MAX_PATH];
     DWORD size = ARRAY_SIZE(def);
@@ -3571,14 +3426,6 @@ BOOL WINAPI DeletePrinter(HANDLE hPrinter)
         SetLastError(ERROR_INVALID_HANDLE);
         return FALSE;
     }
-
-    EnterCriticalSection(&config_modules_cs);
-    if ((config_module = get_config_module(lpNameW, FALSE))) {
-        wine_rb_remove(&config_modules, &config_module->entry);
-        release_config_module(config_module);
-    }
-    LeaveCriticalSection(&config_modules_cs);
-
     if(RegOpenKeyW(HKEY_LOCAL_MACHINE, PrintersW, &hkeyPrinters) == ERROR_SUCCESS) {
         RegDeleteTreeW(hkeyPrinters, lpNameW);
         RegCloseKey(hkeyPrinters);
@@ -4022,39 +3869,23 @@ BOOL WINAPI StartPagePrinter(HANDLE hPrinter)
 /*****************************************************************************
  *          GetFormA  [WINSPOOL.@]
  */
-BOOL WINAPI GetFormA( HANDLE printer, char *name, DWORD level, BYTE *form, DWORD size, DWORD *needed )
+BOOL WINAPI GetFormA(HANDLE hPrinter, LPSTR pFormName, DWORD Level,
+                 LPBYTE pForm, DWORD cbBuf, LPDWORD pcbNeeded)
 {
-    UNICODE_STRING nameW;
-    const DWORD *string_info = form_string_info( level );
-    BOOL ret;
-
-    if (!string_info) return FALSE;
-
-    asciitounicode( &nameW, name );
-
-    ret = GetFormW( printer, nameW.Buffer, level, form, size, needed );
-    if (ret) packed_struct_WtoA( form, string_info );
-
-    RtlFreeUnicodeString( &nameW );
-    return ret;
+    FIXME("(%p,%s,%d,%p,%d,%p): stub\n",hPrinter,pFormName,
+         Level,pForm,cbBuf,pcbNeeded);
+    return FALSE;
 }
 
 /*****************************************************************************
  *          GetFormW  [WINSPOOL.@]
  */
-BOOL WINAPI GetFormW( HANDLE printer, WCHAR *name, DWORD level, BYTE *form, DWORD size, DWORD *needed )
+BOOL WINAPI GetFormW(HANDLE hPrinter, LPWSTR pFormName, DWORD Level,
+                 LPBYTE pForm, DWORD cbBuf, LPDWORD pcbNeeded)
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %s, %d, %p, %d, %p)\n", printer, debugstr_w( name ), level, form, size, needed );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    return backend->fpGetForm( handle, name, level, form, size, needed );
+    FIXME("(%p,%s,%d,%p,%d,%p): stub\n",hPrinter,
+	  debugstr_w(pFormName),Level,pForm,cbBuf,pcbNeeded);
+    return FALSE;
 }
 
 /*****************************************************************************
@@ -4070,19 +3901,11 @@ BOOL WINAPI SetFormA(HANDLE hPrinter, LPSTR pFormName, DWORD Level,
 /*****************************************************************************
  *          SetFormW  [WINSPOOL.@]
  */
-BOOL WINAPI SetFormW( HANDLE printer, WCHAR *name, DWORD level, BYTE *form )
+BOOL WINAPI SetFormW(HANDLE hPrinter, LPWSTR pFormName, DWORD Level,
+                        LPBYTE pForm)
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %s, %d, %p)\n", printer, debugstr_w( name ), level, form );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    return backend->fpSetForm( handle, name, level, form );
+    FIXME("(%p,%p,%d,%p): stub\n",hPrinter,pFormName,Level,pForm);
+    return FALSE;
 }
 
 /*****************************************************************************
@@ -4119,7 +3942,7 @@ BOOL WINAPI ResetPrinterW(HANDLE hPrinter, LPPRINTER_DEFAULTSW pDefault)
  * Get ValueName from hkey storing result in out
  * when the Value in the registry has only a filename, use driverdir as prefix
  * outlen is space left in out
- * String is stored either as unicode or ansi
+ * String is stored either as unicode or ascii
  *
  */
 
@@ -4252,7 +4075,7 @@ static void WINSPOOL_GetDefaultDevMode(LPBYTE ptr, DWORD buflen, DWORD *needed)
  *    WINSPOOL_GetDevModeFromReg
  *
  * Get ValueName from hkey storing result in ptr.  buflen is space left in ptr
- * DevMode is stored either as unicode or ansi.
+ * DevMode is stored either as unicode or ascii.
  */
 static BOOL WINSPOOL_GetDevModeFromReg(HKEY hkey, LPCWSTR ValueName,
 				       LPBYTE ptr,
@@ -6842,7 +6665,7 @@ DWORD WINAPI EnumPrinterDataExA(HANDLE hPrinter, LPCSTR pKeyName,
 
 	memcpy (ppev->pValueName, pBuffer, len);
 
-	TRACE ("Converted '%s' from Unicode to ANSI\n", pBuffer);
+	TRACE ("Converted '%s' from Unicode to ASCII\n", pBuffer);
 
 	if (ppev->dwType != REG_SZ && ppev->dwType != REG_EXPAND_SZ &&
 		ppev->dwType != REG_MULTI_SZ)
@@ -6861,7 +6684,7 @@ DWORD WINAPI EnumPrinterDataExA(HANDLE hPrinter, LPCSTR pKeyName,
 
 	memcpy (ppev->pData, pBuffer, len);
 
-	TRACE ("Converted '%s' from Unicode to ANSI\n", pBuffer);
+	TRACE ("Converted '%s' from Unicode to ASCII\n", pBuffer);
 	TRACE ("  (only first string of REG_MULTI_SZ printed)\n");
     }
 
@@ -7529,50 +7352,23 @@ BOOL WINAPI DeletePrintProvidorW(LPWSTR pName, LPWSTR pEnvironment, LPWSTR pPrin
 /******************************************************************************
  *      EnumFormsA (WINSPOOL.@)
  */
-BOOL WINAPI EnumFormsA( HANDLE printer, DWORD level, BYTE *form, DWORD size, DWORD *needed, DWORD *count )
+BOOL WINAPI EnumFormsA( HANDLE hPrinter, DWORD Level, LPBYTE pForm,
+    DWORD cbBuf, LPDWORD pcbNeeded, LPDWORD pcReturned )
 {
-    const DWORD *string_info = form_string_info( level );
-    BOOL ret;
-    DWORD i;
-
-    if (!string_info) return FALSE;
-
-    ret = EnumFormsW( printer, level, form, size, needed, count );
-    if (ret)
-        for (i = 0; i < *count; i++)
-            packed_struct_WtoA( form + i * string_info[0], string_info );
-
-    return ret;
+    FIXME("%p %x %p %x %p %p\n", hPrinter, Level, pForm, cbBuf, pcbNeeded, pcReturned);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
 }
 
 /******************************************************************************
  *      EnumFormsW (WINSPOOL.@)
  */
-BOOL WINAPI EnumFormsW( HANDLE printer, DWORD level, BYTE *form, DWORD size, DWORD *needed, DWORD *count )
+BOOL WINAPI EnumFormsW( HANDLE hPrinter, DWORD Level, LPBYTE pForm,
+    DWORD cbBuf, LPDWORD pcbNeeded, LPDWORD pcReturned )
 {
-    HANDLE handle = get_backend_handle( printer );
-
-    TRACE( "(%p, %d, %p, %d, %p, %p)\n", printer, level, form, size, needed, count );
-
-    if (!handle)
-    {
-        SetLastError( ERROR_INVALID_HANDLE );
-        return FALSE;
-    }
-
-    if (!needed || !count)
-    {
-        SetLastError( RPC_X_NULL_REF_POINTER );
-        return FALSE;
-    }
-
-    if (!form && size)
-    {
-        SetLastError( ERROR_INVALID_USER_BUFFER );
-        return FALSE;
-    }
-
-    return backend->fpEnumForms( handle, level, form, size, needed, count );
+    FIXME("%p %x %p %x %p %p\n", hPrinter, Level, pForm, cbBuf, pcbNeeded, pcReturned);
+    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
+    return FALSE;
 }
 
 /*****************************************************************************

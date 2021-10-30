@@ -59,15 +59,16 @@ typedef struct MMDevEnumImpl
     LONG ref;
 } MMDevEnumImpl;
 
+static MMDevEnumImpl *MMDevEnumerator;
+static MMDevice **MMDevice_head;
 static MMDevice *MMDevice_def_rec, *MMDevice_def_play;
+static DWORD MMDevice_count;
 static const IMMDeviceEnumeratorVtbl MMDevEnumVtbl;
 static const IMMDeviceCollectionVtbl MMDevColVtbl;
 static const IMMDeviceVtbl MMDeviceVtbl;
 static const IPropertyStoreVtbl MMDevPropVtbl;
 static const IMMEndpointVtbl MMEndpointVtbl;
 
-static MMDevEnumImpl enumerator;
-static struct list device_list = LIST_INIT(device_list);
 static IMMDevice info_device;
 
 typedef struct MMDevColImpl
@@ -159,28 +160,28 @@ static HRESULT MMDevice_GetPropValue(const GUID *devguid, DWORD flow, REFPROPERT
         case REG_SZ:
         {
             pv->vt = VT_LPWSTR;
-            pv->pwszVal = CoTaskMemAlloc(size);
-            if (!pv->pwszVal)
+            pv->u.pwszVal = CoTaskMemAlloc(size);
+            if (!pv->u.pwszVal)
                 hr = E_OUTOFMEMORY;
             else
-                RegGetValueW(regkey, NULL, buffer, RRF_RT_REG_SZ, NULL, (BYTE*)pv->pwszVal, &size);
+                RegGetValueW(regkey, NULL, buffer, RRF_RT_REG_SZ, NULL, (BYTE*)pv->u.pwszVal, &size);
             break;
         }
         case REG_DWORD:
         {
             pv->vt = VT_UI4;
-            RegGetValueW(regkey, NULL, buffer, RRF_RT_REG_DWORD, NULL, (BYTE*)&pv->ulVal, &size);
+            RegGetValueW(regkey, NULL, buffer, RRF_RT_REG_DWORD, NULL, (BYTE*)&pv->u.ulVal, &size);
             break;
         }
         case REG_BINARY:
         {
             pv->vt = VT_BLOB;
-            pv->blob.cbSize = size;
-            pv->blob.pBlobData = CoTaskMemAlloc(size);
-            if (!pv->blob.pBlobData)
+            pv->u.blob.cbSize = size;
+            pv->u.blob.pBlobData = CoTaskMemAlloc(size);
+            if (!pv->u.blob.pBlobData)
                 hr = E_OUTOFMEMORY;
             else
-                RegGetValueW(regkey, NULL, buffer, RRF_RT_REG_BINARY, NULL, (BYTE*)pv->blob.pBlobData, &size);
+                RegGetValueW(regkey, NULL, buffer, RRF_RT_REG_BINARY, NULL, (BYTE*)pv->u.blob.pBlobData, &size);
             break;
         }
         default:
@@ -210,19 +211,19 @@ static HRESULT MMDevice_SetPropValue(const GUID *devguid, DWORD flow, REFPROPERT
     {
         case VT_UI4:
         {
-            ret = RegSetValueExW(regkey, buffer, 0, REG_DWORD, (const BYTE*)&pv->ulVal, sizeof(DWORD));
+            ret = RegSetValueExW(regkey, buffer, 0, REG_DWORD, (const BYTE*)&pv->u.ulVal, sizeof(DWORD));
             break;
         }
         case VT_BLOB:
         {
-            ret = RegSetValueExW(regkey, buffer, 0, REG_BINARY, pv->blob.pBlobData, pv->blob.cbSize);
-            TRACE("Blob %p %u\n", pv->blob.pBlobData, pv->blob.cbSize);
+            ret = RegSetValueExW(regkey, buffer, 0, REG_BINARY, pv->u.blob.pBlobData, pv->u.blob.cbSize);
+            TRACE("Blob %p %u\n", pv->u.blob.pBlobData, pv->u.blob.cbSize);
 
             break;
         }
         case VT_LPWSTR:
         {
-            ret = RegSetValueExW(regkey, buffer, 0, REG_SZ, (const BYTE*)pv->pwszVal, sizeof(WCHAR)*(1+lstrlenW(pv->pwszVal)));
+            ret = RegSetValueExW(regkey, buffer, 0, REG_SZ, (const BYTE*)pv->u.pwszVal, sizeof(WCHAR)*(1+lstrlenW(pv->u.pwszVal)));
             break;
         }
         default:
@@ -262,8 +263,9 @@ static HRESULT set_driver_prop_value(GUID *id, const EDataFlow flow, const PROPE
 static MMDevice *MMDevice_Create(WCHAR *name, GUID *id, EDataFlow flow, DWORD state, BOOL setdefault)
 {
     HKEY key, root;
-    MMDevice *device, *cur = NULL;
+    MMDevice *cur = NULL;
     WCHAR guidstr[39];
+    DWORD i;
 
     static const PROPERTYKEY deviceinterface_key = {
         {0x233164c8, 0x1b2c, 0x4c7d, {0xbc, 0x68, 0xb6, 0x71, 0x68, 0x7a, 0x25, 0x67}}, 1
@@ -273,8 +275,9 @@ static MMDevice *MMDevice_Create(WCHAR *name, GUID *id, EDataFlow flow, DWORD st
         {0xb3f8fa53, 0x0004, 0x438e, {0x90, 0x03, 0x51, 0xa4, 0x6e, 0x13, 0x9b, 0xfc}}, 2
     };
 
-    LIST_FOR_EACH_ENTRY(device, &device_list, MMDevice, entry)
+    for (i = 0; i < MMDevice_count; ++i)
     {
+        MMDevice *device = MMDevice_head[i];
         if (device->flow == flow && IsEqualGUID(&device->devguid, id)){
             cur = device;
             break;
@@ -293,7 +296,11 @@ static MMDevice *MMDevice_Create(WCHAR *name, GUID *id, EDataFlow flow, DWORD st
         InitializeCriticalSection(&cur->crst);
         cur->crst.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": MMDevice.crst");
 
-        list_add_tail(&device_list, &cur->entry);
+        if (!MMDevice_head)
+            MMDevice_head = HeapAlloc(GetProcessHeap(), 0, sizeof(*MMDevice_head));
+        else
+            MMDevice_head = HeapReAlloc(GetProcessHeap(), 0, MMDevice_head, sizeof(*MMDevice_head)*(1+MMDevice_count));
+        MMDevice_head[MMDevice_count++] = cur;
     }else if(cur->ref > 0)
         WARN("Modifying an MMDevice with postitive reference count!\n");
 
@@ -320,12 +327,12 @@ static MMDevice *MMDevice_Create(WCHAR *name, GUID *id, EDataFlow flow, DWORD st
             PROPVARIANT pv;
 
             pv.vt = VT_LPWSTR;
-            pv.pwszVal = name;
+            pv.u.pwszVal = name;
             MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_Device_FriendlyName, &pv);
             MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_DeviceInterface_FriendlyName, &pv);
             MMDevice_SetPropValue(id, flow, (const PROPERTYKEY*)&DEVPKEY_Device_DeviceDesc, &pv);
 
-            pv.pwszVal = guidstr;
+            pv.u.pwszVal = guidstr;
             MMDevice_SetPropValue(id, flow, &deviceinterface_key, &pv);
 
             set_driver_prop_value(id, flow, &devicepath_key);
@@ -333,7 +340,7 @@ static MMDevice *MMDevice_Create(WCHAR *name, GUID *id, EDataFlow flow, DWORD st
             if (FAILED(set_driver_prop_value(id, flow, &PKEY_AudioEndpoint_FormFactor)))
             {
                 pv.vt = VT_UI4;
-                pv.ulVal = (flow == eCapture) ? Microphone : Speakers;
+                pv.u.ulVal = (flow == eCapture) ? Microphone : Speakers;
 
                 MMDevice_SetPropValue(id, flow, &PKEY_AudioEndpoint_FormFactor, &pv);
             }
@@ -366,7 +373,7 @@ static MMDevice *MMDevice_Create(WCHAR *name, GUID *id, EDataFlow flow, DWORD st
     return cur;
 }
 
-HRESULT load_devices_from_reg(void)
+static HRESULT load_devices_from_reg(void)
 {
     DWORD i = 0;
     HKEY root, cur;
@@ -416,12 +423,12 @@ HRESULT load_devices_from_reg(void)
             && SUCCEEDED(MMDevice_GetPropValue(&guid, curflow, (const PROPERTYKEY*)&DEVPKEY_Device_FriendlyName, &pv))
             && pv.vt == VT_LPWSTR)
         {
-            DWORD size_bytes = (lstrlenW(pv.pwszVal) + 1) * sizeof(WCHAR);
+            DWORD size_bytes = (lstrlenW(pv.u.pwszVal) + 1) * sizeof(WCHAR);
             WCHAR *name = HeapAlloc(GetProcessHeap(), 0, size_bytes);
-            memcpy(name, pv.pwszVal, size_bytes);
+            memcpy(name, pv.u.pwszVal, size_bytes);
             MMDevice_Create(name, &guid, curflow,
                     DEVICE_STATE_NOTPRESENT, FALSE);
-            CoTaskMemFree(pv.pwszVal);
+            CoTaskMemFree(pv.u.pwszVal);
         }
     } while (1);
 
@@ -448,8 +455,8 @@ static HRESULT set_format(MMDevice *dev)
     IAudioClient_Release(client);
 
     pv.vt = VT_BLOB;
-    pv.blob.cbSize = sizeof(WAVEFORMATEX) + fmt->cbSize;
-    pv.blob.pBlobData = (BYTE*)fmt;
+    pv.u.blob.cbSize = sizeof(WAVEFORMATEX) + fmt->cbSize;
+    pv.u.blob.pBlobData = (BYTE*)fmt;
     MMDevice_SetPropValue(&dev->devguid, dev->flow,
             &PKEY_AudioEngine_DeviceFormat, &pv);
     MMDevice_SetPropValue(&dev->devguid, dev->flow,
@@ -459,7 +466,7 @@ static HRESULT set_format(MMDevice *dev)
     return S_OK;
 }
 
-HRESULT load_driver_devices(EDataFlow flow)
+static HRESULT load_driver_devices(EDataFlow flow)
 {
     WCHAR **ids;
     GUID *guids;
@@ -488,8 +495,17 @@ HRESULT load_driver_devices(EDataFlow flow)
 
 static void MMDevice_Destroy(MMDevice *This)
 {
+    DWORD i;
     TRACE("Freeing %s\n", debugstr_w(This->drv_id));
-    list_remove(&This->entry);
+    /* Since this function is called at destruction time, reordering of the list is unimportant */
+    for (i = 0; i < MMDevice_count; ++i)
+    {
+        if (MMDevice_head[i] == This)
+        {
+            MMDevice_head[i] = MMDevice_head[--MMDevice_count];
+            break;
+        }
+    }
     This->crst.DebugInfo->Spare[0] = 0;
     DeleteCriticalSection(&This->crst);
     HeapFree(GetProcessHeap(), 0, This->drv_id);
@@ -790,15 +806,16 @@ static ULONG WINAPI MMDevCol_Release(IMMDeviceCollection *iface)
 static HRESULT WINAPI MMDevCol_GetCount(IMMDeviceCollection *iface, UINT *numdevs)
 {
     MMDevColImpl *This = impl_from_IMMDeviceCollection(iface);
-    MMDevice *cur;
+    DWORD i;
 
     TRACE("(%p)->(%p)\n", This, numdevs);
     if (!numdevs)
         return E_POINTER;
 
     *numdevs = 0;
-    LIST_FOR_EACH_ENTRY(cur, &device_list, MMDevice, entry)
+    for (i = 0; i < MMDevice_count; ++i)
     {
+        MMDevice *cur = MMDevice_head[i];
         if ((cur->flow == This->flow || This->flow == eAll)
             && (cur->state & This->state))
             ++(*numdevs);
@@ -809,15 +826,15 @@ static HRESULT WINAPI MMDevCol_GetCount(IMMDeviceCollection *iface, UINT *numdev
 static HRESULT WINAPI MMDevCol_Item(IMMDeviceCollection *iface, UINT n, IMMDevice **dev)
 {
     MMDevColImpl *This = impl_from_IMMDeviceCollection(iface);
-    MMDevice *cur;
-    DWORD i = 0;
+    DWORD i = 0, j = 0;
 
     TRACE("(%p)->(%u, %p)\n", This, n, dev);
     if (!dev)
         return E_POINTER;
 
-    LIST_FOR_EACH_ENTRY(cur, &device_list, MMDevice, entry)
+    for (j = 0; j < MMDevice_count; ++j)
     {
+        MMDevice *cur = MMDevice_head[j];
         if ((cur->flow == This->flow || This->flow == eAll)
             && (cur->state & This->state)
             && i++ == n)
@@ -843,17 +860,34 @@ static const IMMDeviceCollectionVtbl MMDevColVtbl =
 
 HRESULT MMDevEnum_Create(REFIID riid, void **ppv)
 {
-    return IMMDeviceEnumerator_QueryInterface(&enumerator.IMMDeviceEnumerator_iface, riid, ppv);
+    MMDevEnumImpl *This = MMDevEnumerator;
+
+    if (!This)
+    {
+        This = HeapAlloc(GetProcessHeap(), 0, sizeof(*This));
+        *ppv = NULL;
+        if (!This)
+            return E_OUTOFMEMORY;
+        This->ref = 1;
+        This->IMMDeviceEnumerator_iface.lpVtbl = &MMDevEnumVtbl;
+        MMDevEnumerator = This;
+
+        load_devices_from_reg();
+        load_driver_devices(eRender);
+        load_driver_devices(eCapture);
+    }
+    return IMMDeviceEnumerator_QueryInterface(&This->IMMDeviceEnumerator_iface, riid, ppv);
 }
 
 void MMDevEnum_Free(void)
 {
-    MMDevice *device, *next;
-    LIST_FOR_EACH_ENTRY_SAFE(device, next, &device_list, MMDevice, entry)
-        MMDevice_Destroy(device);
+    while (MMDevice_count)
+        MMDevice_Destroy(MMDevice_head[0]);
     RegCloseKey(key_render);
     RegCloseKey(key_capture);
     key_render = key_capture = NULL;
+    HeapFree(GetProcessHeap(), 0, MMDevEnumerator);
+    MMDevEnumerator = NULL;
 }
 
 static HRESULT WINAPI MMDevEnum_QueryInterface(IMMDeviceEnumerator *iface, REFIID riid, void **ppv)
@@ -886,6 +920,8 @@ static ULONG WINAPI MMDevEnum_Release(IMMDeviceEnumerator *iface)
 {
     MMDevEnumImpl *This = impl_from_IMMDeviceEnumerator(iface);
     LONG ref = InterlockedDecrement(&This->ref);
+    if (!ref)
+        MMDevEnum_Free();
     TRACE("Refcount now %i\n", ref);
     return ref;
 }
@@ -990,7 +1026,7 @@ static HRESULT WINAPI MMDevEnum_GetDefaultAudioEndpoint(IMMDeviceEnumerator *ifa
 static HRESULT WINAPI MMDevEnum_GetDevice(IMMDeviceEnumerator *iface, const WCHAR *name, IMMDevice **device)
 {
     MMDevEnumImpl *This = impl_from_IMMDeviceEnumerator(iface);
-    MMDevice *impl;
+    DWORD i=0;
     IMMDevice *dev = NULL;
 
     TRACE("(%p)->(%s,%p)\n", This, debugstr_w(name), device);
@@ -1003,11 +1039,11 @@ static HRESULT WINAPI MMDevEnum_GetDevice(IMMDeviceEnumerator *iface, const WCHA
         return S_OK;
     }
 
-    LIST_FOR_EACH_ENTRY(impl, &device_list, MMDevice, entry)
+    for (i = 0; i < MMDevice_count; ++i)
     {
         HRESULT hr;
         WCHAR *str;
-        dev = &impl->IMMDevice_iface;
+        dev = &MMDevice_head[i]->IMMDevice_iface;
         hr = IMMDevice_GetId(dev, &str);
         if (FAILED(hr))
         {
@@ -1251,12 +1287,6 @@ static const IMMDeviceEnumeratorVtbl MMDevEnumVtbl =
     MMDevEnum_UnregisterEndpointNotificationCallback
 };
 
-static MMDevEnumImpl enumerator =
-{
-    {&MMDevEnumVtbl},
-    1,
-};
-
 static HRESULT MMDevPropStore_Create(MMDevice *parent, DWORD access, IPropertyStore **ppv)
 {
     MMDevPropStore *This;
@@ -1390,10 +1420,10 @@ static HRESULT WINAPI MMDevPropStore_GetValue(IPropertyStore *iface, REFPROPERTY
     if (IsEqualPropertyKey(*key, PKEY_AudioEndpoint_GUID))
     {
         pv->vt = VT_LPWSTR;
-        pv->pwszVal = CoTaskMemAlloc(39 * sizeof(WCHAR));
-        if (!pv->pwszVal)
+        pv->u.pwszVal = CoTaskMemAlloc(39 * sizeof(WCHAR));
+        if (!pv->u.pwszVal)
             return E_OUTOFMEMORY;
-        StringFromGUID2(&This->parent->devguid, pv->pwszVal, 39);
+        StringFromGUID2(&This->parent->devguid, pv->u.pwszVal, 39);
         return S_OK;
     }
 
@@ -1515,10 +1545,10 @@ static HRESULT WINAPI info_device_ps_GetValue(IPropertyStore *iface,
     {
         INT size = (lstrlenW(drvs.module_name) + 1) * sizeof(WCHAR);
         pv->vt = VT_LPWSTR;
-        pv->pwszVal = CoTaskMemAlloc(size);
-        if (!pv->pwszVal)
+        pv->u.pwszVal = CoTaskMemAlloc(size);
+        if (!pv->u.pwszVal)
             return E_OUTOFMEMORY;
-        memcpy(pv->pwszVal, drvs.module_name, size);
+        memcpy(pv->u.pwszVal, drvs.module_name, size);
         return S_OK;
     }
 

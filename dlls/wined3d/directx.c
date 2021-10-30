@@ -140,7 +140,6 @@ static HRESULT wined3d_output_init(struct wined3d_output *output, unsigned int o
     output->ordinal = ordinal;
     lstrcpyW(output->device_name, device_name);
     output->adapter = adapter;
-    output->screen_format = WINED3DFMT_UNKNOWN;
     output->kmt_adapter = open_adapter_desc.hAdapter;
     output->kmt_device = create_device_desc.hDevice;
     output->vidpn_source_id = open_adapter_desc.VidPnSourceId;
@@ -187,7 +186,6 @@ ULONG CDECL wined3d_decref(struct wined3d *wined3d)
     {
         unsigned int i;
 
-        wined3d_mutex_lock();
         for (i = 0; i < wined3d->adapter_count; ++i)
         {
             struct wined3d_adapter *adapter = wined3d->adapters[i];
@@ -195,7 +193,6 @@ ULONG CDECL wined3d_decref(struct wined3d *wined3d)
             adapter->adapter_ops->adapter_destroy(adapter);
         }
         heap_free(wined3d);
-        wined3d_mutex_unlock();
     }
 
     return refcount;
@@ -518,7 +515,6 @@ static const struct wined3d_gpu_description gpu_description_table[] =
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_RX_NAVI_10,     "Radeon RX 5700 / 5700 XT",         DRIVER_AMD_RX,           8192},
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_RX_NAVI_14,     "Radeon RX 5500M",                  DRIVER_AMD_RX,           4096},
     {HW_VENDOR_AMD,        CARD_AMD_RADEON_RX_NAVI_21,     "Radeon RX 6800/6800 XT / 6900 XT", DRIVER_AMD_RX,          16384},
-    {HW_VENDOR_AMD,        CARD_AMD_VANGOGH,               "AMD VANGOGH",                      DRIVER_AMD_RX,           4096},
 
     /* Red Hat */
     {HW_VENDOR_REDHAT,     CARD_REDHAT_VIRGL,              "Red Hat VirtIO GPU",                                        DRIVER_REDHAT_VIRGL,  1024},
@@ -1502,32 +1498,6 @@ HRESULT CDECL wined3d_output_set_display_mode(struct wined3d_output *output,
     return WINED3D_OK;
 }
 
-HRESULT CDECL wined3d_output_set_gamma_ramp(struct wined3d_output *output, const struct wined3d_gamma_ramp *ramp)
-{
-    HDC dc;
-
-    TRACE("output %p, ramp %p.\n", output, ramp);
-
-    dc = CreateDCW(output->device_name, NULL, NULL, NULL);
-    SetDeviceGammaRamp(dc, (void *)ramp);
-    DeleteDC(dc);
-
-    return WINED3D_OK;
-}
-
-HRESULT wined3d_output_get_gamma_ramp(struct wined3d_output *output, struct wined3d_gamma_ramp *ramp)
-{
-    HDC dc;
-
-    TRACE("output %p, ramp %p.\n", output, ramp);
-
-    dc = CreateDCW(output->device_name, NULL, NULL, NULL);
-    GetDeviceGammaRamp(dc, ramp);
-    DeleteDC(dc);
-
-    return WINED3D_OK;
-}
-
 HRESULT CDECL wined3d_adapter_get_identifier(const struct wined3d_adapter *adapter,
         DWORD flags, struct wined3d_adapter_identifier *identifier)
 {
@@ -1811,19 +1781,6 @@ HRESULT CDECL wined3d_check_device_format(const struct wined3d *wined3d,
             allowed_bind_flags = WINED3D_BIND_SHADER_RESOURCE
                     | WINED3D_BIND_UNORDERED_ACCESS;
             gl_type = gl_type_end = WINED3D_GL_RES_TYPE_TEX_3D;
-            break;
-
-        case WINED3D_RTYPE_BUFFER:
-            if (wined3d_format_is_typeless(format))
-            {
-                TRACE("Requested WINED3D_RTYPE_BUFFER, but format %s is typeless.\n", debug_d3dformat(check_format_id));
-                return WINED3DERR_NOTAVAILABLE;
-            }
-
-            allowed_usage = WINED3DUSAGE_DYNAMIC;
-            allowed_bind_flags = WINED3D_BIND_SHADER_RESOURCE
-                    | WINED3D_BIND_UNORDERED_ACCESS;
-            gl_type = gl_type_end = WINED3D_GL_RES_TYPE_BUFFER;
             break;
 
         default:
@@ -2515,7 +2472,6 @@ static const struct wined3d_state_entry_template misc_state_template_no3d[] =
     {STATE_BLEND_FACTOR,                                  {STATE_VDECL}},
     {STATE_SAMPLE_MASK,                                   {STATE_VDECL}},
     {STATE_DEPTH_STENCIL,                                 {STATE_VDECL}},
-    {STATE_STENCIL_REF,                                   {STATE_VDECL}},
     {STATE_STREAMSRC,                                     {STATE_VDECL}},
     {STATE_VDECL,                                         {STATE_VDECL, state_nop}},
     {STATE_RASTERIZER,                                    {STATE_VDECL}},
@@ -2592,6 +2548,7 @@ static const struct wined3d_state_entry_template misc_state_template_no3d[] =
     {STATE_RENDER(WINED3D_RS_ANISOTROPY),                 {STATE_VDECL}},
     {STATE_RENDER(WINED3D_RS_FLUSHBATCH),                 {STATE_VDECL}},
     {STATE_RENDER(WINED3D_RS_TRANSLUCENTSORTINDEPENDENT), {STATE_VDECL}},
+    {STATE_RENDER(WINED3D_RS_STENCILREF),                 {STATE_VDECL}},
     {STATE_RENDER(WINED3D_RS_WRAP0),                      {STATE_VDECL}},
     {STATE_RENDER(WINED3D_RS_WRAP1),                      {STATE_VDECL}},
     {STATE_RENDER(WINED3D_RS_WRAP2),                      {STATE_VDECL}},
@@ -2692,7 +2649,7 @@ static void adapter_no3d_destroy_device(struct wined3d_device *device)
     heap_free(device);
 }
 
-static struct wined3d_context *adapter_no3d_acquire_context(struct wined3d_device *device,
+struct wined3d_context *adapter_no3d_acquire_context(struct wined3d_device *device,
         struct wined3d_texture *texture, unsigned int sub_resource_idx)
 {
     TRACE("device %p, texture %p, sub_resource_idx %u.\n", device, texture, sub_resource_idx);
@@ -2705,7 +2662,7 @@ static struct wined3d_context *adapter_no3d_acquire_context(struct wined3d_devic
     return &wined3d_device_no3d(device)->context_no3d;
 }
 
-static void adapter_no3d_release_context(struct wined3d_context *context)
+void adapter_no3d_release_context(struct wined3d_context *context)
 {
     TRACE("context %p.\n", context);
 }
@@ -2798,11 +2755,6 @@ static void adapter_no3d_copy_bo_address(struct wined3d_context *context,
     if (dst->buffer_object || src->buffer_object)
         return;
     memcpy(dst->addr, src->addr, size);
-}
-
-static void adapter_no3d_flush_bo_address(struct wined3d_context *context,
-        const struct wined3d_const_bo_address *data, size_t size)
-{
 }
 
 static HRESULT adapter_no3d_create_swapchain(struct wined3d_device *device,
@@ -3054,10 +3006,10 @@ static void adapter_no3d_dispatch_compute(struct wined3d_device *device,
     ERR("device %p, state %p, parameters %p.\n", device, state, parameters);
 }
 
-static void adapter_no3d_clear_uav(struct wined3d_context *context,
-        struct wined3d_unordered_access_view *view, const struct wined3d_uvec4 *clear_value, bool fp)
+void adapter_no3d_clear_uav(struct wined3d_context *context,
+        struct wined3d_unordered_access_view *view, const struct wined3d_uvec4 *clear_value)
 {
-    ERR("context %p, view %p, clear_value %s, fp %#x.\n", context, view, debug_uvec4(clear_value), fp);
+    ERR("context %p, view %p, clear_value %s.\n", context, view, debug_uvec4(clear_value));
 }
 
 static const struct wined3d_adapter_ops wined3d_adapter_no3d_ops =
@@ -3074,7 +3026,6 @@ static const struct wined3d_adapter_ops wined3d_adapter_no3d_ops =
     .adapter_map_bo_address = adapter_no3d_map_bo_address,
     .adapter_unmap_bo_address = adapter_no3d_unmap_bo_address,
     .adapter_copy_bo_address = adapter_no3d_copy_bo_address,
-    .adapter_flush_bo_address = adapter_no3d_flush_bo_address,
     .adapter_create_swapchain = adapter_no3d_create_swapchain,
     .adapter_destroy_swapchain = adapter_no3d_destroy_swapchain,
     .adapter_create_buffer = adapter_no3d_create_buffer,
@@ -3158,46 +3109,16 @@ static struct wined3d_adapter *wined3d_adapter_no3d_create(unsigned int ordinal,
     return adapter;
 }
 
-static BOOL wined3d_adapter_create_output(struct wined3d_adapter *adapter, const WCHAR *output_name)
-{
-    struct wined3d_output *outputs;
-    HRESULT hr;
-
-    if (!adapter->outputs && !(adapter->outputs = heap_calloc(1, sizeof(*adapter->outputs))))
-    {
-        return FALSE;
-    }
-    else
-    {
-        if (!(outputs = heap_realloc(adapter->outputs,
-                sizeof(*adapter->outputs) * (adapter->output_count + 1))))
-            return FALSE;
-
-        adapter->outputs = outputs;
-    }
-
-    if (FAILED(hr = wined3d_output_init(&adapter->outputs[adapter->output_count],
-            adapter->output_count, adapter, output_name)))
-    {
-        ERR("Failed to initialise output %s, hr %#x.\n", wine_dbgstr_w(output_name), hr);
-        return FALSE;
-    }
-
-    ++adapter->output_count;
-    TRACE("Initialised output %s.\n", wine_dbgstr_w(output_name));
-    return TRUE;
-}
-
 BOOL wined3d_adapter_init(struct wined3d_adapter *adapter, unsigned int ordinal, const LUID *luid,
         const struct wined3d_adapter_ops *adapter_ops)
 {
-    unsigned int output_idx = 0, primary_idx = 0;
     DISPLAY_DEVICEW display_device;
+    unsigned int output_idx;
     BOOL ret = FALSE;
+    HRESULT hr;
 
     adapter->ordinal = ordinal;
     adapter->output_count = 0;
-    adapter->outputs = NULL;
 
     if (luid)
     {
@@ -3215,29 +3136,23 @@ BOOL wined3d_adapter_init(struct wined3d_adapter *adapter, unsigned int ordinal,
     TRACE("adapter %p LUID %08x:%08x.\n", adapter, adapter->luid.HighPart, adapter->luid.LowPart);
 
     display_device.cb = sizeof(display_device);
-    while (EnumDisplayDevicesW(NULL, output_idx++, &display_device, 0))
+    EnumDisplayDevicesW(NULL, ordinal, &display_device, 0);
+    TRACE("Display device: %s.\n", debugstr_w(display_device.DeviceName));
+    strcpyW(adapter->device_name, display_device.DeviceName);
+
+    if (!(adapter->outputs = heap_calloc(1, sizeof(*adapter->outputs))))
     {
-        /* Detached outputs are not enumerated */
-        if (!(display_device.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP))
-            continue;
-
-        if (display_device.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE)
-            primary_idx = adapter->output_count;
-
-        if (!wined3d_adapter_create_output(adapter, display_device.DeviceName))
-            goto done;
+        ERR("Failed to allocate outputs.\n");
+        return FALSE;
     }
-    TRACE("Initialised %d outputs for adapter %p.\n", adapter->output_count, adapter);
 
-    /* Make the primary output first */
-    if (primary_idx)
+    if (FAILED(hr = wined3d_output_init(&adapter->outputs[0], 0, adapter,
+            display_device.DeviceName)))
     {
-        struct wined3d_output tmp = adapter->outputs[0];
-        adapter->outputs[0] = adapter->outputs[primary_idx];
-        adapter->outputs[0].ordinal = 0;
-        adapter->outputs[primary_idx] = tmp;
-        adapter->outputs[primary_idx].ordinal = primary_idx;
+        ERR("Failed to initialise output, hr %#x.\n", hr);
+        goto done;
     }
+    adapter->output_count = 1;
 
     memset(&adapter->driver_uuid, 0, sizeof(adapter->driver_uuid));
     memset(&adapter->device_uuid, 0, sizeof(adapter->device_uuid));

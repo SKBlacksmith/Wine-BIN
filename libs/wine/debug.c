@@ -19,6 +19,7 @@
  */
 
 #include "config.h"
+#include "wine/port.h"
 #include "wine/asm.h"
 
 #ifdef __ASM_OBSOLETE
@@ -28,9 +29,9 @@
 #include <stdarg.h>
 #include <string.h>
 #include <ctype.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#ifdef HAVE_SYS_STAT_H
+# include <sys/stat.h>
+#endif
 
 #include "wine/debug.h"
 

@@ -1,7 +1,6 @@
 /* GStreamer Media Source
  *
  * Copyright 2020 Derek Lesho
- * Copyright 2020 Zebediah Figura for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -18,11 +17,27 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
+#include <gst/gst.h>
+
 #include "gst_private.h"
+#include "gst_cbs.h"
+
+#include <assert.h>
+#include <stdarg.h>
+#include <assert.h>
+
+#define COBJMACROS
+#define NONAMELESSUNION
 
 #include "mfapi.h"
 #include "mferror.h"
+#include "mfidl.h"
+#include "mfobjects.h"
 
+#include "wine/debug.h"
+#include "wine/heap.h"
 #include "wine/list.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(mfplat);
@@ -34,13 +49,8 @@ struct media_stream
     struct media_source *parent_source;
     IMFMediaEventQueue *event_queue;
     IMFStreamDescriptor *descriptor;
-
-    struct wg_parser_stream *wg_stream;
-
-    IUnknown **token_queue;
-    LONG token_queue_count;
-    LONG token_queue_cap;
-
+    GstElement *appsink;
+    GstPad *their_src, *my_sink;
     enum
     {
         STREAM_INACTIVE,
@@ -54,8 +64,6 @@ struct media_stream
 enum source_async_op
 {
     SOURCE_ASYNC_START,
-    SOURCE_ASYNC_PAUSE,
-    SOURCE_ASYNC_STOP,
     SOURCE_ASYNC_REQUEST_SAMPLE,
 };
 
@@ -83,31 +91,26 @@ struct source_async_command
 struct media_source
 {
     IMFMediaSource IMFMediaSource_iface;
-    IMFGetService IMFGetService_iface;
-    IMFRateSupport IMFRateSupport_iface;
-    IMFRateControl IMFRateControl_iface;
     IMFAsyncCallback async_commands_callback;
     LONG ref;
     DWORD async_commands_queue;
     IMFMediaEventQueue *event_queue;
     IMFByteStream *byte_stream;
-
-    struct wg_parser *wg_parser;
-
     struct media_stream **streams;
     ULONG stream_count;
     IMFPresentationDescriptor *pres_desc;
+    GstBus *bus;
+    GstElement *container;
+    GstElement *decodebin;
+    GstPad *my_src, *their_sink;
     enum
     {
         SOURCE_OPENING,
         SOURCE_STOPPED,
-        SOURCE_PAUSED,
         SOURCE_RUNNING,
         SOURCE_SHUTDOWN,
     } state;
-
-    HANDLE read_thread;
-    bool read_thread_shutdown;
+    HANDLE no_more_pads_event;
 };
 
 static inline struct media_stream *impl_from_IMFMediaStream(IMFMediaStream *iface)
@@ -118,21 +121,6 @@ static inline struct media_stream *impl_from_IMFMediaStream(IMFMediaStream *ifac
 static inline struct media_source *impl_from_IMFMediaSource(IMFMediaSource *iface)
 {
     return CONTAINING_RECORD(iface, struct media_source, IMFMediaSource_iface);
-}
-
-static inline struct media_source *impl_from_IMFGetService(IMFGetService *iface)
-{
-    return CONTAINING_RECORD(iface, struct media_source, IMFGetService_iface);
-}
-
-static inline struct media_source *impl_from_IMFRateSupport(IMFRateSupport *iface)
-{
-    return CONTAINING_RECORD(iface, struct media_source, IMFRateSupport_iface);
-}
-
-static inline struct media_source *impl_from_IMFRateControl(IMFRateControl *iface)
-{
-    return CONTAINING_RECORD(iface, struct media_source, IMFRateControl_iface);
 }
 
 static inline struct media_source *impl_from_async_commands_callback_IMFAsyncCallback(IMFAsyncCallback *iface)
@@ -174,12 +162,7 @@ static ULONG WINAPI source_async_command_Release(IUnknown *iface)
     {
         if (command->op == SOURCE_ASYNC_START)
             PropVariantClear(&command->u.start.position);
-        else if (command->op == SOURCE_ASYNC_REQUEST_SAMPLE)
-        {
-            if (command->u.request_sample.token)
-                IUnknown_Release(command->u.request_sample.token);
-        }
-        free(command);
+        heap_free(command);
     }
 
     return refcount;
@@ -196,7 +179,7 @@ static HRESULT source_create_async_op(enum source_async_op op, struct source_asy
 {
     struct source_async_command *command;
 
-    if (!(command = calloc(1, sizeof(*command))))
+    if (!(command = heap_alloc_zero(sizeof(*command))))
         return E_OUTOFMEMORY;
 
     command->IUnknown_iface.lpVtbl = &source_async_command_vtbl;
@@ -266,66 +249,22 @@ static IMFStreamDescriptor *stream_descriptor_from_id(IMFPresentationDescriptor 
     return NULL;
 }
 
-static BOOL enqueue_token(struct media_stream *stream, IUnknown *token)
-{
-    if (stream->token_queue_count == stream->token_queue_cap)
-    {
-        IUnknown **buf;
-        stream->token_queue_cap = stream->token_queue_cap * 2 + 1;
-        buf = realloc(stream->token_queue, stream->token_queue_cap * sizeof(*buf));
-        if (buf)
-            stream->token_queue = buf;
-        else
-        {
-            stream->token_queue_cap = stream->token_queue_count;
-            return FALSE;
-        }
-    }
-    stream->token_queue[stream->token_queue_count++] = token;
-    return TRUE;
-}
-
-static void flush_token_queue(struct media_stream *stream, BOOL send)
-{
-    LONG i;
-
-    for (i = 0; i < stream->token_queue_count; i++)
-    {
-        if (send)
-        {
-            HRESULT hr;
-            struct source_async_command *command;
-            if (SUCCEEDED(hr = source_create_async_op(SOURCE_ASYNC_REQUEST_SAMPLE, &command)))
-            {
-                command->u.request_sample.stream = stream;
-                command->u.request_sample.token = stream->token_queue[i];
-
-                hr = MFPutWorkItem(stream->parent_source->async_commands_queue,
-                        &stream->parent_source->async_commands_callback, &command->IUnknown_iface);
-            }
-            if (FAILED(hr))
-                WARN("Could not enqueue sample request, hr %#x\n", hr);
-        }
-        else if (stream->token_queue[i])
-            IUnknown_Release(stream->token_queue[i]);
-    }
-    free(stream->token_queue);
-    stream->token_queue = NULL;
-    stream->token_queue_count = 0;
-    stream->token_queue_cap = 0;
-}
-
 static void start_pipeline(struct media_source *source, struct source_async_command *command)
 {
     PROPVARIANT *position = &command->u.start.position;
     BOOL seek_message = source->state != SOURCE_STOPPED && position->vt != VT_EMPTY;
+    GstStateChangeReturn ret;
     unsigned int i;
+
+    gst_element_set_state(source->container, GST_STATE_PAUSED);
+    ret = gst_element_get_state(source->container, NULL, NULL, -1);
+    assert(ret == GST_STATE_CHANGE_SUCCESS);
 
     /* seek to beginning on stop->play */
     if (source->state == SOURCE_STOPPED && position->vt == VT_EMPTY)
     {
         position->vt = VT_I8;
-        position->hVal.QuadPart = 0;
+        position->u.hVal.QuadPart = 0;
     }
 
     for (i = 0; i < source->stream_count; i++)
@@ -334,6 +273,8 @@ static void start_pipeline(struct media_source *source, struct source_async_comm
         IMFStreamDescriptor *sd;
         IMFMediaTypeHandler *mth;
         IMFMediaType *current_mt;
+        GstCaps *current_caps;
+        GstCaps *prev_caps;
         DWORD stream_id;
         BOOL was_active;
         BOOL selected;
@@ -351,20 +292,35 @@ static void start_pipeline(struct media_source *source, struct source_async_comm
 
         if (selected)
         {
-            struct wg_format format;
-
             IMFStreamDescriptor_GetMediaTypeHandler(stream->descriptor, &mth);
             IMFMediaTypeHandler_GetCurrentMediaType(mth, &current_mt);
+            current_caps = caps_from_mf_media_type(current_mt);
+            g_object_get(stream->appsink, "caps", &prev_caps, NULL);
+            if (!prev_caps || !gst_caps_is_equal(prev_caps, current_caps))
+            {
+                GstEvent *reconfigure_event = gst_event_new_reconfigure();
+                g_object_set(stream->appsink, "caps", current_caps, NULL);
+                gst_pad_push_event(gst_element_get_static_pad(stream->appsink, "sink"), reconfigure_event);
+            }
 
-            mf_media_type_to_wg_format(current_mt, &format);
-            wg_parser_stream_enable(stream->wg_stream, &format);
-
+            gst_caps_unref(current_caps);
+            if (prev_caps)
+                gst_caps_unref(prev_caps);
             IMFMediaType_Release(current_mt);
             IMFMediaTypeHandler_Release(mth);
         }
 
+        g_object_set(stream->appsink, "drop", !selected, NULL);
+
         if (position->vt != VT_EMPTY)
+        {
+            GstEvent *seek_event = gst_event_new_seek(1.0, GST_FORMAT_TIME, GST_SEEK_FLAG_FLUSH,
+                    GST_SEEK_TYPE_SET, position->u.hVal.QuadPart / 100, GST_SEEK_TYPE_NONE, 0);
+
+            gst_pad_push_event(stream->my_sink, seek_event);
+
             stream->eos = FALSE;
+        }
 
         if (selected)
         {
@@ -384,55 +340,7 @@ static void start_pipeline(struct media_source *source, struct source_async_comm
 
     source->state = SOURCE_RUNNING;
 
-    if (position->vt == VT_I8)
-        wg_parser_stream_seek(source->streams[0]->wg_stream, 1.0, position->hVal.QuadPart, 0,
-                AM_SEEKING_AbsolutePositioning, AM_SEEKING_NoPositioning);
-    wg_parser_end_flush(source->wg_parser);
-
-    for (i = 0; i < source->stream_count; i++)
-        flush_token_queue(source->streams[i], position->vt == VT_EMPTY);
-}
-
-static void pause_pipeline(struct media_source *source)
-{
-    unsigned int i;
-
-    for (i = 0; i < source->stream_count; i++)
-    {
-        struct media_stream *stream = source->streams[i];
-        if (stream->state != STREAM_INACTIVE)
-        {
-            IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamPaused, &GUID_NULL, S_OK, NULL);
-        }
-    }
-
-    IMFMediaEventQueue_QueueEventParamVar(source->event_queue, MESourcePaused, &GUID_NULL, S_OK, NULL);
-
-    source->state = SOURCE_PAUSED;
-}
-
-static void stop_pipeline(struct media_source *source)
-{
-    unsigned int i;
-
-    wg_parser_begin_flush(source->wg_parser);
-
-    for (i = 0; i < source->stream_count; i++)
-    {
-        struct media_stream *stream = source->streams[i];
-        if (stream->state != STREAM_INACTIVE)
-        {
-            IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEStreamStopped, &GUID_NULL, S_OK, NULL);
-            wg_parser_stream_disable(stream->wg_stream);
-        }
-    }
-
-    IMFMediaEventQueue_QueueEventParamVar(source->event_queue, MESourceStopped, &GUID_NULL, S_OK, NULL);
-
-    source->state = SOURCE_STOPPED;
-
-    for (i = 0; i < source->stream_count; i++)
-        flush_token_queue(source->streams[i], FALSE);
+    gst_element_set_state(source->container, GST_STATE_PLAYING);
 }
 
 static void dispatch_end_of_presentation(struct media_source *source)
@@ -452,112 +360,40 @@ static void dispatch_end_of_presentation(struct media_source *source)
     IMFMediaEventQueue_QueueEventParamVar(source->event_queue, MEEndOfPresentation, &GUID_NULL, S_OK, &empty);
 }
 
-static void send_buffer(struct media_stream *stream, const struct wg_parser_event *event, IUnknown *token)
-{
-    IMFMediaBuffer *buffer;
-    IMFSample *sample;
-    HRESULT hr;
-    BYTE *data;
-
-    if (FAILED(hr = MFCreateSample(&sample)))
-    {
-        ERR("Failed to create sample, hr %#x.\n", hr);
-        return;
-    }
-
-    if (FAILED(hr = MFCreateMemoryBuffer(event->u.buffer.size, &buffer)))
-    {
-        ERR("Failed to create buffer, hr %#x.\n", hr);
-        IMFSample_Release(sample);
-        return;
-    }
-
-    if (FAILED(hr = IMFSample_AddBuffer(sample, buffer)))
-    {
-        ERR("Failed to add buffer, hr %#x.\n", hr);
-        goto out;
-    }
-
-    if (FAILED(hr = IMFMediaBuffer_SetCurrentLength(buffer, event->u.buffer.size)))
-    {
-        ERR("Failed to set size, hr %#x.\n", hr);
-        goto out;
-    }
-
-    if (FAILED(hr = IMFMediaBuffer_Lock(buffer, &data, NULL, NULL)))
-    {
-        ERR("Failed to lock buffer, hr %#x.\n", hr);
-        goto out;
-    }
-
-    if (!wg_parser_stream_copy_buffer(stream->wg_stream, data, 0, event->u.buffer.size))
-    {
-        wg_parser_stream_release_buffer(stream->wg_stream);
-        IMFMediaBuffer_Unlock(buffer);
-        goto out;
-    }
-    wg_parser_stream_release_buffer(stream->wg_stream);
-
-    if (FAILED(hr = IMFMediaBuffer_Unlock(buffer)))
-    {
-        ERR("Failed to unlock buffer, hr %#x.\n", hr);
-        goto out;
-    }
-
-    if (FAILED(hr = IMFSample_SetSampleTime(sample, event->u.buffer.pts)))
-    {
-        ERR("Failed to set sample time, hr %#x.\n", hr);
-        goto out;
-    }
-
-    if (FAILED(hr = IMFSample_SetSampleDuration(sample, event->u.buffer.duration)))
-    {
-        ERR("Failed to set sample duration, hr %#x.\n", hr);
-        goto out;
-    }
-
-    if (token)
-        IMFSample_SetUnknown(sample, &MFSampleExtension_Token, token);
-
-    IMFMediaEventQueue_QueueEventParamUnk(stream->event_queue, MEMediaSample,
-            &GUID_NULL, S_OK, (IUnknown *)sample);
-
-out:
-    IMFMediaBuffer_Release(buffer);
-    IMFSample_Release(sample);
-}
-
 static void wait_on_sample(struct media_stream *stream, IUnknown *token)
 {
     PROPVARIANT empty_var = {.vt = VT_EMPTY};
-    struct wg_parser_event event;
+    GstSample *gst_sample;
+    GstBuffer *buffer;
+    IMFSample *sample;
 
     TRACE("%p, %p\n", stream, token);
 
-    for (;;)
+    g_signal_emit_by_name(stream->appsink, "pull-sample", &gst_sample);
+    if (gst_sample)
     {
-        if (!wg_parser_stream_get_event(stream->wg_stream, &event))
-            return;
+        buffer = gst_sample_get_buffer(gst_sample);
 
-        TRACE("Got event of type %#x.\n", event.type);
+        TRACE("PTS = %llu\n", (unsigned long long int) GST_BUFFER_PTS(buffer));
 
-        switch (event.type)
+        sample = mf_sample_from_gst_buffer(buffer);
+        gst_sample_unref(gst_sample);
+
+        if (token)
+            IMFSample_SetUnknown(sample, &MFSampleExtension_Token, token);
+
+        IMFMediaEventQueue_QueueEventParamUnk(stream->event_queue, MEMediaSample, &GUID_NULL, S_OK, (IUnknown *)sample);
+        IMFSample_Release(sample);
+    }
+    else
+    {
+        g_object_get(stream->appsink, "eos", &stream->eos, NULL);
+        if (stream->eos)
         {
-            case WG_PARSER_EVENT_BUFFER:
-                send_buffer(stream, &event, token);
-                return;
-
-            case WG_PARSER_EVENT_EOS:
-                stream->eos = TRUE;
-                IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEEndOfStream, &GUID_NULL, S_OK, &empty_var);
-                dispatch_end_of_presentation(stream->parent_source);
-                return;
-
-            case WG_PARSER_EVENT_SEGMENT:
-                break;
-
-            case WG_PARSER_EVENT_NONE:
-                assert(0);
+            if (token)
+                IUnknown_Release(token);
+            IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, MEEndOfStream, &GUID_NULL, S_OK, &empty_var);
+            dispatch_end_of_presentation(stream->parent_source);
         }
     }
 }
@@ -581,17 +417,8 @@ static HRESULT WINAPI source_async_commands_Invoke(IMFAsyncCallback *iface, IMFA
         case SOURCE_ASYNC_START:
             start_pipeline(source, command);
             break;
-        case SOURCE_ASYNC_PAUSE:
-            pause_pipeline(source);
-            break;
-        case SOURCE_ASYNC_STOP:
-            stop_pipeline(source);
-            break;
         case SOURCE_ASYNC_REQUEST_SAMPLE:
-            if (source->state == SOURCE_PAUSED)
-                enqueue_token(command->u.request_sample.stream, command->u.request_sample.token);
-            else
-                wait_on_sample(command->u.request_sample.stream, command->u.request_sample.token);
+            wait_on_sample(command->u.request_sample.stream, command->u.request_sample.token);
             break;
     }
 
@@ -609,71 +436,169 @@ static const IMFAsyncCallbackVtbl source_async_commands_callback_vtbl =
     source_async_commands_Invoke,
 };
 
-static DWORD CALLBACK read_thread(void *arg)
+GstFlowReturn bytestream_wrapper_pull(GstPad *pad, GstObject *parent, guint64 ofs, guint len,
+        GstBuffer **buf)
 {
-    struct media_source *source = arg;
+    struct media_source *source = gst_pad_get_element_private(pad);
     IMFByteStream *byte_stream = source->byte_stream;
-    size_t buffer_size = 4096;
-    uint64_t file_size;
-    void *data;
+    GstBuffer *new_buffer = NULL;
+    ULONG bytes_read;
+    GstMapInfo info;
+    BOOL is_eof;
+    HRESULT hr;
 
-    if (!(data = malloc(buffer_size)))
-        return 0;
+    TRACE("requesting %u bytes at %s from source %p into buffer %p\n", len, wine_dbgstr_longlong(ofs), source, *buf);
 
-    IMFByteStream_GetLength(byte_stream, &file_size);
-
-    TRACE("Starting read thread for media source %p.\n", source);
-
-    while (!source->read_thread_shutdown)
+    if (ofs != GST_BUFFER_OFFSET_NONE)
     {
-        uint64_t offset;
-        ULONG ret_size;
-        uint32_t size;
-        HRESULT hr;
-
-        if (!wg_parser_get_next_read_offset(source->wg_parser, &offset, &size))
-            continue;
-
-        if (offset >= file_size)
-            size = 0;
-        else if (offset + size >= file_size)
-            size = file_size - offset;
-
-        /* Some IMFByteStreams (including the standard file-based stream) return
-         * an error when reading past the file size. */
-        if (!size)
-        {
-            wg_parser_push_data(source->wg_parser, data, 0);
-            continue;
-        }
-
-        if (!array_reserve(&data, &buffer_size, size, 1))
-        {
-            free(data);
-            return 0;
-        }
-
-        ret_size = 0;
-
-        if (SUCCEEDED(hr = IMFByteStream_SetCurrentPosition(byte_stream, offset)))
-            hr = IMFByteStream_Read(byte_stream, data, size, &ret_size);
-        if (FAILED(hr))
-            ERR("Failed to read %u bytes at offset %I64u, hr %#x.\n", size, offset, hr);
-        else if (ret_size != size)
-            ERR("Unexpected short read: requested %u bytes, got %u.\n", size, ret_size);
-        wg_parser_push_data(source->wg_parser, SUCCEEDED(hr) ? data : NULL, ret_size);
+        if (FAILED(IMFByteStream_SetCurrentPosition(byte_stream, ofs)))
+            return GST_FLOW_ERROR;
     }
 
-    free(data);
-    TRACE("Media source is shutting down; exiting.\n");
-    return 0;
+    if (FAILED(IMFByteStream_IsEndOfStream(byte_stream, &is_eof)))
+        return GST_FLOW_ERROR;
+    if (is_eof)
+        return GST_FLOW_EOS;
+
+    if (!(*buf))
+        *buf = new_buffer = gst_buffer_new_and_alloc(len);
+    gst_buffer_map(*buf, &info, GST_MAP_WRITE);
+    hr = IMFByteStream_Read(byte_stream, info.data, len, &bytes_read);
+    gst_buffer_unmap(*buf, &info);
+
+    gst_buffer_set_size(*buf, bytes_read);
+
+    if (FAILED(hr))
+    {
+        if (new_buffer)
+            gst_buffer_unref(new_buffer);
+        return GST_FLOW_ERROR;
+    }
+    return GST_FLOW_OK;
+}
+
+static gboolean bytestream_query(GstPad *pad, GstObject *parent, GstQuery *query)
+{
+    struct media_source *source = gst_pad_get_element_private(pad);
+    GstFormat format;
+    QWORD bytestream_len;
+
+    TRACE("GStreamer queries source %p for %s\n", source, GST_QUERY_TYPE_NAME(query));
+
+    if (FAILED(IMFByteStream_GetLength(source->byte_stream, &bytestream_len)))
+        return FALSE;
+
+    switch (GST_QUERY_TYPE(query))
+    {
+        case GST_QUERY_DURATION:
+        {
+            gst_query_parse_duration(query, &format, NULL);
+            if (format == GST_FORMAT_PERCENT)
+            {
+                gst_query_set_duration(query, GST_FORMAT_PERCENT, GST_FORMAT_PERCENT_MAX);
+                return TRUE;
+            }
+            else if (format == GST_FORMAT_BYTES)
+            {
+                QWORD length;
+                IMFByteStream_GetLength(source->byte_stream, &length);
+                gst_query_set_duration(query, GST_FORMAT_BYTES, length);
+                return TRUE;
+            }
+            return FALSE;
+        }
+        case GST_QUERY_SEEKING:
+        {
+            gst_query_parse_seeking (query, &format, NULL, NULL, NULL);
+            if (format != GST_FORMAT_BYTES)
+            {
+                WARN("Cannot seek using format \"%s\".\n", gst_format_get_name(format));
+                return FALSE;
+            }
+            gst_query_set_seeking(query, GST_FORMAT_BYTES, 1, 0, bytestream_len);
+            return TRUE;
+        }
+        case GST_QUERY_SCHEDULING:
+        {
+            gst_query_set_scheduling(query, GST_SCHEDULING_FLAG_SEEKABLE, 1, -1, 0);
+            gst_query_add_scheduling_mode(query, GST_PAD_MODE_PULL);
+            return TRUE;
+        }
+        default:
+        {
+            WARN("Unhandled query type %s\n", GST_QUERY_TYPE_NAME(query));
+            return FALSE;
+        }
+    }
+}
+
+static gboolean bytestream_pad_mode_activate(GstPad *pad, GstObject *parent, GstPadMode mode, gboolean activate)
+{
+    struct media_source *source = gst_pad_get_element_private(pad);
+
+    TRACE("%s source pad for mediasource %p in %s mode.\n",
+            activate ? "Activating" : "Deactivating", source, gst_pad_mode_get_name(mode));
+
+    return mode == GST_PAD_MODE_PULL;
+}
+
+static gboolean bytestream_pad_event_process(GstPad *pad, GstObject *parent, GstEvent *event)
+{
+    struct media_source *source = gst_pad_get_element_private(pad);
+
+    TRACE("source %p, type \"%s\".\n", source, GST_EVENT_TYPE_NAME(event));
+
+    switch (event->type) {
+        /* the seek event should fail in pull mode */
+        case GST_EVENT_SEEK:
+            return FALSE;
+        default:
+            WARN("Ignoring \"%s\" event.\n", GST_EVENT_TYPE_NAME(event));
+        case GST_EVENT_TAG:
+        case GST_EVENT_QOS:
+        case GST_EVENT_RECONFIGURE:
+            return gst_pad_event_default(pad, parent, event);
+    }
+    return TRUE;
+}
+
+GstBusSyncReply bus_watch(GstBus *bus, GstMessage *message, gpointer user)
+{
+    struct media_source *source = user;
+    gchar *dbg_info = NULL;
+    GError *err = NULL;
+
+    TRACE("source %p message type %s\n", source, GST_MESSAGE_TYPE_NAME(message));
+
+    switch (message->type)
+    {
+        case GST_MESSAGE_ERROR:
+            gst_message_parse_error(message, &err, &dbg_info);
+            ERR("%s: %s\n", GST_OBJECT_NAME(message->src), err->message);
+            ERR("%s\n", dbg_info);
+            g_error_free(err);
+            g_free(dbg_info);
+            break;
+        case GST_MESSAGE_WARNING:
+            gst_message_parse_warning(message, &err, &dbg_info);
+            WARN("%s: %s\n", GST_OBJECT_NAME(message->src), err->message);
+            WARN("%s\n", dbg_info);
+            g_error_free(err);
+            g_free(dbg_info);
+            break;
+        default:
+            break;
+    }
+
+    gst_message_unref(message);
+    return GST_BUS_DROP;
 }
 
 static HRESULT WINAPI media_stream_QueryInterface(IMFMediaStream *iface, REFIID riid, void **out)
 {
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
 
-    TRACE("%p, %s, %p.\n", iface, debugstr_guid(riid), out);
+    TRACE("(%p)->(%s %p)\n", stream, debugstr_guid(riid), out);
 
     if (IsEqualIID(riid, &IID_IMFMediaStream) ||
         IsEqualIID(riid, &IID_IMFMediaEventGenerator) ||
@@ -697,7 +622,7 @@ static ULONG WINAPI media_stream_AddRef(IMFMediaStream *iface)
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
     ULONG ref = InterlockedIncrement(&stream->ref);
 
-    TRACE("%p, refcount %u.\n", iface, ref);
+    TRACE("(%p) ref=%u\n", stream, ref);
 
     return ref;
 }
@@ -705,16 +630,16 @@ static ULONG WINAPI media_stream_AddRef(IMFMediaStream *iface)
 static ULONG WINAPI media_stream_Release(IMFMediaStream *iface)
 {
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
+
     ULONG ref = InterlockedDecrement(&stream->ref);
 
-    TRACE("%p, refcount %u.\n", iface, ref);
+    TRACE("(%p) ref=%u\n", stream, ref);
 
     if (!ref)
     {
         if (stream->event_queue)
             IMFMediaEventQueue_Release(stream->event_queue);
-        flush_token_queue(stream, FALSE);
-        free(stream);
+        heap_free(stream);
     }
 
     return ref;
@@ -724,7 +649,7 @@ static HRESULT WINAPI media_stream_GetEvent(IMFMediaStream *iface, DWORD flags, 
 {
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
 
-    TRACE("%p, %#x, %p.\n", iface, flags, event);
+    TRACE("(%p)->(%#x, %p)\n", stream, flags, event);
 
     return IMFMediaEventQueue_GetEvent(stream->event_queue, flags, event);
 }
@@ -733,7 +658,7 @@ static HRESULT WINAPI media_stream_BeginGetEvent(IMFMediaStream *iface, IMFAsync
 {
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
 
-    TRACE("%p, %p, %p.\n", iface, callback, state);
+    TRACE("(%p)->(%p, %p)\n", stream, callback, state);
 
     return IMFMediaEventQueue_BeginGetEvent(stream->event_queue, callback, state);
 }
@@ -742,7 +667,7 @@ static HRESULT WINAPI media_stream_EndGetEvent(IMFMediaStream *iface, IMFAsyncRe
 {
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
 
-    TRACE("%p, %p, %p.\n", stream, result, event);
+    TRACE("(%p)->(%p, %p)\n", stream, result, event);
 
     return IMFMediaEventQueue_EndGetEvent(stream->event_queue, result, event);
 }
@@ -752,7 +677,7 @@ static HRESULT WINAPI media_stream_QueueEvent(IMFMediaStream *iface, MediaEventT
 {
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
 
-    TRACE("%p, %d, %s, %#x, %p.\n", iface, event_type, debugstr_guid(ext_type), hr, value);
+    TRACE("(%p)->(%d, %s, %#x, %p)\n", stream, event_type, debugstr_guid(ext_type), hr, value);
 
     return IMFMediaEventQueue_QueueEventParamVar(stream->event_queue, event_type, ext_type, hr, value);
 }
@@ -761,7 +686,7 @@ static HRESULT WINAPI media_stream_GetMediaSource(IMFMediaStream *iface, IMFMedi
 {
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
 
-    TRACE("%p, %p.\n", iface, source);
+    TRACE("(%p)->(%p)\n", stream, source);
 
     if (stream->state == STREAM_SHUTDOWN)
         return MF_E_SHUTDOWN;
@@ -776,7 +701,7 @@ static HRESULT WINAPI media_stream_GetStreamDescriptor(IMFMediaStream* iface, IM
 {
     struct media_stream *stream = impl_from_IMFMediaStream(iface);
 
-    TRACE("%p, %p.\n", iface, descriptor);
+    TRACE("(%p)->(%p)\n", stream, descriptor);
 
     if (stream->state == STREAM_SHUTDOWN)
         return MF_E_SHUTDOWN;
@@ -793,7 +718,7 @@ static HRESULT WINAPI media_stream_RequestSample(IMFMediaStream *iface, IUnknown
     struct source_async_command *command;
     HRESULT hr;
 
-    TRACE("%p, %p.\n", iface, token);
+    TRACE("(%p)->(%p)\n", iface, token);
 
     if (stream->state == STREAM_SHUTDOWN)
         return MF_E_SHUTDOWN;
@@ -816,8 +741,8 @@ static HRESULT WINAPI media_stream_RequestSample(IMFMediaStream *iface, IUnknown
             IUnknown_AddRef(token);
         command->u.request_sample.token = token;
 
-        hr = MFPutWorkItem(stream->parent_source->async_commands_queue,
-                &stream->parent_source->async_commands_callback, &command->IUnknown_iface);
+        /* Once pause support is added, this will need to put into a stream queue, and synchronization will need to be added*/
+        hr = MFPutWorkItem(stream->parent_source->async_commands_queue, &stream->parent_source->async_commands_callback, &command->IUnknown_iface);
     }
 
     return hr;
@@ -837,50 +762,118 @@ static const IMFMediaStreamVtbl media_stream_vtbl =
     media_stream_RequestSample
 };
 
-static HRESULT new_media_stream(struct media_source *source,
-        struct wg_parser_stream *wg_stream, DWORD stream_id, struct media_stream **out_stream)
+/* Setup a chain of elements which should hopefully allow transformations to any IMFMediaType
+   the user throws at us through gstreamer's caps negotiation. */
+static HRESULT media_stream_connect_to_sink(struct media_stream *stream)
 {
-    struct media_stream *object = calloc(1, sizeof(*object));
-    HRESULT hr;
+    GstCaps *source_caps = gst_pad_query_caps(stream->their_src, NULL);
+    const gchar *stream_type;
 
-    TRACE("source %p, wg_stream %p, stream_id %u.\n", source, wg_stream, stream_id);
+    if (!source_caps)
+        return E_FAIL;
 
-    object->IMFMediaStream_iface.lpVtbl = &media_stream_vtbl;
-    object->ref = 1;
+    stream_type = gst_structure_get_name(gst_caps_get_structure(source_caps, 0));
+    gst_caps_unref(source_caps);
 
-    if (FAILED(hr = MFCreateEventQueue(&object->event_queue)))
+    if (!strcmp(stream_type, "video/x-raw"))
     {
-        free(object);
-        return hr;
+        GstElement *videoconvert = gst_element_factory_make("videoconvert", NULL);
+
+        gst_bin_add(GST_BIN(stream->parent_source->container), videoconvert);
+
+        stream->my_sink = gst_element_get_static_pad(videoconvert, "sink");
+
+        if (!gst_element_link(videoconvert, stream->appsink))
+            return E_FAIL;
+
+        gst_element_sync_state_with_parent(videoconvert);
+    }
+    else if (!strcmp(stream_type, "audio/x-raw"))
+    {
+        GstElement *audioconvert = gst_element_factory_make("audioconvert", NULL);
+
+        gst_bin_add(GST_BIN(stream->parent_source->container), audioconvert);
+
+        stream->my_sink = gst_element_get_static_pad(audioconvert, "sink");
+
+        if (!gst_element_link(audioconvert, stream->appsink))
+            return E_FAIL;
+
+        gst_element_sync_state_with_parent(audioconvert);
+    }
+    else
+    {
+        stream->my_sink = gst_element_get_static_pad(stream->appsink, "sink");
     }
 
-    IMFMediaSource_AddRef(&source->IMFMediaSource_iface);
-    object->parent_source = source;
-    object->stream_id = stream_id;
-
-    object->state = STREAM_INACTIVE;
-    object->eos = FALSE;
-    object->wg_stream = wg_stream;
-
-    TRACE("Created stream object %p.\n", object);
-
-    *out_stream = object;
+    if (gst_pad_link(stream->their_src, stream->my_sink) != GST_PAD_LINK_OK)
+        return E_FAIL;
 
     return S_OK;
 }
 
+static HRESULT new_media_stream(struct media_source *source, GstPad *pad, DWORD stream_id, struct media_stream **out_stream)
+{
+    struct media_stream *object = heap_alloc_zero(sizeof(*object));
+    HRESULT hr;
+
+    TRACE("(%p %p)->(%p)\n", source, pad, out_stream);
+
+    object->IMFMediaStream_iface.lpVtbl = &media_stream_vtbl;
+    object->ref = 1;
+
+    IMFMediaSource_AddRef(&source->IMFMediaSource_iface);
+    object->parent_source = source;
+    object->their_src = pad;
+    object->stream_id = stream_id;
+
+    object->state = STREAM_INACTIVE;
+    object->eos = FALSE;
+
+    if (FAILED(hr = MFCreateEventQueue(&object->event_queue)))
+        goto fail;
+
+    if (!(object->appsink = gst_element_factory_make("appsink", NULL)))
+    {
+        hr = E_OUTOFMEMORY;
+        goto fail;
+    }
+    gst_bin_add(GST_BIN(object->parent_source->container), object->appsink);
+
+    g_object_set(object->appsink, "sync", FALSE, NULL);
+    g_object_set(object->appsink, "max-buffers", 5, NULL);
+
+    if (FAILED(hr = media_stream_connect_to_sink(object)))
+        goto fail;
+
+    gst_element_sync_state_with_parent(object->appsink);
+
+    TRACE("->(%p)\n", object);
+    *out_stream = object;
+
+    return S_OK;
+
+fail:
+    WARN("Failed to construct media stream, hr %#x.\n", hr);
+
+    IMFMediaStream_Release(&object->IMFMediaStream_iface);
+    return hr;
+}
+
 static HRESULT media_stream_init_desc(struct media_stream *stream)
 {
+    GstCaps *current_caps = gst_pad_get_current_caps(stream->their_src);
     IMFMediaTypeHandler *type_handler = NULL;
-    IMFMediaType *stream_types[6];
-    struct wg_format format;
+    IMFMediaType **stream_types = NULL;
+    IMFMediaType *stream_type = NULL;
     DWORD type_count = 0;
+    const gchar *major_type;
     unsigned int i;
     HRESULT hr;
 
-    wg_parser_stream_get_preferred_format(stream->wg_stream, &format);
+    major_type = gst_structure_get_name(gst_caps_get_structure(current_caps, 0));
 
-    if (format.major_type == WG_MAJOR_TYPE_VIDEO)
+    if (!strcmp(major_type, "video/x-raw"))
     {
         /* These are the most common native output types of decoders:
             https://docs.microsoft.com/en-us/windows/win32/medfound/mft-decoder-expose-output-types-in-native-order */
@@ -893,10 +886,12 @@ static HRESULT media_stream_init_desc(struct media_stream *stream)
             &MFVideoFormat_I420,
         };
 
-        IMFMediaType *base_type = mf_media_type_from_wg_format(&format);
+        IMFMediaType *base_type = mf_media_type_from_caps(current_caps);
         GUID base_subtype;
 
         IMFMediaType_GetGUID(base_type, &MF_MT_SUBTYPE, &base_subtype);
+
+        stream_types = heap_alloc( sizeof(IMFMediaType *) * ARRAY_SIZE(video_types) + 1);
 
         stream_types[0] = base_type;
         type_count = 1;
@@ -918,36 +913,15 @@ static HRESULT media_stream_init_desc(struct media_stream *stream)
                 goto done;
         }
     }
-    else if (format.major_type == WG_MAJOR_TYPE_AUDIO)
-    {
-        /* Expose at least one PCM and one floating point type for the
-           consumer to pick from. */
-        static const enum wg_audio_format audio_types[] =
-        {
-            WG_AUDIO_FORMAT_S16LE,
-            WG_AUDIO_FORMAT_F32LE,
-        };
-
-        stream_types[0] = mf_media_type_from_wg_format(&format);
-        type_count = 1;
-
-        for (i = 0; i < ARRAY_SIZE(audio_types); i++)
-        {
-            struct wg_format new_format;
-            if (format.u.audio.format == audio_types[i])
-                continue;
-            new_format = format;
-            new_format.u.audio.format = audio_types[i];
-            stream_types[type_count++] = mf_media_type_from_wg_format(&new_format);
-        }
-    }
     else
     {
-        if ((stream_types[0] = mf_media_type_from_wg_format(&format)))
+        stream_type = mf_media_type_from_caps(current_caps);
+        if (stream_type)
+        {
+            stream_types = &stream_type;
             type_count = 1;
+        }
     }
-
-    assert(type_count <= ARRAY_SIZE(stream_types));
 
     if (!type_count)
     {
@@ -959,196 +933,27 @@ static HRESULT media_stream_init_desc(struct media_stream *stream)
         goto done;
 
     if (FAILED(hr = IMFStreamDescriptor_GetMediaTypeHandler(stream->descriptor, &type_handler)))
-    {
-        IMFStreamDescriptor_Release(stream->descriptor);
         goto done;
-    }
 
     if (FAILED(hr = IMFMediaTypeHandler_SetCurrentMediaType(type_handler, stream_types[0])))
-    {
-        IMFStreamDescriptor_Release(stream->descriptor);
         goto done;
-    }
 
 done:
+    gst_caps_unref(current_caps);
     if (type_handler)
         IMFMediaTypeHandler_Release(type_handler);
     for (i = 0; i < type_count; i++)
         IMFMediaType_Release(stream_types[i]);
+    if (stream_types != &stream_type)
+        heap_free(stream_types);
     return hr;
 }
-
-static HRESULT WINAPI media_source_get_service_QueryInterface(IMFGetService *iface, REFIID riid, void **obj)
-{
-    struct media_source *source = impl_from_IMFGetService(iface);
-    return IMFMediaSource_QueryInterface(&source->IMFMediaSource_iface, riid, obj);
-}
-
-static ULONG WINAPI media_source_get_service_AddRef(IMFGetService *iface)
-{
-    struct media_source *source = impl_from_IMFGetService(iface);
-    return IMFMediaSource_AddRef(&source->IMFMediaSource_iface);
-}
-
-static ULONG WINAPI media_source_get_service_Release(IMFGetService *iface)
-{
-    struct media_source *source = impl_from_IMFGetService(iface);
-    return IMFMediaSource_Release(&source->IMFMediaSource_iface);
-}
-
-static HRESULT WINAPI media_source_get_service_GetService(IMFGetService *iface, REFGUID service, REFIID riid, void **obj)
-{
-    struct media_source *source = impl_from_IMFGetService(iface);
-
-    TRACE("%p, %s, %s, %p.\n", iface, debugstr_guid(service), debugstr_guid(riid), obj);
-
-    *obj = NULL;
-
-    if (IsEqualGUID(service, &MF_RATE_CONTROL_SERVICE))
-    {
-        if (IsEqualIID(riid, &IID_IMFRateSupport))
-        {
-            *obj = &source->IMFRateSupport_iface;
-        }
-        else if (IsEqualIID(riid, &IID_IMFRateControl))
-        {
-            *obj = &source->IMFRateControl_iface;
-        }
-    }
-    else
-        FIXME("Unsupported service %s.\n", debugstr_guid(service));
-
-    if (*obj)
-        IUnknown_AddRef((IUnknown *)*obj);
-
-    return *obj ? S_OK : E_NOINTERFACE;
-}
-
-static const IMFGetServiceVtbl media_source_get_service_vtbl =
-{
-    media_source_get_service_QueryInterface,
-    media_source_get_service_AddRef,
-    media_source_get_service_Release,
-    media_source_get_service_GetService,
-};
-
-static HRESULT WINAPI media_source_rate_support_QueryInterface(IMFRateSupport *iface, REFIID riid, void **obj)
-{
-    struct media_source *source = impl_from_IMFRateSupport(iface);
-    return IMFMediaSource_QueryInterface(&source->IMFMediaSource_iface, riid, obj);
-}
-
-static ULONG WINAPI media_source_rate_support_AddRef(IMFRateSupport *iface)
-{
-    struct media_source *source = impl_from_IMFRateSupport(iface);
-    return IMFMediaSource_AddRef(&source->IMFMediaSource_iface);
-}
-
-static ULONG WINAPI media_source_rate_support_Release(IMFRateSupport *iface)
-{
-    struct media_source *source = impl_from_IMFRateSupport(iface);
-    return IMFMediaSource_Release(&source->IMFMediaSource_iface);
-}
-
-static HRESULT WINAPI media_source_rate_support_GetSlowestRate(IMFRateSupport *iface, MFRATE_DIRECTION direction, BOOL thin, float *rate)
-{
-    TRACE("%p, %d, %d, %p.\n", iface, direction, thin, rate);
-
-    *rate = 0.0f;
-
-    return S_OK;
-}
-
-static HRESULT WINAPI media_source_rate_support_GetFastestRate(IMFRateSupport *iface, MFRATE_DIRECTION direction, BOOL thin, float *rate)
-{
-    TRACE("%p, %d, %d, %p.\n", iface, direction, thin, rate);
-
-    *rate = direction == MFRATE_FORWARD ? 1e6f : -1e6f;
-
-    return S_OK;
-}
-
-static HRESULT WINAPI media_source_rate_support_IsRateSupported(IMFRateSupport *iface, BOOL thin, float rate,
-        float *nearest_rate)
-{
-    TRACE("%p, %d, %f, %p.\n", iface, thin, rate, nearest_rate);
-
-    if (nearest_rate)
-        *nearest_rate = rate;
-
-    return rate >= -1e6f && rate <= 1e6f ? S_OK : MF_E_UNSUPPORTED_RATE;
-}
-
-static const IMFRateSupportVtbl media_source_rate_support_vtbl =
-{
-    media_source_rate_support_QueryInterface,
-    media_source_rate_support_AddRef,
-    media_source_rate_support_Release,
-    media_source_rate_support_GetSlowestRate,
-    media_source_rate_support_GetFastestRate,
-    media_source_rate_support_IsRateSupported,
-};
-
-static HRESULT WINAPI media_source_rate_control_QueryInterface(IMFRateControl *iface, REFIID riid, void **obj)
-{
-    struct media_source *source = impl_from_IMFRateControl(iface);
-    return IMFMediaSource_QueryInterface(&source->IMFMediaSource_iface, riid, obj);
-}
-
-static ULONG WINAPI media_source_rate_control_AddRef(IMFRateControl *iface)
-{
-    struct media_source *source = impl_from_IMFRateControl(iface);
-    return IMFMediaSource_AddRef(&source->IMFMediaSource_iface);
-}
-
-static ULONG WINAPI media_source_rate_control_Release(IMFRateControl *iface)
-{
-    struct media_source *source = impl_from_IMFRateControl(iface);
-    return IMFMediaSource_Release(&source->IMFMediaSource_iface);
-}
-
-static HRESULT WINAPI media_source_rate_control_SetRate(IMFRateControl *iface, BOOL thin, float rate)
-{
-    FIXME("%p, %d, %f.\n", iface, thin, rate);
-
-    if (rate < 0.0f)
-        return MF_E_REVERSE_UNSUPPORTED;
-
-    if (thin)
-        return MF_E_THINNING_UNSUPPORTED;
-
-    if (rate != 1.0f)
-        return MF_E_UNSUPPORTED_RATE;
-
-    return S_OK;
-}
-
-static HRESULT WINAPI media_source_rate_control_GetRate(IMFRateControl *iface, BOOL *thin, float *rate)
-{
-    TRACE("%p, %p, %p.\n", iface, thin, rate);
-
-    if (thin)
-        *thin = FALSE;
-
-    *rate = 1.0f;
-
-    return S_OK;
-}
-
-static const IMFRateControlVtbl media_source_rate_control_vtbl =
-{
-    media_source_rate_control_QueryInterface,
-    media_source_rate_control_AddRef,
-    media_source_rate_control_Release,
-    media_source_rate_control_SetRate,
-    media_source_rate_control_GetRate,
-};
 
 static HRESULT WINAPI media_source_QueryInterface(IMFMediaSource *iface, REFIID riid, void **out)
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
 
-    TRACE("%p, %s, %p.\n", iface, debugstr_guid(riid), out);
+    TRACE("(%p)->(%s %p)\n", source, debugstr_guid(riid), out);
 
     if (IsEqualIID(riid, &IID_IMFMediaSource) ||
         IsEqualIID(riid, &IID_IMFMediaEventGenerator) ||
@@ -1156,13 +961,9 @@ static HRESULT WINAPI media_source_QueryInterface(IMFMediaSource *iface, REFIID 
     {
         *out = &source->IMFMediaSource_iface;
     }
-    else if (IsEqualIID(riid, &IID_IMFGetService))
-    {
-        *out = &source->IMFGetService_iface;
-    }
     else
     {
-        FIXME("%s, %p.\n", debugstr_guid(riid), out);
+        FIXME("(%s, %p)\n", debugstr_guid(riid), out);
         *out = NULL;
         return E_NOINTERFACE;
     }
@@ -1176,7 +977,7 @@ static ULONG WINAPI media_source_AddRef(IMFMediaSource *iface)
     struct media_source *source = impl_from_IMFMediaSource(iface);
     ULONG ref = InterlockedIncrement(&source->ref);
 
-    TRACE("%p, refcount %u.\n", iface, ref);
+    TRACE("(%p) ref=%u\n", source, ref);
 
     return ref;
 }
@@ -1186,13 +987,13 @@ static ULONG WINAPI media_source_Release(IMFMediaSource *iface)
     struct media_source *source = impl_from_IMFMediaSource(iface);
     ULONG ref = InterlockedDecrement(&source->ref);
 
-    TRACE("%p, refcount %u.\n", iface, ref);
+    TRACE("(%p) ref=%u\n", source, ref);
 
     if (!ref)
     {
         IMFMediaSource_Shutdown(&source->IMFMediaSource_iface);
         IMFMediaEventQueue_Release(source->event_queue);
-        free(source);
+        heap_free(source);
     }
 
     return ref;
@@ -1202,7 +1003,7 @@ static HRESULT WINAPI media_source_GetEvent(IMFMediaSource *iface, DWORD flags, 
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
 
-    TRACE("%p, %#x, %p.\n", iface, flags, event);
+    TRACE("(%p)->(%#x, %p)\n", source, flags, event);
 
     return IMFMediaEventQueue_GetEvent(source->event_queue, flags, event);
 }
@@ -1211,7 +1012,7 @@ static HRESULT WINAPI media_source_BeginGetEvent(IMFMediaSource *iface, IMFAsync
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
 
-    TRACE("%p, %p, %p.\n", iface, callback, state);
+    TRACE("(%p)->(%p, %p)\n", source, callback, state);
 
     return IMFMediaEventQueue_BeginGetEvent(source->event_queue, callback, state);
 }
@@ -1220,7 +1021,7 @@ static HRESULT WINAPI media_source_EndGetEvent(IMFMediaSource *iface, IMFAsyncRe
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
 
-    TRACE("%p, %p, %p.\n", iface, result, event);
+    TRACE("(%p)->(%p, %p)\n", source, result, event);
 
     return IMFMediaEventQueue_EndGetEvent(source->event_queue, result, event);
 }
@@ -1230,7 +1031,7 @@ static HRESULT WINAPI media_source_QueueEvent(IMFMediaSource *iface, MediaEventT
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
 
-    TRACE("%p, %d, %s, %#x, %p.\n", iface, event_type, debugstr_guid(ext_type), hr, value);
+    TRACE("(%p)->(%d, %s, %#x, %p)\n", source, event_type, debugstr_guid(ext_type), hr, value);
 
     return IMFMediaEventQueue_QueueEventParamVar(source->event_queue, event_type, ext_type, hr, value);
 }
@@ -1239,12 +1040,12 @@ static HRESULT WINAPI media_source_GetCharacteristics(IMFMediaSource *iface, DWO
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
 
-    TRACE("%p, %p.\n", iface, characteristics);
+    TRACE("(%p)->(%p)\n", source, characteristics);
 
     if (source->state == SOURCE_SHUTDOWN)
         return MF_E_SHUTDOWN;
 
-    *characteristics = MFMEDIASOURCE_CAN_SEEK | MFMEDIASOURCE_CAN_PAUSE;
+    *characteristics = MFMEDIASOURCE_CAN_SEEK;
 
     return S_OK;
 }
@@ -1253,7 +1054,7 @@ static HRESULT WINAPI media_source_CreatePresentationDescriptor(IMFMediaSource *
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
 
-    TRACE("%p, %p.\n", iface, descriptor);
+    TRACE("(%p)->(%p)\n", source, descriptor);
 
     if (source->state == SOURCE_SHUTDOWN)
         return MF_E_SHUTDOWN;
@@ -1268,7 +1069,7 @@ static HRESULT WINAPI media_source_Start(IMFMediaSource *iface, IMFPresentationD
     struct source_async_command *command;
     HRESULT hr;
 
-    TRACE("%p, %p, %p, %p.\n", iface, descriptor, time_format, position);
+    TRACE("(%p)->(%p, %p, %p)\n", source, descriptor, time_format, position);
 
     if (source->state == SOURCE_SHUTDOWN)
         return MF_E_SHUTDOWN;
@@ -1291,39 +1092,25 @@ static HRESULT WINAPI media_source_Start(IMFMediaSource *iface, IMFPresentationD
 static HRESULT WINAPI media_source_Stop(IMFMediaSource *iface)
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
-    struct source_async_command *command;
-    HRESULT hr;
 
-    TRACE("%p.\n", iface);
+    FIXME("(%p): stub\n", source);
 
     if (source->state == SOURCE_SHUTDOWN)
         return MF_E_SHUTDOWN;
 
-    if (SUCCEEDED(hr = source_create_async_op(SOURCE_ASYNC_STOP, &command)))
-        hr = MFPutWorkItem(source->async_commands_queue, &source->async_commands_callback, &command->IUnknown_iface);
-
-    return hr;
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI media_source_Pause(IMFMediaSource *iface)
 {
     struct media_source *source = impl_from_IMFMediaSource(iface);
-    struct source_async_command *command;
-    HRESULT hr;
 
-    TRACE("%p.\n", iface);
+    FIXME("(%p): stub\n", source);
 
     if (source->state == SOURCE_SHUTDOWN)
         return MF_E_SHUTDOWN;
 
-    if (source->state != SOURCE_RUNNING)
-        return MF_E_INVALID_STATE_TRANSITION;
-
-    if (SUCCEEDED(hr = source_create_async_op(SOURCE_ASYNC_PAUSE, &command)))
-        hr = MFPutWorkItem(source->async_commands_queue,
-                &source->async_commands_callback, &command->IUnknown_iface);
-
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI media_source_Shutdown(IMFMediaSource *iface)
@@ -1331,22 +1118,30 @@ static HRESULT WINAPI media_source_Shutdown(IMFMediaSource *iface)
     struct media_source *source = impl_from_IMFMediaSource(iface);
     unsigned int i;
 
-    TRACE("%p.\n", iface);
+    TRACE("(%p)\n", source);
 
     if (source->state == SOURCE_SHUTDOWN)
         return MF_E_SHUTDOWN;
 
     source->state = SOURCE_SHUTDOWN;
 
-    wg_parser_disconnect(source->wg_parser);
+    if (source->container)
+    {
+        gst_element_set_state(source->container, GST_STATE_NULL);
+        gst_object_unref(GST_OBJECT(source->container));
+    }
 
-    source->read_thread_shutdown = true;
-    WaitForSingleObject(source->read_thread, INFINITE);
-    CloseHandle(source->read_thread);
+    if (source->my_src)
+        gst_object_unref(GST_OBJECT(source->my_src));
+    if (source->their_sink)
+        gst_object_unref(GST_OBJECT(source->their_sink));
 
-    IMFPresentationDescriptor_Release(source->pres_desc);
-    IMFMediaEventQueue_Shutdown(source->event_queue);
-    IMFByteStream_Release(source->byte_stream);
+    if (source->pres_desc)
+        IMFPresentationDescriptor_Release(source->pres_desc);
+    if (source->event_queue)
+        IMFMediaEventQueue_Shutdown(source->event_queue);
+    if (source->byte_stream)
+        IMFByteStream_Release(source->byte_stream);
 
     for (i = 0; i < source->stream_count; i++)
     {
@@ -1354,18 +1149,26 @@ static HRESULT WINAPI media_source_Shutdown(IMFMediaSource *iface)
 
         stream->state = STREAM_SHUTDOWN;
 
-        IMFMediaEventQueue_Shutdown(stream->event_queue);
-        IMFStreamDescriptor_Release(stream->descriptor);
-        IMFMediaSource_Release(&stream->parent_source->IMFMediaSource_iface);
+        if (stream->my_sink)
+            gst_object_unref(GST_OBJECT(stream->my_sink));
+        if (stream->event_queue)
+            IMFMediaEventQueue_Shutdown(stream->event_queue);
+        if (stream->descriptor)
+            IMFStreamDescriptor_Release(stream->descriptor);
+        if (stream->parent_source)
+            IMFMediaSource_Release(&stream->parent_source->IMFMediaSource_iface);
 
         IMFMediaStream_Release(&stream->IMFMediaStream_iface);
     }
 
-    wg_parser_destroy(source->wg_parser);
+    if (source->stream_count)
+        heap_free(source->streams);
 
-    free(source->streams);
+    if (source->no_more_pads_event)
+        CloseHandle(source->no_more_pads_event);
 
-    MFUnlockWorkQueue(source->async_commands_queue);
+    if (source->async_commands_queue)
+        MFUnlockWorkQueue(source->async_commands_queue);
 
     return S_OK;
 }
@@ -1387,17 +1190,63 @@ static const IMFMediaSourceVtbl IMFMediaSource_vtbl =
     media_source_Shutdown,
 };
 
+static void stream_added(GstElement *element, GstPad *pad, gpointer user)
+{
+    struct media_source *source = user;
+    struct media_stream **new_stream_array;
+    struct media_stream *stream;
+
+    if (gst_pad_get_direction(pad) != GST_PAD_SRC)
+        return;
+
+    if (FAILED(new_media_stream(source, pad, source->stream_count, &stream)))
+        return;
+
+    if (!(new_stream_array = heap_realloc(source->streams, (source->stream_count + 1) * (sizeof(*new_stream_array)))))
+    {
+        ERR("Failed to add stream to source\n");
+        IMFMediaStream_Release(&stream->IMFMediaStream_iface);
+        return;
+    }
+
+    source->streams = new_stream_array;
+    source->streams[source->stream_count++] = stream;
+}
+
+static void stream_removed(GstElement *element, GstPad *pad, gpointer user)
+{
+    struct media_source *source = user;
+    unsigned int i;
+
+    for (i = 0; i < source->stream_count; i++)
+    {
+        struct media_stream *stream = source->streams[i];
+        if (stream->their_src != pad)
+            continue;
+        stream->their_src = NULL;
+        stream->state = STREAM_INACTIVE;
+    }
+}
+
+static void no_more_pads(GstElement *element, gpointer user)
+{
+    struct media_source *source = user;
+
+    SetEvent(source->no_more_pads_event);
+}
+
 static HRESULT media_source_constructor(IMFByteStream *bytestream, struct media_source **out_media_source)
 {
+    GstStaticPadTemplate src_template =
+        GST_STATIC_PAD_TEMPLATE("mf_src", GST_PAD_SRC, GST_PAD_ALWAYS, GST_STATIC_CAPS_ANY);
+
     IMFStreamDescriptor **descriptors = NULL;
-    unsigned int stream_count = UINT_MAX;
     struct media_source *object;
-    UINT64 total_pres_time = 0;
-    struct wg_parser *parser;
+    gint64 total_pres_time = 0;
     DWORD bytestream_caps;
-    uint64_t file_size;
     unsigned int i;
     HRESULT hr;
+    int ret;
 
     if (FAILED(hr = IMFByteStream_GetCapabilities(bytestream, &bytestream_caps)))
         return hr;
@@ -1408,23 +1257,15 @@ static HRESULT media_source_constructor(IMFByteStream *bytestream, struct media_
         return MF_E_BYTESTREAM_NOT_SEEKABLE;
     }
 
-    if (FAILED(hr = IMFByteStream_GetLength(bytestream, &file_size)))
-    {
-        FIXME("Failed to get byte stream length, hr %#x.\n", hr);
-        return hr;
-    }
-
-    if (!(object = calloc(1, sizeof(*object))))
+    if (!(object = heap_alloc_zero(sizeof(*object))))
         return E_OUTOFMEMORY;
 
     object->IMFMediaSource_iface.lpVtbl = &IMFMediaSource_vtbl;
-    object->IMFGetService_iface.lpVtbl = &media_source_get_service_vtbl;
-    object->IMFRateSupport_iface.lpVtbl = &media_source_rate_support_vtbl;
-    object->IMFRateControl_iface.lpVtbl = &media_source_rate_control_vtbl;
     object->async_commands_callback.lpVtbl = &source_async_commands_callback_vtbl;
     object->ref = 1;
     object->byte_stream = bytestream;
     IMFByteStream_AddRef(bytestream);
+    object->no_more_pads_event = CreateEventA(NULL, FALSE, FALSE, NULL);
 
     if (FAILED(hr = MFCreateEventQueue(&object->event_queue)))
         goto fail;
@@ -1432,54 +1273,80 @@ static HRESULT media_source_constructor(IMFByteStream *bytestream, struct media_
     if (FAILED(hr = MFAllocateWorkQueue(&object->async_commands_queue)))
         goto fail;
 
-    /* In Media Foundation, sources may read from any media source stream
-     * without fear of blocking due to buffering limits on another. Trailmakers,
-     * a Unity3D Engine game, only reads one sample from the audio stream (and
-     * never deselects it). Remove buffering limits from decodebin in order to
-     * account for this. Note that this does leak memory, but the same memory
-     * leak occurs with native. */
-    if (!(parser = wg_parser_create(WG_PARSER_DECODEBIN, true)))
+    object->container = gst_bin_new(NULL);
+    object->bus = gst_bus_new();
+    gst_bus_set_sync_handler(object->bus, mf_src_bus_watch_wrapper, object, NULL);
+    gst_element_set_bus(object->container, object->bus);
+
+    object->my_src = gst_pad_new_from_static_template(&src_template, "mf-src");
+    gst_pad_set_element_private(object->my_src, object);
+    gst_pad_set_getrange_function(object->my_src, bytestream_wrapper_pull_wrapper);
+    gst_pad_set_query_function(object->my_src, bytestream_query_wrapper);
+    gst_pad_set_activatemode_function(object->my_src, bytestream_pad_mode_activate_wrapper);
+    gst_pad_set_event_function(object->my_src, bytestream_pad_event_process_wrapper);
+
+    if (!(object->decodebin = gst_element_factory_make("decodebin", NULL)))
     {
+        WARN("Failed to create decodebin for source\n");
         hr = E_OUTOFMEMORY;
         goto fail;
     }
-    object->wg_parser = parser;
 
-    object->read_thread = CreateThread(NULL, 0, read_thread, object, 0, NULL);
+    /* In Media Foundation, sources may read from any media source stream
+       without fear of blocking due to buffering limits on another.  Trailmakers,
+       a Unity3D engine game does this by only reading from the audio stream once,
+       and never deselecting this.  These properties replicate that behavior.
+
+       Note that with most elements, this causes excessive memory use, however
+       this is also what occurs on Windows.
+    */
+    g_object_set(object->decodebin, "max-size-buffers", 0, NULL);
+    g_object_set(object->decodebin, "max-size-time", G_GUINT64_CONSTANT(0), NULL);
+    g_object_set(object->decodebin, "max-size-bytes", 0, NULL);
+
+    gst_bin_add(GST_BIN(object->container), object->decodebin);
+
+    g_signal_connect(object->decodebin, "pad-added", G_CALLBACK(mf_src_stream_added_wrapper), object);
+    g_signal_connect(object->decodebin, "pad-removed", G_CALLBACK(mf_src_stream_removed_wrapper), object);
+    g_signal_connect(object->decodebin, "no-more-pads", G_CALLBACK(mf_src_no_more_pads_wrapper), object);
+
+    object->their_sink = gst_element_get_static_pad(object->decodebin, "sink");
+
+    if ((ret = gst_pad_link(object->my_src, object->their_sink)) < 0)
+    {
+        WARN("Failed to link our bytestream pad to the demuxer input, error %d.\n", ret);
+        hr = E_FAIL;
+        goto fail;
+    }
 
     object->state = SOURCE_OPENING;
 
-    if (FAILED(hr = wg_parser_connect(parser, file_size)))
-        goto fail;
-
-    stream_count = wg_parser_get_stream_count(parser);
-
-    if (!(object->streams = calloc(stream_count, sizeof(*object->streams))))
+    gst_element_set_state(object->container, GST_STATE_PAUSED);
+    ret = gst_element_get_state(object->container, NULL, NULL, -1);
+    if (ret == GST_STATE_CHANGE_FAILURE)
     {
-        hr = E_OUTOFMEMORY;
+        ERR("Failed to play source, error %d.\n", ret);
+        hr = E_FAIL;
         goto fail;
     }
 
-    for (i = 0; i < stream_count; ++i)
+    WaitForSingleObject(object->no_more_pads_event, INFINITE);
+    for (i = 0; i < object->stream_count; i++)
     {
-        if (FAILED(hr = new_media_stream(object, wg_parser_get_stream(parser, i), i, &object->streams[i])))
-            goto fail;
-
+        GstSample *preroll;
+        g_signal_emit_by_name(object->streams[i]->appsink, "pull-preroll", &preroll);
         if (FAILED(hr = media_stream_init_desc(object->streams[i])))
         {
             ERR("Failed to finish initialization of media stream %p, hr %x.\n", object->streams[i], hr);
-            IMFMediaSource_Release(&object->streams[i]->parent_source->IMFMediaSource_iface);
-            IMFMediaEventQueue_Release(object->streams[i]->event_queue);
-            free(object->streams[i]);
+            IMFMediaStream_Release(&object->streams[i]->IMFMediaStream_iface);
             goto fail;
         }
-
-        object->stream_count++;
+        gst_sample_unref(preroll);
     }
 
     /* init presentation descriptor */
 
-    descriptors = malloc(object->stream_count * sizeof(IMFStreamDescriptor *));
+    descriptors = heap_alloc(object->stream_count * sizeof(IMFStreamDescriptor*));
     for (i = 0; i < object->stream_count; i++)
     {
         IMFMediaStream_GetStreamDescriptor(&object->streams[i]->IMFMediaStream_iface, &descriptors[i]);
@@ -1493,15 +1360,27 @@ static HRESULT media_source_constructor(IMFByteStream *bytestream, struct media_
         IMFPresentationDescriptor_SelectStream(object->pres_desc, i);
         IMFStreamDescriptor_Release(descriptors[i]);
     }
-    free(descriptors);
+    heap_free(descriptors);
     descriptors = NULL;
 
     for (i = 0; i < object->stream_count; i++)
-        total_pres_time = max(total_pres_time,
-                wg_parser_stream_get_duration(object->streams[i]->wg_stream));
+    {
+        gint64 stream_pres_time;
+        if (gst_pad_query_duration(object->streams[i]->their_src, GST_FORMAT_TIME, &stream_pres_time))
+        {
+            TRACE("Stream %u has duration %llu\n", i, (unsigned long long int) stream_pres_time);
+
+            if (stream_pres_time > total_pres_time)
+                total_pres_time = stream_pres_time;
+        }
+        else
+        {
+            WARN("Unable to get presentation time of stream %u\n", i);
+        }
+    }
 
     if (object->stream_count)
-        IMFPresentationDescriptor_SetUINT64(object->pres_desc, &MF_PD_DURATION, total_pres_time);
+        IMFPresentationDescriptor_SetUINT64(object->pres_desc, &MF_PD_DURATION, total_pres_time / 100);
 
     object->state = SOURCE_STOPPED;
 
@@ -1511,39 +1390,8 @@ static HRESULT media_source_constructor(IMFByteStream *bytestream, struct media_
     fail:
     WARN("Failed to construct MFMediaSource, hr %#x.\n", hr);
 
-    if (descriptors)
-    {
-        for (i = 0; i < object->stream_count; i++)
-            IMFStreamDescriptor_Release(descriptors[i]);
-        free(descriptors);
-    }
-    for (i = 0; i < object->stream_count; i++)
-    {
-        struct media_stream *stream = object->streams[i];
-
-        IMFMediaEventQueue_Release(stream->event_queue);
-        IMFStreamDescriptor_Release(stream->descriptor);
-        IMFMediaSource_Release(&stream->parent_source->IMFMediaSource_iface);
-
-        free(stream);
-    }
-    free(object->streams);
-    if (stream_count != UINT_MAX)
-        wg_parser_disconnect(object->wg_parser);
-    if (object->read_thread)
-    {
-        object->read_thread_shutdown = true;
-        WaitForSingleObject(object->read_thread, INFINITE);
-        CloseHandle(object->read_thread);
-    }
-    if (object->wg_parser)
-        wg_parser_destroy(object->wg_parser);
-    if (object->async_commands_queue)
-        MFUnlockWorkQueue(object->async_commands_queue);
-    if (object->event_queue)
-        IMFMediaEventQueue_Release(object->event_queue);
-    IMFByteStream_Release(object->byte_stream);
-    free(object);
+    heap_free(descriptors);
+    IMFMediaSource_Release(&object->IMFMediaSource_iface);
     return hr;
 }
 
@@ -1617,10 +1465,10 @@ static ULONG WINAPI winegstreamer_stream_handler_Release(IMFByteStreamHandler *i
             IMFAsyncResult_Release(result->result);
             if (result->object)
                 IUnknown_Release(result->object);
-            free(result);
+            heap_free(result);
         }
         DeleteCriticalSection(&handler->cs);
-        free(handler);
+        heap_free(handler);
     }
 
     return refcount;
@@ -1681,8 +1529,8 @@ static ULONG WINAPI create_object_context_Release(IUnknown *iface)
             IPropertyStore_Release(context->props);
         if (context->stream)
             IMFByteStream_Release(context->stream);
-        free(context->url);
-        free(context);
+        heap_free(context->url);
+        heap_free(context);
     }
 
     return refcount;
@@ -1694,6 +1542,23 @@ static const IUnknownVtbl create_object_context_vtbl =
     create_object_context_AddRef,
     create_object_context_Release,
 };
+
+static WCHAR *heap_strdupW(const WCHAR *str)
+{
+    WCHAR *ret = NULL;
+
+    if (str)
+    {
+        unsigned int size;
+
+        size = (lstrlenW(str) + 1) * sizeof(WCHAR);
+        ret = heap_alloc(size);
+        if (ret)
+            memcpy(ret, str, size);
+    }
+
+    return ret;
+}
 
 static HRESULT WINAPI winegstreamer_stream_handler_BeginCreateObject(IMFByteStreamHandler *iface, IMFByteStream *stream, const WCHAR *url, DWORD flags,
         IPropertyStore *props, IUnknown **cancel_cookie, IMFAsyncCallback *callback, IUnknown *state)
@@ -1711,7 +1576,8 @@ static HRESULT WINAPI winegstreamer_stream_handler_BeginCreateObject(IMFByteStre
     if (FAILED(hr = MFCreateAsyncResult(NULL, callback, state, &caller)))
         return hr;
 
-    if (!(context = calloc(1, sizeof(*context))))
+    context = heap_alloc(sizeof(*context));
+    if (!context)
     {
         IMFAsyncResult_Release(caller);
         return E_OUTOFMEMORY;
@@ -1727,7 +1593,7 @@ static HRESULT WINAPI winegstreamer_stream_handler_BeginCreateObject(IMFByteStre
     if (context->stream)
         IMFByteStream_AddRef(context->stream);
     if (url)
-        context->url = wcsdup(url);
+        context->url = heap_strdupW(url);
     if (!context->stream)
     {
         IMFAsyncResult_Release(caller);
@@ -1784,7 +1650,7 @@ static HRESULT WINAPI winegstreamer_stream_handler_EndCreateObject(IMFByteStream
         *object = found->object;
         hr = IMFAsyncResult_GetStatus(found->result);
         IMFAsyncResult_Release(found->result);
-        free(found);
+        heap_free(found);
     }
     else
     {
@@ -1822,7 +1688,7 @@ static HRESULT WINAPI winegstreamer_stream_handler_CancelObjectCreation(IMFByteS
         IMFAsyncResult_Release(found->result);
         if (found->object)
             IUnknown_Release(found->object);
-        free(found);
+        heap_free(found);
     }
 
     return found ? S_OK : MF_E_UNEXPECTED;
@@ -1880,7 +1746,7 @@ static HRESULT WINAPI winegstreamer_stream_handler_callback_GetParameters(IMFAsy
 static HRESULT winegstreamer_stream_handler_create_object(struct winegstreamer_stream_handler *This, WCHAR *url, IMFByteStream *stream, DWORD flags,
                                             IPropertyStore *props, IUnknown **out_object, MF_OBJECT_TYPE *out_obj_type)
 {
-    TRACE("%p, %s, %p, %u, %p, %p, %p.\n", This, debugstr_w(url), stream, flags, props, out_object, out_obj_type);
+    TRACE("(%p %s %p %u %p %p %p)\n", This, debugstr_w(url), stream, flags, props, out_object, out_obj_type);
 
     if (flags & MF_RESOLUTION_MEDIASOURCE)
     {
@@ -1926,7 +1792,8 @@ static HRESULT WINAPI winegstreamer_stream_handler_callback_Invoke(IMFAsyncCallb
 
     hr = winegstreamer_stream_handler_create_object(handler, context->url, context->stream, context->flags, context->props, &object, &obj_type);
 
-    if ((handler_result = malloc(sizeof(*handler_result))))
+    handler_result = heap_alloc(sizeof(*handler_result));
+    if (handler_result)
     {
         handler_result->result = caller;
         IMFAsyncResult_AddRef(handler_result->result);
@@ -1968,7 +1835,8 @@ HRESULT winegstreamer_stream_handler_create(REFIID riid, void **obj)
 
     TRACE("%s, %p.\n", debugstr_guid(riid), obj);
 
-    if (!(this = calloc(1, sizeof(*this))))
+    this = heap_alloc_zero(sizeof(*this));
+    if (!this)
         return E_OUTOFMEMORY;
 
     list_init(&this->results);
@@ -1982,4 +1850,65 @@ HRESULT winegstreamer_stream_handler_create(REFIID riid, void **obj)
     IMFByteStreamHandler_Release(&this->IMFByteStreamHandler_iface);
 
     return hr;
+}
+
+/* helper for callback forwarding */
+void perform_cb_media_source(struct cb_data *cbdata)
+{
+    switch(cbdata->type)
+    {
+    case BYTESTREAM_WRAPPER_PULL:
+        {
+            struct getrange_data *data = &cbdata->u.getrange_data;
+            cbdata->u.getrange_data.ret = bytestream_wrapper_pull(data->pad, data->parent,
+                    data->ofs, data->len, data->buf);
+            break;
+        }
+    case BYTESTREAM_QUERY:
+        {
+            struct query_function_data *data = &cbdata->u.query_function_data;
+            cbdata->u.query_function_data.ret = bytestream_query(data->pad, data->parent, data->query);
+            break;
+        }
+    case BYTESTREAM_PAD_MODE_ACTIVATE:
+        {
+            struct activate_mode_data *data = &cbdata->u.activate_mode_data;
+            cbdata->u.activate_mode_data.ret = bytestream_pad_mode_activate(data->pad, data->parent, data->mode, data->activate);
+            break;
+        }
+    case BYTESTREAM_PAD_EVENT_PROCESS:
+        {
+            struct event_src_data *data = &cbdata->u.event_src_data;
+            cbdata->u.event_src_data.ret = bytestream_pad_event_process(data->pad, data->parent, data->event);
+            break;
+        }
+    case MF_SRC_BUS_WATCH:
+        {
+            struct watch_bus_data *data = &cbdata->u.watch_bus_data;
+            cbdata->u.watch_bus_data.ret = bus_watch(data->bus, data->msg, data->user);
+            break;
+        }
+    case MF_SRC_STREAM_ADDED:
+        {
+            struct pad_added_data *data = &cbdata->u.pad_added_data;
+            stream_added(data->element, data->pad, data->user);
+            break;
+        }
+    case MF_SRC_STREAM_REMOVED:
+        {
+            struct pad_removed_data *data = &cbdata->u.pad_removed_data;
+            stream_removed(data->element, data->pad, data->user);
+            break;
+        }
+    case MF_SRC_NO_MORE_PADS:
+        {
+            struct no_more_pads_data *data = &cbdata->u.no_more_pads_data;
+            no_more_pads(data->element, data->user);
+            break;
+        }
+    default:
+        {
+            assert(0);
+        }
+    }
 }

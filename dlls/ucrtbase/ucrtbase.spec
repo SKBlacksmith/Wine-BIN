@@ -136,13 +136,12 @@
 @ cdecl __p__wpgmptr()
 @ cdecl __pctype_func()
 @ cdecl __processing_throw()
-@ cdecl __pwctype_func()
+@ stub __pwctype_func
 @ cdecl __pxcptinfoptrs()
 @ stub __report_gsfailure
 @ cdecl __setusermatherr(ptr)
 @ cdecl __std_exception_copy(ptr ptr)
 @ cdecl __std_exception_destroy(ptr)
-@ cdecl __std_terminate() terminate
 @ cdecl __std_type_info_compare(ptr ptr)
 @ cdecl __std_type_info_destroy_list(ptr)
 @ cdecl __std_type_info_hash(ptr)
@@ -395,7 +394,7 @@
 @ cdecl _getdrives() kernel32.GetLogicalDrives
 @ cdecl _getmaxstdio()
 @ cdecl _getmbcp()
-@ cdecl _getpid()
+@ cdecl _getpid() _getpid
 @ stub _getsystime(ptr)
 @ cdecl _getw(ptr)
 @ cdecl _getwc_nolock(ptr) _fgetwc_nolock
@@ -485,7 +484,7 @@
 @ cdecl _ismbcl2_l(long ptr)
 @ cdecl _ismbclegal(long)
 @ cdecl _ismbclegal_l(long ptr)
-@ cdecl _ismbclower(long)
+@ stub _ismbclower(long)
 @ cdecl _ismbclower_l(long ptr)
 @ cdecl _ismbcprint(long)
 @ cdecl _ismbcprint_l(long ptr)
@@ -624,7 +623,7 @@
 @ cdecl _mbscspn_l(str str ptr)
 @ cdecl _mbsdec(ptr ptr)
 @ stub _mbsdec_l
-@ cdecl _mbsdup(str) _strdup
+@ stub _mbsdup(str)
 @ cdecl _mbsicmp(str str)
 @ stub _mbsicmp_l
 @ cdecl _mbsicoll(str str)
@@ -2287,17 +2286,17 @@
 @ cdecl fdim(double double)
 @ cdecl fdimf(float float)
 @ cdecl fdiml(double double) fdim
-@ cdecl feclearexcept(long)
+@ stub feclearexcept
 @ cdecl fegetenv(ptr)
-@ cdecl fegetexceptflag(ptr long)
+@ stub fegetexceptflag
 @ cdecl fegetround()
 @ stub feholdexcept
 @ cdecl feof(ptr)
 @ cdecl ferror(ptr)
 @ cdecl fesetenv(ptr)
-@ cdecl fesetexceptflag(ptr long)
+@ stub fesetexceptflag
 @ cdecl fesetround(long)
-@ cdecl fetestexcept(long)
+@ stub fetestexcept
 @ cdecl fflush(ptr)
 @ cdecl fgetc(ptr)
 @ cdecl fgetpos(ptr ptr)
@@ -2382,7 +2381,7 @@
 @ cdecl lgammaf(float)
 @ cdecl lgammal(double) lgamma
 @ cdecl -ret64 llabs(int64)
-@ cdecl -norelay lldiv(int64 int64)
+@ cdecl lldiv(int64 int64)
 @ cdecl -ret64 llrint(double)
 @ cdecl -ret64 llrintf(float)
 @ cdecl -ret64 llrintl(double) llrint
@@ -2426,7 +2425,7 @@
 @ cdecl memcpy(ptr ptr long)
 @ cdecl memcpy_s(ptr long ptr long)
 @ cdecl memmove(ptr ptr long)
-@ cdecl memmove_s(ptr long ptr long)
+@ cdecl memmove_s(ptr long ptr long) memmove_s
 @ cdecl memset(ptr long long)
 @ cdecl modf(double ptr)
 @ cdecl -arch=!i386 modff(float ptr)

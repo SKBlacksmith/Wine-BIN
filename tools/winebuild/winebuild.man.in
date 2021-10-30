@@ -209,10 +209,6 @@ output file name ends in .o, the text output is sent to a
 temporary file that is then assembled to produce the specified .o
 file.
 .TP
-.B --prefer-native
-Specify that the native DLL should be preferred if available at run
-time. This can be used on modules that are mostly unimplemented.
-.TP
 .BI \-r,\ --res= rsrc.res
 Load resources from the specified binary resource file. The
 \fIrsrc.res\fR file can be produced from a source resource file with
@@ -254,11 +250,6 @@ argument array to use Unicode strings. A graphical executable has a
 .br
 Optionally a major and minor subsystem version can also be specified;
 the default subsystem version is 4.0.
-.TP
-.BI --syscall-table= id
-Set the system call table id, between 0 and 3. The default is 0, the
-ntdll syscall table. Only useful in modules that define syscall entry
-points.
 .TP
 .BI \-u,\ --undefined= symbol
 Add \fIsymbol\fR to the list of undefined symbols when invoking the

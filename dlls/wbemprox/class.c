@@ -36,7 +36,6 @@ struct enum_class_object
     LONG refs;
     struct query *query;
     UINT index;
-    enum wbm_namespace ns;
 };
 
 static inline struct enum_class_object *impl_from_IEnumWbemClassObject(
@@ -130,7 +129,7 @@ static HRESULT WINAPI enum_class_object_Next(
     {
         if (ec->index >= view->result_count) return WBEM_S_FALSE;
         table = get_view_table( view, ec->index );
-        hr = create_class_object( ec->ns, table->name, iface, ec->index, NULL, &apObjects[i] );
+        hr = create_class_object( table->name, iface, ec->index, NULL, &apObjects[i] );
         if (hr != S_OK)
         {
             for (j = 0; j < i; j++) IWbemClassObject_Release( apObjects[j] );
@@ -212,7 +211,6 @@ HRESULT EnumWbemClassObject_create( struct query *query, LPVOID *ppObj )
     ec->refs  = 1;
     ec->query = addref_query( query );
     ec->index = 0;
-    ec->ns = query->ns;
 
     *ppObj = &ec->IEnumWbemClassObject_iface;
 
@@ -280,7 +278,6 @@ struct class_object
     UINT index;
     UINT index_method;
     UINT index_property;
-    enum wbm_namespace ns;
     struct record *record; /* uncommitted instance */
 };
 
@@ -349,7 +346,7 @@ static HRESULT WINAPI class_object_GetQualifierSet(
 
     TRACE("%p, %p\n", iface, ppQualSet);
 
-    return WbemQualifierSet_create( co->ns, co->name, NULL, (void **)ppQualSet );
+    return WbemQualifierSet_create( co->name, NULL, (void **)ppQualSet );
 }
 
 static HRESULT record_get_value( const struct record *record, UINT index, VARIANT *var, CIMTYPE *type )
@@ -357,7 +354,6 @@ static HRESULT record_get_value( const struct record *record, UINT index, VARIAN
     VARTYPE vartype = to_vartype( record->fields[index].type & CIM_TYPE_MASK );
 
     if (type) *type = record->fields[index].type;
-    if (!var) return S_OK;
 
     if (record->fields[index].type & CIM_FLAG_ARRAY)
     {
@@ -549,17 +545,7 @@ static HRESULT WINAPI class_object_Next(
         if (is_method( table, i )) continue;
         if (!is_result_prop( view, table->columns[i].name )) continue;
         if (!(prop = SysAllocString( table->columns[i].name ))) return E_OUTOFMEMORY;
-        if (obj->record)
-        {
-            UINT index;
-
-            if ((hr = get_column_index( table, table->columns[i].name, &index )) == S_OK)
-                hr = record_get_value( obj->record, index, pVal, pType );
-        }
-        else
-            hr = get_propval( view, obj->index, prop, pVal, pType, plFlavor );
-
-        if (FAILED(hr))
+        if ((hr = get_propval( view, obj->index, prop, pVal, pType, plFlavor )) != S_OK)
         {
             SysFreeString( prop );
             return hr;
@@ -594,7 +580,7 @@ static HRESULT WINAPI class_object_GetPropertyQualifierSet(
 
     TRACE("%p, %s, %p\n", iface, debugstr_w(wszProperty), ppQualSet);
 
-    return WbemQualifierSet_create( co->ns, co->name, wszProperty, (void **)ppQualSet );
+    return WbemQualifierSet_create( co->name, wszProperty, (void **)ppQualSet );
 }
 
 static HRESULT WINAPI class_object_Clone(
@@ -688,21 +674,13 @@ static HRESULT WINAPI class_object_SpawnInstance(
     struct class_object *co = impl_from_IWbemClassObject( iface );
     struct enum_class_object *ec = impl_from_IEnumWbemClassObject( co->iter );
     struct table *table = get_view_table( ec->query->view, co->index );
-    IEnumWbemClassObject *iter;
     struct record *record;
-    HRESULT hr;
 
     TRACE("%p, %08x, %p\n", iface, lFlags, ppNewInstance);
 
     if (!(record = create_record( table ))) return E_OUTOFMEMORY;
-    if (FAILED(hr = IEnumWbemClassObject_Clone( co->iter, &iter )))
-    {
-        destroy_record( record );
-        return hr;
-    }
-    hr = create_class_object( co->ns, co->name, iter, 0, record, ppNewInstance );
-    IEnumWbemClassObject_Release( iter );
-    return hr;
+
+    return create_class_object( co->name, NULL, 0, record, ppNewInstance );
 }
 
 static HRESULT WINAPI class_object_CompareTo(
@@ -811,7 +789,7 @@ error:
     return hr;
 }
 
-static HRESULT create_signature_table( IEnumWbemClassObject *iter, enum wbm_namespace ns, WCHAR *name )
+static HRESULT create_signature_table( IEnumWbemClassObject *iter, WCHAR *name )
 {
     HRESULT hr;
     struct table *table;
@@ -828,7 +806,7 @@ static HRESULT create_signature_table( IEnumWbemClassObject *iter, enum wbm_name
         heap_free( row );
         return E_OUTOFMEMORY;
     }
-    if (!add_table( ns, table )) free_table( table ); /* already exists */
+    if (!add_table( table )) free_table( table ); /* already exists */
     return S_OK;
 }
 
@@ -842,7 +820,7 @@ static WCHAR *build_signature_table_name( const WCHAR *class, const WCHAR *metho
     return wcsupr( ret );
 }
 
-HRESULT create_signature( enum wbm_namespace ns, const WCHAR *class, const WCHAR *method, enum param_direction dir,
+HRESULT create_signature( const WCHAR *class, const WCHAR *method, enum param_direction dir,
                           IWbemClassObject **sig )
 {
     static const WCHAR selectW[] = L"SELECT * FROM __PARAMETERS WHERE Class='%s' AND Method='%s' AND Direction%s";
@@ -855,7 +833,7 @@ HRESULT create_signature( enum wbm_namespace ns, const WCHAR *class, const WCHAR
     if (!(query = heap_alloc( len * sizeof(WCHAR) ))) return E_OUTOFMEMORY;
     swprintf( query, len, selectW, class, method, dir >= 0 ? L">=0" : L"<=0" );
 
-    hr = exec_query( ns, query, &iter );
+    hr = exec_query( query, &iter );
     heap_free( query );
     if (hr != S_OK) return hr;
 
@@ -871,10 +849,10 @@ HRESULT create_signature( enum wbm_namespace ns, const WCHAR *class, const WCHAR
         IEnumWbemClassObject_Release( iter );
         return E_OUTOFMEMORY;
     }
-    hr = create_signature_table( iter, ns, name );
+    hr = create_signature_table( iter, name );
     IEnumWbemClassObject_Release( iter );
     if (hr == S_OK)
-        hr = get_object( ns, name, sig );
+        hr = get_object( name, sig );
 
     heap_free( name );
     return hr;
@@ -889,31 +867,14 @@ static HRESULT WINAPI class_object_GetMethod(
 {
     struct class_object *co = impl_from_IWbemClassObject( iface );
     IWbemClassObject *in, *out;
-    struct table *table;
-    unsigned int i;
     HRESULT hr;
 
     TRACE("%p, %s, %08x, %p, %p\n", iface, debugstr_w(wszName), lFlags, ppInSignature, ppOutSignature);
 
-    if (ppInSignature) *ppInSignature = NULL;
-    if (ppOutSignature) *ppOutSignature = NULL;
-
-    table = get_view_table( impl_from_IEnumWbemClassObject( co->iter )->query->view, co->index );
-
-    for (i = 0; i < table->num_cols; ++i)
-    {
-        if (is_method( table, i ) && !lstrcmpiW( table->columns[i].name, wszName )) break;
-    }
-    if (i == table->num_cols)
-    {
-        FIXME("Method %s not found in class %s.\n", debugstr_w(wszName), debugstr_w(co->name));
-        return WBEM_E_NOT_FOUND;
-    }
-
-    hr = create_signature( co->ns, co->name, wszName, PARAM_IN, &in );
+    hr = create_signature( co->name, wszName, PARAM_IN, &in );
     if (hr != S_OK) return hr;
 
-    hr = create_signature( co->ns, co->name, wszName, PARAM_OUT, &out );
+    hr = create_signature( co->name, wszName, PARAM_OUT, &out );
     if (hr == S_OK)
     {
         if (ppInSignature) *ppInSignature = in;
@@ -971,15 +932,15 @@ static HRESULT WINAPI class_object_NextMethod(
 
     TRACE("%p, %08x, %p, %p, %p\n", iface, lFlags, pstrName, ppInSignature, ppOutSignature);
 
-    if (!(method = get_method_name( co->ns, co->name, co->index_method ))) return WBEM_S_NO_MORE_DATA;
+    if (!(method = get_method_name( co->name, co->index_method ))) return WBEM_S_NO_MORE_DATA;
 
-    hr = create_signature( co->ns, co->name, method, PARAM_IN, ppInSignature );
+    hr = create_signature( co->name, method, PARAM_IN, ppInSignature );
     if (hr != S_OK)
     {
         SysFreeString( method );
         return hr;
     }
-    hr = create_signature( co->ns, co->name, method, PARAM_OUT, ppOutSignature );
+    hr = create_signature( co->name, method, PARAM_OUT, ppOutSignature );
     if (hr != S_OK)
     {
         SysFreeString( method );
@@ -1014,7 +975,7 @@ static HRESULT WINAPI class_object_GetMethodQualifierSet(
 
     TRACE("%p, %s, %p\n", iface, debugstr_w(wszMethod), ppQualSet);
 
-    return WbemQualifierSet_create( co->ns, co->name, wszMethod, (void **)ppQualSet );
+    return WbemQualifierSet_create( co->name, wszMethod, (void **)ppQualSet );
 }
 
 static HRESULT WINAPI class_object_GetMethodOrigin(
@@ -1057,7 +1018,7 @@ static const IWbemClassObjectVtbl class_object_vtbl =
     class_object_GetMethodOrigin
 };
 
-HRESULT create_class_object( enum wbm_namespace ns, const WCHAR *name, IEnumWbemClassObject *iter, UINT index,
+HRESULT create_class_object( const WCHAR *name, IEnumWbemClassObject *iter, UINT index,
                              struct record *record, IWbemClassObject **obj )
 {
     struct class_object *co;
@@ -1080,7 +1041,6 @@ HRESULT create_class_object( enum wbm_namespace ns, const WCHAR *name, IEnumWbem
     co->index_method   = 0;
     co->index_property = 0;
     co->record         = record;
-    co->ns             = ns;
     if (iter) IEnumWbemClassObject_AddRef( iter );
 
     *obj = &co->IWbemClassObject_iface;

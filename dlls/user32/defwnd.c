@@ -245,17 +245,6 @@ static LRESULT DEFWND_DefWinProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_NCPAINT:
         return NC_HandleNCPaint( hwnd, (HRGN)wParam );
 
-    case WM_NCMOUSEMOVE:
-        {
-            POINT pt;
-            pt.x = (short)LOWORD(lParam);
-            pt.y = (short)HIWORD(lParam);
-            return NC_HandleNCMouseMove( hwnd, pt );
-        }
-
-    case WM_NCMOUSELEAVE:
-        return NC_HandleNCMouseLeave( hwnd );
-
     case WM_NCHITTEST:
         {
             POINT pt;
@@ -739,10 +728,8 @@ static LRESULT DEFWND_DefWinProc( HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
 
     case WM_INPUTLANGCHANGE:
         {
-            struct user_thread_info *info = get_user_thread_info();
             int count = 0;
             HWND *win_array = WIN_ListChildren( hwnd );
-            info->kbd_layout = (HKL)lParam;
 
             if (!win_array)
                 break;

@@ -37,7 +37,6 @@
 #include "ntdll_misc.h"
 #include "in6addr.h"
 #include "ddk/ntddk.h"
-#include "ddk/ntifs.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
 WINE_DECLARE_DEBUG_CHANNEL(debugstr);
@@ -311,11 +310,11 @@ static LONG WINAPI debug_exception_handler( EXCEPTION_POINTERS *eptr )
 NTSTATUS WINAPIV DbgPrint(LPCSTR fmt, ...)
 {
     NTSTATUS ret;
-    va_list args;
+    __ms_va_list args;
 
-    va_start(args, fmt);
+    __ms_va_start(args, fmt);
     ret = vDbgPrintEx(0, DPFLTR_ERROR_LEVEL, fmt, args);
-    va_end(args);
+    __ms_va_end(args);
     return ret;
 }
 
@@ -326,18 +325,18 @@ NTSTATUS WINAPIV DbgPrint(LPCSTR fmt, ...)
 NTSTATUS WINAPIV DbgPrintEx(ULONG iComponentId, ULONG Level, LPCSTR fmt, ...)
 {
     NTSTATUS ret;
-    va_list args;
+    __ms_va_list args;
 
-    va_start(args, fmt);
+    __ms_va_start(args, fmt);
     ret = vDbgPrintEx(iComponentId, Level, fmt, args);
-    va_end(args);
+    __ms_va_end(args);
     return ret;
 }
 
 /******************************************************************************
  *	vDbgPrintEx	[NTDLL.@]
  */
-NTSTATUS WINAPI vDbgPrintEx( ULONG id, ULONG level, LPCSTR fmt, va_list args )
+NTSTATUS WINAPI vDbgPrintEx( ULONG id, ULONG level, LPCSTR fmt, __ms_va_list args )
 {
     return vDbgPrintExWithPrefix( "", id, level, fmt, args );
 }
@@ -345,7 +344,7 @@ NTSTATUS WINAPI vDbgPrintEx( ULONG id, ULONG level, LPCSTR fmt, va_list args )
 /******************************************************************************
  *	vDbgPrintExWithPrefix  [NTDLL.@]
  */
-NTSTATUS WINAPI vDbgPrintExWithPrefix( LPCSTR prefix, ULONG id, ULONG level, LPCSTR fmt, va_list args )
+NTSTATUS WINAPI vDbgPrintExWithPrefix( LPCSTR prefix, ULONG id, ULONG level, LPCSTR fmt, __ms_va_list args )
 {
     ULONG level_mask = level <= 31 ? (1 << level) : level;
     SIZE_T len = strlen( prefix );
@@ -2141,14 +2140,6 @@ void WINAPI RtlGetCurrentProcessorNumberEx(PROCESSOR_NUMBER *processor)
 }
 
 /***********************************************************************
- *           RtlIsProcessorFeaturePresent [NTDLL.@]
- */
-BOOLEAN WINAPI RtlIsProcessorFeaturePresent( UINT feature )
-{
-    return feature < PROCESSOR_FEATURE_MAX && user_shared_data->ProcessorFeatures[feature];
-}
-
-/***********************************************************************
  *           RtlInitializeGenericTableAvl  (NTDLL.@)
  */
 void WINAPI RtlInitializeGenericTableAvl(PRTL_AVL_TABLE table, PRTL_AVL_COMPARE_ROUTINE compare,
@@ -2173,13 +2164,4 @@ NTSTATUS WINAPI RtlQueryPackageIdentity(HANDLE token, WCHAR *fullname, SIZE_T *f
 {
     FIXME("(%p, %p, %p, %p, %p, %p): stub\n", token, fullname, fullname_size, appid, appid_size, packaged);
     return STATUS_NOT_FOUND;
-}
-
-/*********************************************************************
- *           RtlQueryProcessPlaceholderCompatibilityMode [NTDLL.@]
- */
-char WINAPI RtlQueryProcessPlaceholderCompatibilityMode(void)
-{
-    FIXME("stub\n");
-    return PHCM_APPLICATION_DEFAULT;
 }

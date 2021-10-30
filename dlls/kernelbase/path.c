@@ -401,7 +401,7 @@ HRESULT WINAPI PathAllocCombine(const WCHAR *path1, const WCHAR *path2, DWORD fl
 {
     SIZE_T combined_length, length2;
     WCHAR *combined_path;
-    BOOL add_backslash = FALSE;
+    BOOL from_path2 = FALSE;
     HRESULT hr;
 
     TRACE("%s %s %#x %p\n", wine_dbgstr_w(path1), wine_dbgstr_w(path2), flags, out);
@@ -419,8 +419,7 @@ HRESULT WINAPI PathAllocCombine(const WCHAR *path1, const WCHAR *path2, DWORD fl
     {
         path1 = path2;
         path2 = NULL;
-        add_backslash = (is_drive_spec(path1) && !path1[2])
-                        || (is_prefixed_disk(path1) && !path1[6]);
+        from_path2 = TRUE;
     }
 
     length2 = path2 ? lstrlenW(path2) : 0;
@@ -436,7 +435,7 @@ HRESULT WINAPI PathAllocCombine(const WCHAR *path1, const WCHAR *path2, DWORD fl
 
     lstrcpyW(combined_path, path1);
     PathCchStripPrefix(combined_path, combined_length);
-    if (add_backslash) PathCchAddBackslashEx(combined_path, combined_length, NULL, NULL);
+    if (from_path2) PathCchAddBackslashEx(combined_path, combined_length, NULL, NULL);
 
     if (path2 && path2[0])
     {
@@ -1390,7 +1389,7 @@ BOOL WINAPI PathCanonicalizeW(WCHAR *buffer, const WCHAR *path)
             {
                 src += 2; /* Skip .\ */
             }
-            else if (src[1] == '.' && dst != buffer && dst[-1] == '\\')
+            else if (src[1] == '.' && (dst == buffer || dst[-1] == '\\'))
             {
                 /* \.. backs up a directory, over the root if it has no \ following X:.
                  * .. is ignored if it would remove a UNC server name or initial \\
@@ -1903,14 +1902,14 @@ BOOL WINAPI PathIsUNCServerW(const WCHAR *path)
 
 void WINAPI PathRemoveBlanksA(char *path)
 {
-    char *start, *first;
+    char *start;
 
     TRACE("%s\n", wine_dbgstr_a(path));
 
     if (!path || !*path)
         return;
 
-    start = first = path;
+    start = path;
 
     while (*path == ' ')
         path = CharNextA(path);
@@ -1918,7 +1917,7 @@ void WINAPI PathRemoveBlanksA(char *path)
     while (*path)
         *start++ = *path++;
 
-    if (start != first)
+    if (start != path)
         while (start[-1] == ' ')
             start--;
 
@@ -1927,14 +1926,12 @@ void WINAPI PathRemoveBlanksA(char *path)
 
 void WINAPI PathRemoveBlanksW(WCHAR *path)
 {
-    WCHAR *start, *first;
+    WCHAR *start = path;
 
     TRACE("%s\n", wine_dbgstr_w(path));
 
     if (!path || !*path)
         return;
-
-    start = first = path;
 
     while (*path == ' ')
         path++;
@@ -1942,7 +1939,7 @@ void WINAPI PathRemoveBlanksW(WCHAR *path)
     while (*path)
         *start++ = *path++;
 
-    if (start != first)
+    if (start != path)
         while (start[-1] == ' ')
             start--;
 

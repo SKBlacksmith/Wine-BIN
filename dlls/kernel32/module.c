@@ -34,6 +34,7 @@
 #include "kernel_private.h"
 #include "psapi.h"
 
+#include "wine/exception.h"
 #include "wine/list.h"
 #include "wine/asm.h"
 #include "wine/debug.h"
@@ -189,11 +190,13 @@ BOOL WINAPI GetBinaryTypeW( LPCWSTR name, LPDWORD type )
             status = NtQuerySection( mapping, SectionImageInformation, &info, sizeof(info), NULL );
             CloseHandle( mapping );
             if (status) return FALSE;
-            if (info.ImageCharacteristics & IMAGE_FILE_DLL) return FALSE;
             switch (info.Machine)
             {
             case IMAGE_FILE_MACHINE_I386:
+            case IMAGE_FILE_MACHINE_ARM:
+            case IMAGE_FILE_MACHINE_THUMB:
             case IMAGE_FILE_MACHINE_ARMNT:
+            case IMAGE_FILE_MACHINE_POWERPC:
                 *type = SCS_32BIT_BINARY;
                 return TRUE;
             case IMAGE_FILE_MACHINE_AMD64:

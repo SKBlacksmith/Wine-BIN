@@ -30,7 +30,7 @@
 
 #include "wine/debug.h"
 
-#include "ntgdi_private.h"
+#include "gdi_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(font);
 
@@ -555,7 +555,6 @@ static LANGID get_name_record_langid( enum OPENTYPE_PLATFORM_ID platform, USHORT
         default:
             break;
         }
-        break;
     default:
         FIXME( "unknown platform %d\n", platform );
         break;

@@ -26,15 +26,19 @@
 #endif
 
 #include "config.h"
+#include "wine/port.h"
 
 #include <errno.h>
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
+#ifdef HAVE_UNISTD_H
+# include <unistd.h>
+#endif
 #include <fcntl.h>
-#include <sys/stat.h>
+#ifdef HAVE_SYS_STAT_H
+# include <sys/stat.h>
+#endif
 #ifdef MAJOR_IN_MKDEV
 # include <sys/mkdev.h>
 #elif defined(MAJOR_IN_SYSMACROS)

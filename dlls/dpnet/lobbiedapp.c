@@ -42,15 +42,18 @@ static inline IDirectPlay8LobbiedApplicationImpl *impl_from_IDirectPlay8LobbiedA
 
 /* IDirectPlay8LobbiedApplication IUnknown parts follow: */
 static HRESULT WINAPI IDirectPlay8LobbiedApplicationImpl_QueryInterface(IDirectPlay8LobbiedApplication *iface,
-        REFIID riid, void **ret_iface)
+        REFIID riid, void **ppobj)
 {
-    if (IsEqualGUID(riid, &IID_IUnknown) || IsEqualGUID(riid, &IID_IDirectPlay8LobbiedApplication)) {
-        IDirectPlay8LobbiedApplication_AddRef(iface);
-        *ret_iface = iface;
-        return S_OK;
+    IDirectPlay8LobbiedApplicationImpl *This = impl_from_IDirectPlay8LobbiedApplication(iface);
+
+    if (IsEqualGUID(riid, &IID_IUnknown)
+        || IsEqualGUID(riid, &IID_IDirectPlay8LobbiedApplication)) {
+        IUnknown_AddRef(iface);
+        *ppobj = This;
+        return DPN_OK;
     }
 
-    WARN("(%p)->(%s,%p): not found\n", iface, debugstr_guid(riid), ret_iface);
+    WARN("(%p)->(%s,%p),not found\n",This,debugstr_guid(riid),ppobj);
     return E_NOINTERFACE;
 }
 

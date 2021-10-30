@@ -343,30 +343,28 @@ BOOL CDECL PSDRV_GetTextExtentExPoint(PHYSDEV dev, LPCWSTR str, INT count, LPINT
 /***********************************************************************
  *           PSDRV_GetCharWidth
  */
-BOOL CDECL PSDRV_GetCharWidth(PHYSDEV dev, UINT first, UINT count, const WCHAR *chars, INT *buffer)
+BOOL CDECL PSDRV_GetCharWidth(PHYSDEV dev, UINT firstChar, UINT lastChar, LPINT buffer)
 {
     PSDRV_PDEVICE *physDev = get_psdrv_dev( dev );
-    UINT i, c;
+    UINT    	    i;
 
     if (physDev->font.fontloc == Download)
     {
         dev = GET_NEXT_PHYSDEV( dev, pGetCharWidth );
-        return dev->funcs->pGetCharWidth( dev, first, count, chars, buffer );
+        return dev->funcs->pGetCharWidth( dev, firstChar, lastChar, buffer );
     }
 
-    TRACE("U+%.4X +%u\n", first, count);
+    TRACE("U+%.4X U+%.4X\n", firstChar, lastChar);
 
-    for (i = 0; i < count; ++i)
+    if (lastChar > 0xffff || firstChar > lastChar)
     {
-        c = chars ? chars[i] : first + i;
+    	SetLastError(ERROR_INVALID_PARAMETER);
+    	return FALSE;
+    }
 
-        if (c > 0xffff)
-        {
-            SetLastError(ERROR_INVALID_PARAMETER);
-            return FALSE;
-        }
-
-        *buffer = floor( PSDRV_UVMetrics(c, physDev->font.fontinfo.Builtin.afm)->WX
+    for (i = firstChar; i <= lastChar; ++i)
+    {
+        *buffer = floor( PSDRV_UVMetrics(i, physDev->font.fontinfo.Builtin.afm)->WX
                          * physDev->font.fontinfo.Builtin.scale + 0.5 );
 	TRACE("U+%.4X: %i\n", i, *buffer);
 	++buffer;

@@ -190,7 +190,7 @@ NTSTATUS WINAPI LsaAddAccountRights(
  */
 NTSTATUS WINAPI LsaClose(IN LSA_HANDLE ObjectHandle)
 {
-    WARN("(%p) stub\n", ObjectHandle);
+    FIXME("(%p) stub\n", ObjectHandle);
     return STATUS_SUCCESS;
 }
 
@@ -734,7 +734,7 @@ NTSTATUS WINAPI LsaOpenPolicy(
     IN ACCESS_MASK DesiredAccess,
     IN OUT PLSA_HANDLE PolicyHandle)
 {
-    WARN("(%s,%p,0x%08x,%p) stub\n",
+    FIXME("(%s,%p,0x%08x,%p) stub\n",
           SystemName?debugstr_w(SystemName->Buffer):"(null)",
           ObjectAttributes, DesiredAccess, PolicyHandle);
 

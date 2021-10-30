@@ -360,6 +360,15 @@ static BOOL format_date(FILETIME *time, WCHAR *buffer, DWORD size)
 
 static BOOL get_program_description(WCHAR *path, WCHAR *buffer, DWORD size)
 {
+    static const WCHAR translationW[] = {
+        '\\','V','a','r','F','i','l','e','I','n','f','o',
+        '\\','T','r','a','n','s','l','a','t','i','o','n',0
+    };
+    static const WCHAR fileDescFmtW[] = {
+        '\\','S','t','r','i','n','g','F','i','l','e','I','n','f','o',
+        '\\','%','0','4','x','%','0','4','x',
+        '\\','F','i','l','e','D','e','s','c','r','i','p','t','i','o','n',0
+    };
     WCHAR fileDescW[41], *desc;
     DWORD versize, *lang;
     UINT dlen, llen, i;
@@ -375,13 +384,12 @@ static BOOL get_program_description(WCHAR *path, WCHAR *buffer, DWORD size)
     if (!GetFileVersionInfoW(path, 0, versize, data))
         goto out;
 
-    if (!VerQueryValueW(data, L"\\VarFileInfo\\Translation", (LPVOID *)&lang, &llen))
+    if (!VerQueryValueW(data, translationW, (LPVOID *)&lang, &llen))
         goto out;
 
     for (i = 0; i < llen / sizeof(DWORD); i++)
     {
-        swprintf(fileDescW, ARRAY_SIZE(fileDescW), L"\\StringFileInfo\\%04x%04x\\FileDescription",
-                 LOWORD(lang[i]), HIWORD(lang[i]));
+        sprintfW(fileDescW, fileDescFmtW, LOWORD(lang[i]), HIWORD(lang[i]));
         if (VerQueryValueW(data, fileDescW, (LPVOID *)&desc, &dlen))
         {
             if (dlen > size - 1) dlen = size - 1;
@@ -440,7 +448,9 @@ static void init_file_properties_dlg(HWND hwndDlg, struct file_properties_info *
 
     if (exinfo.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
     {
-        SetDlgItemTextW(hwndDlg, IDC_FPROP_SIZE, L"(unknown)");
+        static const WCHAR unknownW[] = {'(','u','n','k','n','o','w','n',')',0};
+        SetDlgItemTextW(hwndDlg, IDC_FPROP_SIZE, unknownW);
+
         /* TODO: Implement counting for directories */
         return;
     }
@@ -466,7 +476,7 @@ static void init_file_properties_dlg(HWND hwndDlg, struct file_properties_info *
         SetDlgItemTextW(hwndDlg, IDC_FPROP_PROG_NAME, buffer2);
     else
     {
-        WCHAR *p = wcsrchr(buffer, '\\');
+        WCHAR *p = strrchrW(buffer, '\\');
         SetDlgItemTextW(hwndDlg, IDC_FPROP_PROG_NAME, p ? ++p : buffer);
     }
 }
@@ -528,21 +538,22 @@ static INT_PTR CALLBACK file_properties_proc(HWND hwndDlg, UINT uMsg, WPARAM wPa
 
                     /* Update filename if it was changed */
                     if (GetDlgItemTextW(hwndDlg, IDC_FPROP_PATH, newname, ARRAY_SIZE(newname)) &&
-                        wcscmp(props->filename, newname) &&
-                        lstrlenW(props->dir) + lstrlenW(newname) + 2 < ARRAY_SIZE(newpath))
+                        strcmpW(props->filename, newname) &&
+                        strlenW(props->dir) + strlenW(newname) + 2 < ARRAY_SIZE(newpath))
                     {
-                        lstrcpyW(newpath, props->dir);
-                        lstrcatW(newpath, L"\\");
-                        lstrcatW(newpath, newname);
+                        static const WCHAR slash[] = {'\\', 0};
+                        strcpyW(newpath, props->dir);
+                        strcatW(newpath, slash);
+                        strcatW(newpath, newname);
 
                         if (!MoveFileW(props->path, newpath))
                             ERR("failed to move file %s to %s\n", debugstr_w(props->path), debugstr_w(newpath));
                         else
                         {
                             WCHAR *p;
-                            lstrcpyW(props->path, newpath);
-                            lstrcpyW(props->dir, newpath);
-                            if ((p = wcsrchr(props->dir, '\\')))
+                            strcpyW(props->path, newpath);
+                            strcpyW(props->dir, newpath);
+                            if ((p = strrchrW(props->dir, '\\')))
                             {
                                 *p = 0;
                                 props->filename = p + 1;
@@ -608,8 +619,8 @@ static void init_file_properties_pages(IDataObject *dataobject, LPFNADDPROPSHEET
     if (props->attrib == INVALID_FILE_ATTRIBUTES)
         goto error;
 
-    lstrcpyW(props->dir, props->path);
-    if ((p = wcsrchr(props->dir, '\\')))
+    strcpyW(props->dir, props->path);
+    if ((p = strrchrW(props->dir, '\\')))
     {
         *p = 0;
         props->filename = p + 1;
@@ -642,6 +653,8 @@ error:
 
 static void DoOpenProperties(ContextMenu *This, HWND hwnd)
 {
+	static const WCHAR wszFolder[] = {'F','o','l','d','e','r', 0};
+	static const WCHAR wszFiletypeAll[] = {'*',0};
 	LPSHELLFOLDER lpDesktopSF;
 	LPSHELLFOLDER lpSF;
 	LPDATAOBJECT lpDo;
@@ -682,13 +695,14 @@ static void DoOpenProperties(ContextMenu *This, HWND hwnd)
 	}
 	else if (_ILIsFolder(This->apidl[0]))
 	{
-	    lstrcpynW(wszFiletype, L"Folder", 64);
+	    lstrcpynW(wszFiletype, wszFolder, 64);
 	}
 	else if (_ILIsSpecialFolder(This->apidl[0]))
 	{
 	    LPGUID folderGUID;
+	    static const WCHAR wszclsid[] = {'C','L','S','I','D','\\', 0};
 	    folderGUID = _ILGetGUIDPointer(This->apidl[0]);
-	    lstrcpyW(wszFiletype, L"CLSID\\");
+	    lstrcpyW(wszFiletype, wszclsid);
 	    StringFromGUID2(folderGUID, &wszFiletype[6], MAX_PATH - 6);
 	}
 	else
@@ -724,7 +738,7 @@ static void DoOpenProperties(ContextMenu *This, HWND hwnd)
 		SHAddFromPropSheetExtArray(hpsxa, Properties_AddPropSheetCallback, (LPARAM)&psh);
 		SHDestroyPropSheetExtArray(hpsxa);
 	    }
-	    hpsxa = SHCreatePropSheetExtArrayEx(HKEY_CLASSES_ROOT, L"*", MAX_PROP_PAGES - psh.nPages, lpDo);
+	    hpsxa = SHCreatePropSheetExtArrayEx(HKEY_CLASSES_ROOT, wszFiletypeAll, MAX_PROP_PAGES - psh.nPages, lpDo);
 	    if (hpsxa != NULL)
 	    {
 		SHAddFromPropSheetExtArray(hpsxa, Properties_AddPropSheetCallback, (LPARAM)&psh);
@@ -814,10 +828,6 @@ static HRESULT WINAPI ItemMenu_InvokeCommand(
         TRACE("Verb is %s\n",debugstr_a(lpcmi->lpVerb));
         if (strcmp(lpcmi->lpVerb,"delete")==0)
             DoDelete(This);
-        else if (strcmp(lpcmi->lpVerb,"copy")==0)
-            DoCopyOrCut(This, lpcmi->hwnd, FALSE);
-        else if (strcmp(lpcmi->lpVerb,"cut")==0)
-            DoCopyOrCut(This, lpcmi->hwnd, TRUE);
         else if (strcmp(lpcmi->lpVerb,"properties")==0)
             DoOpenProperties(This, lpcmi->hwnd);
         else {
@@ -831,6 +841,14 @@ static HRESULT WINAPI ItemMenu_InvokeCommand(
 static HRESULT WINAPI ItemMenu_GetCommandString(IContextMenu3 *iface, UINT_PTR cmdid, UINT flags,
     UINT *reserved, LPSTR name, UINT maxlen)
 {
+    static const WCHAR openW[] = {'o','p','e','n',0};
+    static const WCHAR exploreW[] = {'e','x','p','l','o','r','e',0};
+    static const WCHAR cutW[] = {'c','u','t',0};
+    static const WCHAR copyW[] = {'c','o','p','y',0};
+    static const WCHAR linkW[] = {'l','i','n','k',0};
+    static const WCHAR deleteW[] = {'d','e','l','e','t','e',0};
+    static const WCHAR propertiesW[] = {'p','r','o','p','e','r','t','i','e','s',0};
+    static const WCHAR renameW[] = {'r','e','n','a','m','e',0};
     ContextMenu *This = impl_from_IContextMenu3(iface);
     const WCHAR *cmdW = NULL;
     HRESULT hr = S_OK;
@@ -849,28 +867,28 @@ static HRESULT WINAPI ItemMenu_GetCommandString(IContextMenu3 *iface, UINT_PTR c
         switch (cmdid + FCIDM_BASE)
         {
         case FCIDM_SHVIEW_OPEN:
-            cmdW = L"open";
+            cmdW = openW;
             break;
         case FCIDM_SHVIEW_EXPLORE:
-            cmdW = L"explore";
+            cmdW = exploreW;
             break;
         case FCIDM_SHVIEW_CUT:
-            cmdW = L"cut";
+            cmdW = cutW;
             break;
         case FCIDM_SHVIEW_COPY:
-            cmdW = L"copy";
+            cmdW = copyW;
             break;
         case FCIDM_SHVIEW_CREATELINK:
-            cmdW = L"link";
+            cmdW = linkW;
             break;
         case FCIDM_SHVIEW_DELETE:
-            cmdW = L"delete";
+            cmdW = deleteW;
             break;
         case FCIDM_SHVIEW_PROPERTIES:
-            cmdW = L"properties";
+            cmdW = propertiesW;
             break;
         case FCIDM_SHVIEW_RENAME:
-            cmdW = L"rename";
+            cmdW = renameW;
             break;
         }
 
@@ -1112,67 +1130,17 @@ static void DoNewFolder(ContextMenu *This, IShellView *view)
     }
 }
 
-static HRESULT paste_pidls(ContextMenu *This, ITEMIDLIST **pidls, UINT count)
+static BOOL DoPaste(ContextMenu *This)
 {
-    IShellFolder *psfDesktop;
-    UINT i;
-    HRESULT hr = S_OK;
-
-    /* bind to the source shellfolder */
-    hr = SHGetDesktopFolder(&psfDesktop);
-    if (FAILED(hr))
-        return hr;
-
-    for (i = 0; SUCCEEDED(hr) && i < count; i++) {
-        ITEMIDLIST *pidl_dir = NULL;
-        ITEMIDLIST *pidl_item;
-        IShellFolder *psfFrom = NULL;
-
-        pidl_dir = ILClone(pidls[i]);
-        ILRemoveLastID(pidl_dir);
-        pidl_item = ILFindLastID(pidls[i]);
-        hr = IShellFolder_BindToObject(psfDesktop, pidl_dir, NULL, &IID_IShellFolder, (LPVOID*)&psfFrom);
-
-        if (psfFrom)
-        {
-            /* get source and destination shellfolder */
-            ISFHelper *psfhlpdst = NULL, *psfhlpsrc = NULL;
-            hr = IShellFolder_QueryInterface(This->parent, &IID_ISFHelper, (void**)&psfhlpdst);
-            if (SUCCEEDED(hr))
-                hr = IShellFolder_QueryInterface(psfFrom, &IID_ISFHelper, (void**)&psfhlpsrc);
-
-            /* do the copy/move */
-            if (psfhlpdst && psfhlpsrc)
-            {
-                hr = ISFHelper_CopyItems(psfhlpdst, psfFrom, 1, (LPCITEMIDLIST*)&pidl_item);
-                /* FIXME handle move
-                ISFHelper_DeleteItems(psfhlpsrc, 1, &pidl_item);
-                */
-            }
-            if(psfhlpdst) ISFHelper_Release(psfhlpdst);
-            if(psfhlpsrc) ISFHelper_Release(psfhlpsrc);
-            IShellFolder_Release(psfFrom);
-        }
-        SHFree(pidl_dir);
-    }
-
-    IShellFolder_Release(psfDesktop);
-    return hr;
-}
-
-static HRESULT DoPaste(ContextMenu *This)
-{
+	BOOL bSuccess = FALSE;
 	IDataObject * pda;
-	HRESULT hr;
 
 	TRACE("\n");
 
-	hr = OleGetClipboard(&pda);
-	if(SUCCEEDED(hr))
+	if(SUCCEEDED(OleGetClipboard(&pda)))
 	{
 	  STGMEDIUM medium;
 	  FORMATETC formatetc;
-	  HRESULT format_hr;
 
 	  TRACE("pda=%p\n", pda);
 
@@ -1180,72 +1148,52 @@ static HRESULT DoPaste(ContextMenu *This)
 	  InitFormatEtc(formatetc, RegisterClipboardFormatW(CFSTR_SHELLIDLISTW), TYMED_HGLOBAL);
 
 	  /* Get the pidls from IDataObject */
-	  format_hr = IDataObject_GetData(pda,&formatetc,&medium);
-	  if(SUCCEEDED(format_hr))
-	  {
+	  if(SUCCEEDED(IDataObject_GetData(pda,&formatetc,&medium)))
+          {
 	    LPITEMIDLIST * apidl;
 	    LPITEMIDLIST pidl;
+	    IShellFolder *psfFrom = NULL, *psfDesktop;
 
 	    LPIDA lpcida = GlobalLock(medium.u.hGlobal);
 	    TRACE("cida=%p\n", lpcida);
-	    if(lpcida)
+
+	    apidl = _ILCopyCidaToaPidl(&pidl, lpcida);
+
+	    /* bind to the source shellfolder */
+	    SHGetDesktopFolder(&psfDesktop);
+	    if(psfDesktop)
 	    {
-	      apidl = _ILCopyCidaToaPidl(&pidl, lpcida);
-	      if (apidl)
-	      {
-	        hr = paste_pidls(This, apidl, lpcida->cidl);
-	        _ILFreeaPidl(apidl, lpcida->cidl);
-	        SHFree(pidl);
-	      }
-	      else
-	        hr = HRESULT_FROM_WIN32(GetLastError());
-	      GlobalUnlock(medium.u.hGlobal);
+	      IShellFolder_BindToObject(psfDesktop, pidl, NULL, &IID_IShellFolder, (LPVOID*)&psfFrom);
+	      IShellFolder_Release(psfDesktop);
 	    }
-	    else
-	      hr = HRESULT_FROM_WIN32(GetLastError());
+
+	    if (psfFrom)
+	    {
+	      /* get source and destination shellfolder */
+	      ISFHelper *psfhlpdst, *psfhlpsrc;
+	      IShellFolder_QueryInterface(This->parent, &IID_ISFHelper, (void**)&psfhlpdst);
+	      IShellFolder_QueryInterface(psfFrom, &IID_ISFHelper, (void**)&psfhlpsrc);
+
+	      /* do the copy/move */
+	      if (psfhlpdst && psfhlpsrc)
+	      {
+	        ISFHelper_CopyItems(psfhlpdst, psfFrom, lpcida->cidl, (LPCITEMIDLIST*)apidl);
+		/* FIXME handle move
+		ISFHelper_DeleteItems(psfhlpsrc, lpcida->cidl, apidl);
+		*/
+	      }
+	      if(psfhlpdst) ISFHelper_Release(psfhlpdst);
+	      if(psfhlpsrc) ISFHelper_Release(psfhlpsrc);
+	      IShellFolder_Release(psfFrom);
+	    }
+
+	    _ILFreeaPidl(apidl, lpcida->cidl);
+	    SHFree(pidl);
+	    GlobalUnlock(medium.u.hGlobal);
+
+	    /* release the medium*/
 	    ReleaseStgMedium(&medium);
 	  }
-
-	  if(FAILED(format_hr))
-	  {
-	    InitFormatEtc(formatetc, CF_HDROP, TYMED_HGLOBAL);
-	    format_hr = IDataObject_GetData(pda,&formatetc,&medium);
-	    if(SUCCEEDED(format_hr))
-	    {
-	      WCHAR path[MAX_PATH];
-	      UINT i, count;
-	      ITEMIDLIST **pidls;
-
-	      TRACE("CF_HDROP=%p\n", medium.u.hGlobal);
-	      count = DragQueryFileW(medium.u.hGlobal, -1, NULL, 0);
-	      pidls = SHAlloc(count*sizeof(ITEMIDLIST**));
-	      if (pidls)
-	      {
-	        for (i = 0; i < count; i++)
-	        {
-	          DragQueryFileW(medium.u.hGlobal, i, path, ARRAY_SIZE(path));
-	          if ((pidls[i] = ILCreateFromPathW(path)) == NULL)
-	          {
-	            hr = E_FAIL;
-	            break;
-	          }
-	        }
-	        if (SUCCEEDED(hr))
-	          hr = paste_pidls(This, pidls, count);
-	        _ILFreeaPidl(pidls, count);
-	      }
-	      else
-	        hr = HRESULT_FROM_WIN32(GetLastError());
-	      ReleaseStgMedium(&medium);
-	    }
-	  }
-
-	  if (FAILED(format_hr))
-	  {
-	    ERR("there are no supported and retrievable clipboard formats\n");
-	    hr = format_hr;
-	  }
-
 	  IDataObject_Release(pda);
 	}
 #if 0
@@ -1272,7 +1220,7 @@ static HRESULT DoPaste(ContextMenu *This)
 	}
 	CloseClipboard();
 #endif
-	return hr;
+	return bSuccess;
 }
 
 static HRESULT WINAPI BackgroundMenu_InvokeCommand(
@@ -1308,10 +1256,6 @@ static HRESULT WINAPI BackgroundMenu_InvokeCommand(
         else if (!strcmp(lpcmi->lpVerb, CMDSTR_VIEWDETAILSA))
         {
 	    if (hWnd) SendMessageA(hWnd, WM_COMMAND, MAKEWPARAM(FCIDM_SHVIEW_REPORTVIEW, 0), 0);
-        }
-        else if (!strcmp(lpcmi->lpVerb, "paste"))
-        {
-            DoPaste(This);
         }
         else
         {
@@ -1363,64 +1307,27 @@ static HRESULT WINAPI BackgroundMenu_GetCommandString(
 	LPSTR lpszName,
 	UINT uMaxNameLen)
 {
-    ContextMenu *This = impl_from_IContextMenu3(iface);
-    const WCHAR *cmdW = NULL;
-    HRESULT hr = E_FAIL;
+        ContextMenu *This = impl_from_IContextMenu3(iface);
 
-    TRACE("(%p)->(idcom=%lx flags=%x %p name=%p len=%x)\n",This, idCommand, uFlags, lpReserved, lpszName, uMaxNameLen);
+	TRACE("(%p)->(idcom=%lx flags=%x %p name=%p len=%x)\n",This, idCommand, uFlags, lpReserved, lpszName, uMaxNameLen);
 
-    switch (uFlags)
-    {
-    case GCS_HELPTEXTA:
-    case GCS_HELPTEXTW:
-        hr = E_NOTIMPL;
-        break;
+	/* test the existence of the menu items, the file dialog enables
+	   the buttons according to this */
+	if (uFlags == GCS_VALIDATEA)
+	{
+	  if(HIWORD(idCommand))
+	  {
+	    if (!strcmp((LPSTR)idCommand, CMDSTR_VIEWLISTA) ||
+	        !strcmp((LPSTR)idCommand, CMDSTR_VIEWDETAILSA) ||
+	        !strcmp((LPSTR)idCommand, CMDSTR_NEWFOLDERA))
+	    {
+	      return S_OK;
+	    }
+	  }
+	}
 
-    case GCS_VERBA:
-    case GCS_VERBW:
-        switch (idCommand + FCIDM_BASE)
-        {
-        case FCIDM_SHVIEW_INSERT:
-            cmdW = L"paste";
-            break;
-        case FCIDM_SHVIEW_PROPERTIES:
-            cmdW = L"properties";
-            break;
-        }
-
-        if (!cmdW)
-        {
-            hr = E_INVALIDARG;
-            break;
-        }
-
-        if (uFlags == GCS_VERBA)
-            WideCharToMultiByte(CP_ACP, 0, cmdW, -1, lpszName, uMaxNameLen, NULL, NULL);
-        else
-            lstrcpynW((WCHAR *)lpszName, cmdW, uMaxNameLen);
-        TRACE("name %s\n", uFlags == GCS_VERBA ? debugstr_a(lpszName) : debugstr_w((WCHAR *)lpszName));
-        hr = S_OK;
-        break;
-
-    case GCS_VALIDATEA:
-    case GCS_VALIDATEW:
-        /* test the existence of the menu items, the file dialog enables
-           the buttons according to this */
-        if (HIWORD(idCommand))
-        {
-            if (!strcmp((LPSTR)idCommand, CMDSTR_VIEWLISTA) ||
-                !strcmp((LPSTR)idCommand, CMDSTR_VIEWDETAILSA) ||
-                !strcmp((LPSTR)idCommand, CMDSTR_NEWFOLDERA))
-                hr = S_OK;
-            else
-            {
-                FIXME("unknown command string %s\n", uFlags == GCS_VALIDATEA ? debugstr_a((LPSTR)idCommand) : debugstr_w((WCHAR*)idCommand));
-                hr = E_FAIL;
-            }
-        }
-        break;
-    }
-    return hr;
+	FIXME("unknown command string\n");
+	return E_FAIL;
 }
 
 static const IContextMenu3Vtbl BackgroundContextMenuVtbl =

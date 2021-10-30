@@ -866,45 +866,28 @@ static void test_EnumForms(LPSTR pName)
         ok(res, "(%d) returned %d with %d (expected '!=0')\n",
                 level, res, GetLastError());
 
-        pFI_1a = (PFORM_INFO_1A)buffer;
-        pFI_2a = (PFORM_INFO_2A)buffer;
-        for (i = 0; i < pcReturned; i++)
-        {
-            /* first part is same in FORM_INFO_1 and FORM_INFO_2 */
-            formtype = (pFI_1a->Flags <= FORMTYPE_MAX) ? formtypes[pFI_1a->Flags] : formtypes[3];
-            if (winetest_debug > 1)
+        if (winetest_debug > 1) {
+            trace("dumping %d forms level %d\n", pcReturned, level);
+            pFI_1a = (PFORM_INFO_1A)buffer;
+            pFI_2a = (PFORM_INFO_2A)buffer;
+            for (i = 0; i < pcReturned; i++)
+            {
+                /* first part is same in FORM_INFO_1 and FORM_INFO_2 */
+                formtype = (pFI_1a->Flags <= FORMTYPE_MAX) ? formtypes[pFI_1a->Flags] : formtypes[3];
                 trace("%u (%s): %.03fmm x %.03fmm, %s\n", i, pFI_1a->pName,
                       (float)pFI_1a->Size.cx/1000, (float)pFI_1a->Size.cy/1000, formtype);
 
-            if (level == 1) pFI_1a++;
-            else
-            {
-                BYTE get_buffer[1000];
-                FORM_INFO_2A *get_form = (FORM_INFO_2A *)get_buffer;
-                DWORD get_needed;
-
-                /* output additional FORM_INFO_2 fields */
-                if (winetest_debug > 1)
+                if (level == 1) pFI_1a ++;
+                else {
+                    /* output additional FORM_INFO_2 fields */
                     trace("\tkeyword=%s strtype=%u muidll=%s resid=%u dispname=%s langid=%u\n",
                           pFI_2a->pKeyword, pFI_2a->StringType, pFI_2a->pMuiDll,
                           pFI_2a->dwResourceId, pFI_2a->pDisplayName, pFI_2a->wLangId);
 
-                if (pName && i == 0) /* GetForm() appears only to work on a printer handle */
-                {
-                    res = GetFormA( hprinter, pFI_1a->pName, level, NULL, 0, &get_needed );
-                    ok( !res && GetLastError() == ERROR_INSUFFICIENT_BUFFER, "got %d gle %d\n", res, GetLastError() );
-                    if (get_needed <= sizeof(get_buffer))
-                    {
-                        res = GetFormA( hprinter, pFI_1a->pName, level, get_buffer, get_needed, &get_needed );
-                        ok( res, "got %d\n", res );
-                        ok( !strcmp( pFI_2a->pName, get_form->pName ), "name mismatch\n" );
-                        res = GetFormA( hprinter, pFI_1a->pName, level, get_buffer, get_needed - 1, &get_needed );
-                        ok( !res && GetLastError() == ERROR_INSUFFICIENT_BUFFER, "got %d gle %d\n", res, GetLastError() );
-                    }
+                    /* offset pointer pFI_1a by 1*sizeof(FORM_INFO_2A) Bytes */
+                    pFI_2a ++;
+                    pFI_1a = (PFORM_INFO_1A)pFI_2a;
                 }
-                /* offset pointer pFI_1a by 1*sizeof(FORM_INFO_2A) Bytes */
-                pFI_2a++;
-                pFI_1a = (PFORM_INFO_1A)pFI_2a;
             }
         }
 
@@ -2626,6 +2609,7 @@ static void test_GetPrinterDriver(void)
             hf = CreateFileA(di_2->pDriverPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
             if(hf != INVALID_HANDLE_VALUE)
                 CloseHandle(hf);
+            todo_wine
             ok(hf != INVALID_HANDLE_VALUE, "Could not open %s\n", di_2->pDriverPath);
 
             hf = CreateFileA(di_2->pDataFile, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
@@ -2636,6 +2620,7 @@ static void test_GetPrinterDriver(void)
             hf = CreateFileA(di_2->pConfigFile, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
             if(hf != INVALID_HANDLE_VALUE)
                 CloseHandle(hf);
+            todo_wine
             ok(hf != INVALID_HANDLE_VALUE, "Could not open %s\n", di_2->pConfigFile);
 
             /* XP allocates memory for both ANSI and unicode names */

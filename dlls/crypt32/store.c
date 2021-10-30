@@ -33,6 +33,7 @@
 #include "winuser.h"
 #include "wincrypt.h"
 #include "wine/debug.h"
+#include "wine/exception.h"
 #include "crypt32_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(crypt);

@@ -17,8 +17,17 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#if 0
+#pragma makedep unix
+#endif
+
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdarg.h>
+#ifdef SONAME_LIBPNG
 #include <png.h>
+#endif
 
 #define NONAMELESSUNION
 
@@ -34,6 +43,119 @@
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wincodecs);
+
+#ifdef SONAME_LIBPNG
+
+static void *libpng_handle;
+#define MAKE_FUNCPTR(f) static typeof(f) * p##f
+MAKE_FUNCPTR(png_create_info_struct);
+MAKE_FUNCPTR(png_create_read_struct);
+MAKE_FUNCPTR(png_create_write_struct);
+MAKE_FUNCPTR(png_destroy_read_struct);
+MAKE_FUNCPTR(png_destroy_write_struct);
+MAKE_FUNCPTR(png_error);
+MAKE_FUNCPTR(png_get_bit_depth);
+MAKE_FUNCPTR(png_get_color_type);
+MAKE_FUNCPTR(png_get_error_ptr);
+MAKE_FUNCPTR(png_get_iCCP);
+MAKE_FUNCPTR(png_get_image_height);
+MAKE_FUNCPTR(png_get_image_width);
+MAKE_FUNCPTR(png_get_io_ptr);
+MAKE_FUNCPTR(png_get_pHYs);
+MAKE_FUNCPTR(png_get_PLTE);
+MAKE_FUNCPTR(png_get_tRNS);
+MAKE_FUNCPTR(png_read_image);
+MAKE_FUNCPTR(png_read_info);
+MAKE_FUNCPTR(png_set_bgr);
+MAKE_FUNCPTR(png_set_crc_action);
+MAKE_FUNCPTR(png_set_error_fn);
+MAKE_FUNCPTR(png_set_filler);
+MAKE_FUNCPTR(png_set_filter);
+MAKE_FUNCPTR(png_set_gray_to_rgb);
+MAKE_FUNCPTR(png_set_IHDR);
+MAKE_FUNCPTR(png_set_interlace_handling);
+MAKE_FUNCPTR(png_set_pHYs);
+MAKE_FUNCPTR(png_set_PLTE);
+MAKE_FUNCPTR(png_set_read_fn);
+MAKE_FUNCPTR(png_set_swap);
+MAKE_FUNCPTR(png_set_tRNS);
+MAKE_FUNCPTR(png_set_tRNS_to_alpha);
+MAKE_FUNCPTR(png_set_write_fn);
+MAKE_FUNCPTR(png_write_end);
+MAKE_FUNCPTR(png_write_info);
+MAKE_FUNCPTR(png_write_rows);
+#undef MAKE_FUNCPTR
+
+static CRITICAL_SECTION init_png_cs;
+static CRITICAL_SECTION_DEBUG init_png_cs_debug =
+{
+    0, 0, &init_png_cs,
+    { &init_png_cs_debug.ProcessLocksList,
+      &init_png_cs_debug.ProcessLocksList },
+    0, 0, { (DWORD_PTR)(__FILE__ ": init_png_cs") }
+};
+static CRITICAL_SECTION init_png_cs = { &init_png_cs_debug, -1, 0, 0, 0, 0 };
+
+static void *load_libpng(void)
+{
+    void *result;
+
+    RtlEnterCriticalSection(&init_png_cs);
+
+    if(!libpng_handle && (libpng_handle = dlopen(SONAME_LIBPNG, RTLD_NOW)) != NULL) {
+
+#define LOAD_FUNCPTR(f) \
+    if((p##f = dlsym(libpng_handle, #f)) == NULL) { \
+        libpng_handle = NULL; \
+        RtlLeaveCriticalSection(&init_png_cs); \
+        return NULL; \
+    }
+        LOAD_FUNCPTR(png_create_info_struct);
+        LOAD_FUNCPTR(png_create_read_struct);
+        LOAD_FUNCPTR(png_create_write_struct);
+        LOAD_FUNCPTR(png_destroy_read_struct);
+        LOAD_FUNCPTR(png_destroy_write_struct);
+        LOAD_FUNCPTR(png_error);
+        LOAD_FUNCPTR(png_get_bit_depth);
+        LOAD_FUNCPTR(png_get_color_type);
+        LOAD_FUNCPTR(png_get_error_ptr);
+        LOAD_FUNCPTR(png_get_image_height);
+        LOAD_FUNCPTR(png_get_image_width);
+        LOAD_FUNCPTR(png_get_iCCP);
+        LOAD_FUNCPTR(png_get_io_ptr);
+        LOAD_FUNCPTR(png_get_pHYs);
+        LOAD_FUNCPTR(png_get_PLTE);
+        LOAD_FUNCPTR(png_get_tRNS);
+        LOAD_FUNCPTR(png_read_image);
+        LOAD_FUNCPTR(png_read_info);
+        LOAD_FUNCPTR(png_set_bgr);
+        LOAD_FUNCPTR(png_set_crc_action);
+        LOAD_FUNCPTR(png_set_error_fn);
+        LOAD_FUNCPTR(png_set_filler);
+        LOAD_FUNCPTR(png_set_filter);
+        LOAD_FUNCPTR(png_set_gray_to_rgb);
+        LOAD_FUNCPTR(png_set_IHDR);
+        LOAD_FUNCPTR(png_set_interlace_handling);
+        LOAD_FUNCPTR(png_set_pHYs);
+        LOAD_FUNCPTR(png_set_PLTE);
+        LOAD_FUNCPTR(png_set_read_fn);
+        LOAD_FUNCPTR(png_set_swap);
+        LOAD_FUNCPTR(png_set_tRNS);
+        LOAD_FUNCPTR(png_set_tRNS_to_alpha);
+        LOAD_FUNCPTR(png_set_write_fn);
+        LOAD_FUNCPTR(png_write_end);
+        LOAD_FUNCPTR(png_write_info);
+        LOAD_FUNCPTR(png_write_rows);
+
+#undef LOAD_FUNCPTR
+    }
+
+    result = libpng_handle;
+
+    RtlLeaveCriticalSection(&init_png_cs);
+
+    return result;
+}
 
 struct png_decoder
 {
@@ -51,24 +173,42 @@ static inline struct png_decoder *impl_from_decoder(struct decoder* iface)
     return CONTAINING_RECORD(iface, struct png_decoder, decoder);
 }
 
+static void user_error_fn(png_structp png_ptr, png_const_charp error_message)
+{
+    jmp_buf *pjmpbuf;
+
+    /* This uses setjmp/longjmp just like the default. We can't use the
+     * default because there's no way to access the jmp buffer in the png_struct
+     * that works in 1.2 and 1.4 and allows us to dynamically load libpng. */
+    WARN("PNG error: %s\n", debugstr_a(error_message));
+    pjmpbuf = ppng_get_error_ptr(png_ptr);
+    longjmp(*pjmpbuf, 1);
+}
+
+static void user_warning_fn(png_structp png_ptr, png_const_charp warning_message)
+{
+    WARN("PNG warning: %s\n", debugstr_a(warning_message));
+}
+
 static void user_read_data(png_structp png_ptr, png_bytep data, png_size_t length)
 {
-    IStream *stream = png_get_io_ptr(png_ptr);
+    IStream *stream = ppng_get_io_ptr(png_ptr);
     HRESULT hr;
     ULONG bytesread;
 
     hr = stream_read(stream, data, length, &bytesread);
     if (FAILED(hr) || bytesread != length)
     {
-        png_error(png_ptr, "failed reading data");
+        ppng_error(png_ptr, "failed reading data");
     }
 }
 
-static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stream, struct decoder_stat *st)
+HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stream, struct decoder_stat *st)
 {
     struct png_decoder *This = impl_from_decoder(iface);
     png_structp png_ptr;
     png_infop info_ptr;
+    jmp_buf jmpbuf;
     HRESULT hr = E_FAIL;
     int color_type, bit_depth;
     png_bytep trans;
@@ -87,26 +227,27 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
     png_uint_32 cp_len;
     int cp_compression;
 
-    png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    png_ptr = ppng_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!png_ptr)
     {
         return E_FAIL;
     }
 
-    info_ptr = png_create_info_struct(png_ptr);
+    info_ptr = ppng_create_info_struct(png_ptr);
     if (!info_ptr)
     {
-        png_destroy_read_struct(&png_ptr, NULL, NULL);
+        ppng_destroy_read_struct(&png_ptr, NULL, NULL);
         return E_FAIL;
     }
 
     /* set up setjmp/longjmp error handling */
-    if (setjmp(png_jmpbuf(png_ptr)))
+    if (setjmp(jmpbuf))
     {
         hr = WINCODEC_ERR_UNKNOWNIMAGEFORMAT;
         goto end;
     }
-    png_set_crc_action(png_ptr, PNG_CRC_QUIET_USE, PNG_CRC_QUIET_USE);
+    ppng_set_error_fn(png_ptr, jmpbuf, user_error_fn, user_warning_fn);
+    ppng_set_crc_action(png_ptr, PNG_CRC_QUIET_USE, PNG_CRC_QUIET_USE);
 
     /* seek to the start of the stream */
     hr = stream_seek(stream, 0, STREAM_SEEK_SET, NULL);
@@ -116,21 +257,21 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
     }
 
     /* set up custom i/o handling */
-    png_set_read_fn(png_ptr, stream, user_read_data);
+    ppng_set_read_fn(png_ptr, stream, user_read_data);
 
     /* read the header */
-    png_read_info(png_ptr, info_ptr);
+    ppng_read_info(png_ptr, info_ptr);
 
     /* choose a pixel format */
-    color_type = png_get_color_type(png_ptr, info_ptr);
-    bit_depth = png_get_bit_depth(png_ptr, info_ptr);
+    color_type = ppng_get_color_type(png_ptr, info_ptr);
+    bit_depth = ppng_get_bit_depth(png_ptr, info_ptr);
 
     /* PNGs with bit-depth greater than 8 are network byte order. Windows does not expect this. */
     if (bit_depth > 8)
-        png_set_swap(png_ptr);
+        ppng_set_swap(png_ptr);
 
     /* check for color-keyed alpha */
-    transparency = png_get_tRNS(png_ptr, info_ptr, &trans, &num_trans, &trans_values);
+    transparency = ppng_get_tRNS(png_ptr, info_ptr, &trans, &num_trans, &trans_values);
     if (!transparency)
         num_trans = 0;
 
@@ -139,8 +280,8 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
     {
         /* expand to RGBA */
         if (color_type == PNG_COLOR_TYPE_GRAY)
-            png_set_gray_to_rgb(png_ptr);
-        png_set_tRNS_to_alpha(png_ptr);
+            ppng_set_gray_to_rgb(png_ptr);
+        ppng_set_tRNS_to_alpha(png_ptr);
         color_type = PNG_COLOR_TYPE_RGB_ALPHA;
     }
 
@@ -148,14 +289,14 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
     {
     case PNG_COLOR_TYPE_GRAY_ALPHA:
         /* WIC does not support grayscale alpha formats so use RGBA */
-        png_set_gray_to_rgb(png_ptr);
+        ppng_set_gray_to_rgb(png_ptr);
         /* fall through */
     case PNG_COLOR_TYPE_RGB_ALPHA:
         This->decoder_frame.bpp = bit_depth * 4;
         switch (bit_depth)
         {
         case 8:
-            png_set_bgr(png_ptr);
+            ppng_set_bgr(png_ptr);
             This->decoder_frame.pixel_format = GUID_WICPixelFormat32bppBGRA;
             break;
         case 16: This->decoder_frame.pixel_format = GUID_WICPixelFormat64bppRGBA; break;
@@ -203,7 +344,7 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
         switch (bit_depth)
         {
         case 8:
-            png_set_bgr(png_ptr);
+            ppng_set_bgr(png_ptr);
             This->decoder_frame.pixel_format = GUID_WICPixelFormat24bppBGR;
             break;
         case 16: This->decoder_frame.pixel_format = GUID_WICPixelFormat48bppRGB; break;
@@ -219,10 +360,10 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
         goto end;
     }
 
-    This->decoder_frame.width = png_get_image_width(png_ptr, info_ptr);
-    This->decoder_frame.height = png_get_image_height(png_ptr, info_ptr);
+    This->decoder_frame.width = ppng_get_image_width(png_ptr, info_ptr);
+    This->decoder_frame.height = ppng_get_image_height(png_ptr, info_ptr);
 
-    ret = png_get_pHYs(png_ptr, info_ptr, &xres, &yres, &unit_type);
+    ret = ppng_get_pHYs(png_ptr, info_ptr, &xres, &yres, &unit_type);
 
     if (ret && unit_type == PNG_RESOLUTION_METER)
     {
@@ -235,7 +376,7 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
         This->decoder_frame.dpix = This->decoder_frame.dpiy = 96.0;
     }
 
-    ret = png_get_iCCP(png_ptr, info_ptr, &cp_name, &cp_compression, &cp_profile, &cp_len);
+    ret = ppng_get_iCCP(png_ptr, info_ptr, &cp_name, &cp_compression, &cp_profile, &cp_len);
     if (ret)
     {
         This->decoder_frame.num_color_contexts = 1;
@@ -253,7 +394,7 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
 
     if (color_type == PNG_COLOR_TYPE_PALETTE)
     {
-        ret = png_get_PLTE(png_ptr, info_ptr, &png_palette, &num_palette);
+        ret = ppng_get_PLTE(png_ptr, info_ptr, &png_palette, &num_palette);
         if (!ret)
         {
             ERR("paletted image with no PLTE chunk\n");
@@ -314,7 +455,7 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
     for (i=0; i<This->decoder_frame.height; i++)
         row_pointers[i] = This->image_bits + i * This->stride;
 
-    png_read_image(png_ptr, row_pointers);
+    ppng_read_image(png_ptr, row_pointers);
 
     free(row_pointers);
     row_pointers = NULL;
@@ -331,7 +472,7 @@ static HRESULT CDECL png_decoder_initialize(struct decoder *iface, IStream *stre
     hr = S_OK;
 
 end:
-    png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+    ppng_destroy_read_struct(&png_ptr, &info_ptr, NULL);
     free(row_pointers);
     if (FAILED(hr))
     {
@@ -343,14 +484,14 @@ end:
     return hr;
 }
 
-static HRESULT CDECL png_decoder_get_frame_info(struct decoder *iface, UINT frame, struct decoder_frame *info)
+HRESULT CDECL png_decoder_get_frame_info(struct decoder *iface, UINT frame, struct decoder_frame *info)
 {
     struct png_decoder *This = impl_from_decoder(iface);
     *info = This->decoder_frame;
     return S_OK;
 }
 
-static HRESULT CDECL png_decoder_copy_pixels(struct decoder *iface, UINT frame,
+HRESULT CDECL png_decoder_copy_pixels(struct decoder *iface, UINT frame,
     const WICRect *prc, UINT stride, UINT buffersize, BYTE *buffer)
 {
     struct png_decoder *This = impl_from_decoder(iface);
@@ -360,7 +501,7 @@ static HRESULT CDECL png_decoder_copy_pixels(struct decoder *iface, UINT frame,
         prc, stride, buffersize, buffer);
 }
 
-static HRESULT CDECL png_decoder_get_metadata_blocks(struct decoder* iface,
+HRESULT CDECL png_decoder_get_metadata_blocks(struct decoder* iface,
     UINT frame, UINT *count, struct decoder_block **blocks)
 {
     struct png_decoder *This = impl_from_decoder(iface);
@@ -433,7 +574,7 @@ end:
     return hr;
 }
 
-static HRESULT CDECL png_decoder_get_color_context(struct decoder* iface, UINT frame, UINT num,
+HRESULT CDECL png_decoder_get_color_context(struct decoder* iface, UINT frame, UINT num,
     BYTE **data, DWORD *datasize)
 {
     struct png_decoder *This = impl_from_decoder(iface);
@@ -449,7 +590,7 @@ static HRESULT CDECL png_decoder_get_color_context(struct decoder* iface, UINT f
     return S_OK;
 }
 
-static void CDECL png_decoder_destroy(struct decoder* iface)
+void CDECL png_decoder_destroy(struct decoder* iface)
 {
     struct png_decoder *This = impl_from_decoder(iface);
 
@@ -470,6 +611,12 @@ static const struct decoder_funcs png_decoder_vtable = {
 HRESULT CDECL png_decoder_create(struct decoder_info *info, struct decoder **result)
 {
     struct png_decoder *This;
+
+    if (!load_libpng())
+    {
+        ERR("Failed reading PNG because unable to find %s\n",SONAME_LIBPNG);
+        return E_FAIL;
+    }
 
     This = RtlAllocateHeap(GetProcessHeap(), 0, sizeof(*This));
 
@@ -538,14 +685,14 @@ static inline struct png_encoder *impl_from_encoder(struct encoder* iface)
 
 static void user_write_data(png_structp png_ptr, png_bytep data, png_size_t length)
 {
-    struct png_encoder *This = png_get_io_ptr(png_ptr);
+    struct png_encoder *This = ppng_get_io_ptr(png_ptr);
     HRESULT hr;
     ULONG byteswritten;
 
     hr = stream_write(This->stream, data, length, &byteswritten);
     if (FAILED(hr) || byteswritten != length)
     {
-        png_error(png_ptr, "failed writing data");
+        ppng_error(png_ptr, "failed writing data");
     }
 }
 
@@ -556,18 +703,19 @@ static void user_flush(png_structp png_ptr)
 static HRESULT CDECL png_encoder_initialize(struct encoder *encoder, IStream *stream)
 {
     struct png_encoder *This = impl_from_encoder(encoder);
+    jmp_buf jmpbuf;
 
     TRACE("(%p,%p)\n", encoder, stream);
 
     /* initialize libpng */
-    This->png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    This->png_ptr = ppng_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
     if (!This->png_ptr)
         return E_FAIL;
 
-    This->info_ptr = png_create_info_struct(This->png_ptr);
+    This->info_ptr = ppng_create_info_struct(This->png_ptr);
     if (!This->info_ptr)
     {
-        png_destroy_write_struct(&This->png_ptr, NULL);
+        ppng_destroy_write_struct(&This->png_ptr, NULL);
         This->png_ptr = NULL;
         return E_FAIL;
     }
@@ -575,21 +723,22 @@ static HRESULT CDECL png_encoder_initialize(struct encoder *encoder, IStream *st
     This->stream = stream;
 
     /* set up setjmp/longjmp error handling */
-    if (setjmp(png_jmpbuf(This->png_ptr)))
+    if (setjmp(jmpbuf))
     {
-        png_destroy_write_struct(&This->png_ptr, &This->info_ptr);
+        ppng_destroy_write_struct(&This->png_ptr, &This->info_ptr);
         This->png_ptr = NULL;
         This->stream = NULL;
         return E_FAIL;
     }
+    ppng_set_error_fn(This->png_ptr, jmpbuf, user_error_fn, user_warning_fn);
 
     /* set up custom i/o handling */
-    png_set_write_fn(This->png_ptr, This, user_write_data, user_flush);
+    ppng_set_write_fn(This->png_ptr, This, user_write_data, user_flush);
 
     return S_OK;
 }
 
-static HRESULT CDECL png_encoder_get_supported_format(struct encoder* iface, GUID *pixel_format, DWORD *bpp, BOOL *indexed)
+HRESULT CDECL png_encoder_get_supported_format(struct encoder* iface, GUID *pixel_format, DWORD *bpp, BOOL *indexed)
 {
     int i;
 
@@ -612,6 +761,7 @@ static HRESULT CDECL png_encoder_get_supported_format(struct encoder* iface, GUI
 static HRESULT CDECL png_encoder_create_frame(struct encoder *encoder, const struct encoder_frame *encoder_frame)
 {
     struct png_encoder *This = impl_from_encoder(encoder);
+    jmp_buf jmpbuf;
     int i;
 
     for (i=0; formats[i].guid; i++)
@@ -630,8 +780,10 @@ static HRESULT CDECL png_encoder_create_frame(struct encoder *encoder, const str
     }
 
     /* set up setjmp/longjmp error handling */
-    if (setjmp(png_jmpbuf(This->png_ptr)))
+    if (setjmp(jmpbuf))
         return E_FAIL;
+
+    ppng_set_error_fn(This->png_ptr, jmpbuf, user_error_fn, user_warning_fn);
 
     This->encoder_frame = *encoder_frame;
     This->lines_written = 0;
@@ -647,16 +799,16 @@ static HRESULT CDECL png_encoder_create_frame(struct encoder *encoder, const str
 
     /* Tell PNG we need to byte swap if writing a >8-bpp image */
     if (This->format->bit_depth > 8)
-        png_set_swap(This->png_ptr);
+        ppng_set_swap(This->png_ptr);
 
-    png_set_IHDR(This->png_ptr, This->info_ptr, encoder_frame->width, encoder_frame->height,
+    ppng_set_IHDR(This->png_ptr, This->info_ptr, encoder_frame->width, encoder_frame->height,
         This->format->bit_depth, This->format->color_type,
         encoder_frame->interlace ? PNG_INTERLACE_ADAM7 : PNG_INTERLACE_NONE,
         PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
 
     if (encoder_frame->dpix != 0.0 && encoder_frame->dpiy != 0.0)
     {
-        png_set_pHYs(This->png_ptr, This->info_ptr, (encoder_frame->dpix+0.0127) / 0.0254,
+        ppng_set_pHYs(This->png_ptr, This->info_ptr, (encoder_frame->dpix+0.0127) / 0.0254,
             (encoder_frame->dpiy+0.0127) / 0.0254, PNG_RESOLUTION_METER);
     }
 
@@ -681,22 +833,22 @@ static HRESULT CDECL png_encoder_create_frame(struct encoder *encoder, const str
                 num_trans = i+1;
         }
 
-        png_set_PLTE(This->png_ptr, This->info_ptr, png_palette, colors);
+        ppng_set_PLTE(This->png_ptr, This->info_ptr, png_palette, colors);
 
         if (num_trans)
-            png_set_tRNS(This->png_ptr, This->info_ptr, trans, num_trans, NULL);
+            ppng_set_tRNS(This->png_ptr, This->info_ptr, trans, num_trans, NULL);
     }
 
-    png_write_info(This->png_ptr, This->info_ptr);
+    ppng_write_info(This->png_ptr, This->info_ptr);
 
     if (This->format->remove_filler)
-        png_set_filler(This->png_ptr, 0, PNG_FILLER_AFTER);
+        ppng_set_filler(This->png_ptr, 0, PNG_FILLER_AFTER);
 
     if (This->format->swap_rgb)
-        png_set_bgr(This->png_ptr);
+        ppng_set_bgr(This->png_ptr);
 
     if (encoder_frame->interlace)
-        This->passes = png_set_interlace_handling(This->png_ptr);
+        This->passes = ppng_set_interlace_handling(This->png_ptr);
 
     if (encoder_frame->filter != WICPngFilterUnspecified)
     {
@@ -711,15 +863,16 @@ static HRESULT CDECL png_encoder_create_frame(struct encoder *encoder, const str
             /* WICPngFilterAdaptive */    PNG_ALL_FILTERS,
         };
 
-        png_set_filter(This->png_ptr, 0, png_filter_map[encoder_frame->filter]);
+        ppng_set_filter(This->png_ptr, 0, png_filter_map[encoder_frame->filter]);
     }
 
     return S_OK;
 }
 
-static HRESULT CDECL png_encoder_write_lines(struct encoder* encoder, BYTE *data, DWORD line_count, DWORD stride)
+HRESULT CDECL png_encoder_write_lines(struct encoder* encoder, BYTE *data, DWORD line_count, DWORD stride)
 {
     struct png_encoder *This = impl_from_encoder(encoder);
+    jmp_buf jmpbuf;
     png_byte **row_pointers=NULL;
     UINT i;
 
@@ -737,11 +890,13 @@ static HRESULT CDECL png_encoder_write_lines(struct encoder* encoder, BYTE *data
     }
 
     /* set up setjmp/longjmp error handling */
-    if (setjmp(png_jmpbuf(This->png_ptr)))
+    if (setjmp(jmpbuf))
     {
         free(row_pointers);
         return E_FAIL;
     }
+
+    ppng_set_error_fn(This->png_ptr, jmpbuf, user_error_fn, user_warning_fn);
 
     row_pointers = malloc(line_count * sizeof(png_byte*));
     if (!row_pointers)
@@ -750,7 +905,7 @@ static HRESULT CDECL png_encoder_write_lines(struct encoder* encoder, BYTE *data
     for (i=0; i<line_count; i++)
         row_pointers[i] = data + stride * i;
 
-    png_write_rows(This->png_ptr, row_pointers, line_count);
+    ppng_write_rows(This->png_ptr, row_pointers, line_count);
     This->lines_written += line_count;
 
     free(row_pointers);
@@ -761,14 +916,17 @@ static HRESULT CDECL png_encoder_write_lines(struct encoder* encoder, BYTE *data
 static HRESULT CDECL png_encoder_commit_frame(struct encoder *encoder)
 {
     struct png_encoder *This = impl_from_encoder(encoder);
+    jmp_buf jmpbuf;
     png_byte **row_pointers=NULL;
 
     /* set up setjmp/longjmp error handling */
-    if (setjmp(png_jmpbuf(This->png_ptr)))
+    if (setjmp(jmpbuf))
     {
         free(row_pointers);
         return E_FAIL;
     }
+
+    ppng_set_error_fn(This->png_ptr, jmpbuf, user_error_fn, user_warning_fn);
 
     if (This->encoder_frame.interlace)
     {
@@ -782,10 +940,10 @@ static HRESULT CDECL png_encoder_commit_frame(struct encoder *encoder)
             row_pointers[i] = This->data + This->stride * i;
 
         for (i=0; i<This->passes; i++)
-            png_write_rows(This->png_ptr, row_pointers, This->encoder_frame.height);
+            ppng_write_rows(This->png_ptr, row_pointers, This->encoder_frame.height);
     }
 
-    png_write_end(This->png_ptr, This->info_ptr);
+    ppng_write_end(This->png_ptr, This->info_ptr);
 
     free(row_pointers);
 
@@ -801,7 +959,7 @@ static void CDECL png_encoder_destroy(struct encoder *encoder)
 {
     struct png_encoder *This = impl_from_encoder(encoder);
     if (This->png_ptr)
-        png_destroy_write_struct(&This->png_ptr, &This->info_ptr);
+        ppng_destroy_write_struct(&This->png_ptr, &This->info_ptr);
     free(This->data);
     RtlFreeHeap(GetProcessHeap(), 0, This);
 }
@@ -820,6 +978,12 @@ HRESULT CDECL png_encoder_create(struct encoder_info *info, struct encoder **res
 {
     struct png_encoder *This;
 
+    if (!load_libpng())
+    {
+        ERR("Failed reading PNG because unable to find %s\n",SONAME_LIBPNG);
+        return E_FAIL;
+    }
+
     This = RtlAllocateHeap(GetProcessHeap(), 0, sizeof(*This));
 
     if (!This)
@@ -833,7 +997,7 @@ HRESULT CDECL png_encoder_create(struct encoder_info *info, struct encoder **res
     This->data = NULL;
     *result = &This->encoder;
 
-    info->flags = ENCODER_FLAGS_SUPPORTS_METADATA;
+    info->flags = 0;
     info->container_format = GUID_ContainerFormatPng;
     info->clsid = CLSID_WICPngEncoder;
     info->encoder_options[0] = ENCODER_OPTION_INTERLACE;
@@ -842,3 +1006,19 @@ HRESULT CDECL png_encoder_create(struct encoder_info *info, struct encoder **res
 
     return S_OK;
 }
+
+#else
+
+HRESULT CDECL png_decoder_create(struct decoder_info *info, struct decoder **result)
+{
+    ERR("Trying to load PNG picture, but PNG support is not compiled in.\n");
+    return E_FAIL;
+}
+
+HRESULT CDECL png_encoder_create(struct encoder_info *info, struct encoder **result)
+{
+    ERR("Trying to save PNG picture, but PNG support is not compiled in.\n");
+    return E_FAIL;
+}
+
+#endif

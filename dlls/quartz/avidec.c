@@ -39,6 +39,7 @@ WINE_DEFAULT_DEBUG_CHANNEL(quartz);
 struct avi_decompressor
 {
     struct strmbase_filter filter;
+    CRITICAL_SECTION stream_cs;
 
     struct strmbase_source source;
     IQualityControl source_IQualityControl_iface;
@@ -128,10 +129,13 @@ static HRESULT WINAPI avi_decompressor_sink_Receive(struct strmbase_sink *iface,
     if (This->sink.flushing)
         return S_FALSE;
 
+    EnterCriticalSection(&This->stream_cs);
+
     hr = IMediaSample_GetPointer(pSample, &pbSrcStream);
     if (FAILED(hr))
     {
         ERR("Cannot get pointer to sample data (%x)\n", hr);
+        LeaveCriticalSection(&This->stream_cs);
         return hr;
     }
 
@@ -145,6 +149,7 @@ static HRESULT WINAPI avi_decompressor_sink_Receive(struct strmbase_sink *iface,
     hr = BaseOutputPinImpl_GetDeliveryBuffer(&This->source, &pOutSample, NULL, NULL, 0);
     if (FAILED(hr)) {
         ERR("Unable to get delivery buffer (%x)\n", hr);
+        LeaveCriticalSection(&This->stream_cs);
         return hr;
     }
 
@@ -155,6 +160,7 @@ static HRESULT WINAPI avi_decompressor_sink_Receive(struct strmbase_sink *iface,
     if (FAILED(hr)) {
 	ERR("Unable to get pointer to buffer (%x)\n", hr);
         IMediaSample_Release(pOutSample);
+        LeaveCriticalSection(&This->stream_cs);
         return hr;
     }
     cbDstStream = IMediaSample_GetSize(pOutSample);
@@ -162,6 +168,7 @@ static HRESULT WINAPI avi_decompressor_sink_Receive(struct strmbase_sink *iface,
     {
         ERR("Sample size is too small (%u < %u).\n", cbDstStream, source_format->bmiHeader.biSizeImage);
         IMediaSample_Release(pOutSample);
+        LeaveCriticalSection(&This->stream_cs);
         return E_FAIL;
     }
 
@@ -180,6 +187,7 @@ static HRESULT WINAPI avi_decompressor_sink_Receive(struct strmbase_sink *iface,
     /* Drop sample if it's intended to be dropped */
     if (flags & ICDECOMPRESS_HURRYUP) {
         IMediaSample_Release(pOutSample);
+        LeaveCriticalSection(&This->stream_cs);
         return S_OK;
     }
 
@@ -201,6 +209,7 @@ static HRESULT WINAPI avi_decompressor_sink_Receive(struct strmbase_sink *iface,
         ERR("Error sending sample (%x)\n", hr);
 
     IMediaSample_Release(pOutSample);
+    LeaveCriticalSection(&This->stream_cs);
     return hr;
 }
 
@@ -482,12 +491,12 @@ static HRESULT WINAPI avi_decompressor_source_qc_Notify(IQualityControl *iface,
     TRACE("filter %p, sender %p, type %#x, proportion %u, late %s, timestamp %s.\n",
             filter, sender, q.Type, q.Proportion, debugstr_time(q.Late), debugstr_time(q.TimeStamp));
 
-    EnterCriticalSection(&filter->filter.stream_cs);
+    EnterCriticalSection(&filter->stream_cs);
     if (q.Late > 0)
         filter->late = q.Late + q.TimeStamp;
     else
         filter->late = -1;
-    LeaveCriticalSection(&filter->filter.stream_cs);
+    LeaveCriticalSection(&filter->stream_cs);
     return S_OK;
 }
 
@@ -536,8 +545,12 @@ static void avi_decompressor_destroy(struct strmbase_filter *iface)
     strmbase_source_cleanup(&filter->source);
     strmbase_passthrough_cleanup(&filter->passthrough);
 
+    filter->stream_cs.DebugInfo->Spare[0] = 0;
+    DeleteCriticalSection(&filter->stream_cs);
     strmbase_filter_cleanup(&filter->filter);
     free(filter);
+
+    InterlockedDecrement(&object_locks);
 }
 
 static HRESULT avi_decompressor_init_stream(struct strmbase_filter *iface)
@@ -600,6 +613,9 @@ HRESULT avi_dec_create(IUnknown *outer, IUnknown **out)
         return E_OUTOFMEMORY;
 
     strmbase_filter_init(&object->filter, outer, &CLSID_AVIDec, &filter_ops);
+
+    InitializeCriticalSection(&object->stream_cs);
+    object->stream_cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__": avi_decompressor.stream_cs");
 
     strmbase_sink_init(&object->sink, &object->filter, L"In", &sink_ops, NULL);
 

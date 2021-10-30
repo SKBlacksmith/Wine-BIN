@@ -21,6 +21,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -567,7 +570,7 @@ static int dbg_error(const char* s)
     return 0;
 }
 
-HANDLE WINAPIV parser_generate_command_file(const char* pmt, ...)
+HANDLE parser_generate_command_file(const char* pmt, ...)
 {
     HANDLE      hFile;
     char        path[MAX_PATH], file[MAX_PATH];

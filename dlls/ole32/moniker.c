@@ -32,7 +32,6 @@
 #include "compobj_private.h"
 #include "moniker.h"
 #include "irot.h"
-#include "pathcch.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ole);
 
@@ -828,6 +827,7 @@ HRESULT WINAPI MkParseDisplayName(LPBC pbc, LPCOLESTR szDisplayName,
 				LPDWORD pchEaten, LPMONIKER *ppmk)
 {
     HRESULT hr = MK_E_SYNTAX;
+    static const WCHAR wszClsidColon[] = {'c','l','s','i','d',':'};
     IMoniker *moniker;
     DWORD chEaten;
 
@@ -845,7 +845,7 @@ HRESULT WINAPI MkParseDisplayName(LPBC pbc, LPCOLESTR szDisplayName,
     *pchEaten = 0;
     *ppmk = NULL;
 
-    if (!wcsnicmp(szDisplayName, L"clsid:", 6))
+    if (!wcsnicmp(szDisplayName, wszClsidColon, ARRAY_SIZE(wszClsidColon)))
     {
         hr = ClassMoniker_CreateFromDisplayName(pbc, szDisplayName, &chEaten, &moniker);
         if (FAILED(hr) && (hr != MK_E_SYNTAX))
@@ -911,9 +911,10 @@ HRESULT WINAPI GetClassFile(LPCOLESTR filePathName,CLSID *pclsid)
 {
     IStorage *pstg=0;
     HRESULT res;
+    int nbElm, length, i;
     LONG sizeProgId, ret;
-    LPOLESTR progId=0;
-    const WCHAR *extension;
+    LPOLESTR *pathDec=0,absFile=0,progId=0;
+    LPWSTR extension;
 
     TRACE("%s, %p\n", debugstr_w(filePathName), pclsid);
 
@@ -954,9 +955,26 @@ HRESULT WINAPI GetClassFile(LPCOLESTR filePathName,CLSID *pclsid)
 
     /* if the above strategies fail then search for the extension key in the registry */
 
-    res = PathCchFindExtension(filePathName, PATHCCH_MAX_CCH, &extension);
-    if (FAILED(res) || !extension || !*extension || !wcscmp(extension, L"."))
+    /* get the last element (absolute file) in the path name */
+    nbElm=FileMonikerImpl_DecomposePath(filePathName,&pathDec);
+    absFile=pathDec[nbElm-1];
+
+    /* failed if the path represents a directory and not an absolute file name*/
+    if (!wcscmp(absFile, L"\\")) {
+        CoTaskMemFree(pathDec);
         return MK_E_INVALIDEXTENSION;
+    }
+
+    /* get the extension of the file */
+    extension = NULL;
+    length=lstrlenW(absFile);
+    for(i = length-1; (i >= 0) && *(extension = &absFile[i]) != '.'; i--)
+        /* nothing */;
+
+    if (!extension || !wcscmp(extension, L".")) {
+        CoTaskMemFree(pathDec);
+        return MK_E_INVALIDEXTENSION;
+    }
 
     ret = RegQueryValueW(HKEY_CLASSES_ROOT, extension, NULL, &sizeProgId);
     if (!ret) {
@@ -972,6 +990,10 @@ HRESULT WINAPI GetClassFile(LPCOLESTR filePathName,CLSID *pclsid)
     }
     else
         res = HRESULT_FROM_WIN32(ret);
+
+    for(i=0; pathDec[i]!=NULL;i++)
+        CoTaskMemFree(pathDec[i]);
+    CoTaskMemFree(pathDec);
 
     return res != S_OK ? MK_E_INVALIDEXTENSION : res;
 }

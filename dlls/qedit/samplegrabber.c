@@ -30,7 +30,7 @@
 #include "qedit_private.h"
 #include "wine/debug.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+WINE_DEFAULT_DEBUG_CHANNEL(qedit);
 
 struct sample_grabber
 {
@@ -140,7 +140,7 @@ static void SampleGrabber_callback(struct sample_grabber *This, IMediaSample *sa
         if (size >= 0 && SUCCEEDED(IMediaSample_GetPointer(sample, &data))) {
             if (!data)
                 size = 0;
-            EnterCriticalSection(&This->filter.filter_cs);
+            EnterCriticalSection(&This->filter.csFilter);
             if (This->bufferLen != size) {
                 CoTaskMemFree(This->bufferData);
                 This->bufferData = size ? CoTaskMemAlloc(size) : NULL;
@@ -148,7 +148,7 @@ static void SampleGrabber_callback(struct sample_grabber *This, IMediaSample *sa
             }
             if (size)
                 CopyMemory(This->bufferData, data, size);
-            LeaveCriticalSection(&This->filter.filter_cs);
+            LeaveCriticalSection(&This->filter.csFilter);
         }
     }
     if (!This->grabberIface)
@@ -261,14 +261,14 @@ SampleGrabber_ISampleGrabber_SetBufferSamples(ISampleGrabber *iface, BOOL buffer
 {
     struct sample_grabber *This = impl_from_ISampleGrabber(iface);
     TRACE("(%p)->(%u)\n", This, bufferEm);
-    EnterCriticalSection(&This->filter.filter_cs);
+    EnterCriticalSection(&This->filter.csFilter);
     if (bufferEm) {
         if (This->bufferLen < 0)
             This->bufferLen = 0;
     }
     else
         This->bufferLen = -1;
-    LeaveCriticalSection(&This->filter.filter_cs);
+    LeaveCriticalSection(&This->filter.csFilter);
     return S_OK;
 }
 
@@ -281,7 +281,7 @@ SampleGrabber_ISampleGrabber_GetCurrentBuffer(ISampleGrabber *iface, LONG *bufSi
     TRACE("(%p)->(%p, %p)\n", This, bufSize, buffer);
     if (!bufSize)
         return E_POINTER;
-    EnterCriticalSection(&This->filter.filter_cs);
+    EnterCriticalSection(&This->filter.csFilter);
     if (!This->sink.pin.peer)
         ret = VFW_E_NOT_CONNECTED;
     else if (This->bufferLen < 0)
@@ -297,7 +297,7 @@ SampleGrabber_ISampleGrabber_GetCurrentBuffer(ISampleGrabber *iface, LONG *bufSi
         }
         *bufSize = This->bufferLen;
     }
-    LeaveCriticalSection(&This->filter.filter_cs);
+    LeaveCriticalSection(&This->filter.csFilter);
     return ret;
 }
 

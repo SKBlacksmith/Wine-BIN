@@ -26,7 +26,7 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "ntgdi_private.h"
+#include "gdi_private.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(gdi);
@@ -34,17 +34,19 @@ WINE_DEFAULT_DEBUG_CHANNEL(gdi);
   /* GDI logical pen object */
 typedef struct
 {
-    struct gdi_obj_header obj;
-    struct brush_pattern  pattern;
-    EXTLOGPEN             logpen;
+    struct brush_pattern pattern;
+    EXTLOGPEN            logpen;
 } PENOBJ;
 
 
+static HGDIOBJ PEN_SelectObject( HGDIOBJ handle, HDC hdc );
 static INT PEN_GetObject( HGDIOBJ handle, INT count, LPVOID buffer );
 static BOOL PEN_DeleteObject( HGDIOBJ handle );
 
 static const struct gdi_obj_funcs pen_funcs =
 {
+    PEN_SelectObject,  /* pSelectObject */
+    PEN_GetObject,     /* pGetObjectA */
     PEN_GetObject,     /* pGetObjectW */
     NULL,              /* pUnrealizeObject */
     PEN_DeleteObject   /* pDeleteObject */
@@ -52,17 +54,45 @@ static const struct gdi_obj_funcs pen_funcs =
 
 
 /***********************************************************************
- *           NtGdiCreatePen    (win32u.@)
+ *           CreatePen    (GDI32.@)
  */
-HPEN WINAPI NtGdiCreatePen( INT style, INT width, COLORREF color, HBRUSH brush )
+HPEN WINAPI CreatePen( INT style, INT width, COLORREF color )
 {
-    PENOBJ *penPtr;
+    LOGPEN logpen;
+
+    TRACE("%d %d %06x\n", style, width, color );
+
+    logpen.lopnStyle = style;
+    logpen.lopnWidth.x = width;
+    logpen.lopnWidth.y = 0;
+    logpen.lopnColor = color;
+
+    return CreatePenIndirect( &logpen );
+}
+
+
+/***********************************************************************
+ *           CreatePenIndirect    (GDI32.@)
+ */
+HPEN WINAPI CreatePenIndirect( const LOGPEN * pen )
+{
+    PENOBJ * penPtr;
     HPEN hpen;
 
-    TRACE( "%d %d %06x\n", style, width, color );
-    if (brush) FIXME( "brush not supported\n" );
+    if (pen->lopnStyle == PS_NULL)
+    {
+        hpen = GetStockObject(NULL_PEN);
+        if (hpen) return hpen;
+    }
 
-    switch (style)
+    if (!(penPtr = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*penPtr) ))) return 0;
+
+    penPtr->logpen.elpPenStyle = pen->lopnStyle;
+    penPtr->logpen.elpWidth = abs(pen->lopnWidth.x);
+    penPtr->logpen.elpColor = pen->lopnColor;
+    penPtr->logpen.elpBrushStyle = BS_SOLID;
+
+    switch (pen->lopnStyle)
     {
     case PS_SOLID:
     case PS_DASH:
@@ -72,22 +102,15 @@ HPEN WINAPI NtGdiCreatePen( INT style, INT width, COLORREF color, HBRUSH brush )
     case PS_INSIDEFRAME:
         break;
     case PS_NULL:
-        if ((hpen = GetStockObject( NULL_PEN ))) return hpen;
-        width = 1;
-        color = 0;
+        penPtr->logpen.elpWidth = 1;
+        penPtr->logpen.elpColor = 0;
         break;
     default:
-        return 0;
+        penPtr->logpen.elpPenStyle = PS_SOLID;
+        break;
     }
 
-    if (!(penPtr = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*penPtr) ))) return 0;
-
-    penPtr->logpen.elpPenStyle   = style;
-    penPtr->logpen.elpWidth      = abs(width);
-    penPtr->logpen.elpColor      = color;
-    penPtr->logpen.elpBrushStyle = BS_SOLID;
-
-    if (!(hpen = alloc_gdi_handle( &penPtr->obj, NTGDI_OBJ_PEN, &pen_funcs )))
+    if (!(hpen = alloc_gdi_handle( penPtr, OBJ_PEN, &pen_funcs )))
         HeapFree( GetProcessHeap(), 0, penPtr );
     return hpen;
 }
@@ -177,7 +200,7 @@ HPEN WINAPI ExtCreatePen( DWORD style, DWORD width,
     penPtr->logpen.elpNumEntries = style_count;
     memcpy(penPtr->logpen.elpStyleEntry, style_bits, style_count * sizeof(DWORD));
 
-    if (!(hpen = alloc_gdi_handle( &penPtr->obj, NTGDI_OBJ_EXTPEN, &pen_funcs )))
+    if (!(hpen = alloc_gdi_handle( penPtr, OBJ_EXTPEN, &pen_funcs )))
     {
         free_brush_pattern( &penPtr->pattern );
         HeapFree( GetProcessHeap(), 0, penPtr );
@@ -191,16 +214,20 @@ invalid:
 }
 
 /***********************************************************************
- *           NtGdiSelectPen (win32u.@)
+ *           PEN_SelectObject
  */
-HGDIOBJ WINAPI NtGdiSelectPen( HDC hdc, HGDIOBJ handle )
+static HGDIOBJ PEN_SelectObject( HGDIOBJ handle, HDC hdc )
 {
     PENOBJ *pen;
     HGDIOBJ ret = 0;
+    DC *dc = get_dc_ptr( hdc );
     WORD type;
-    DC *dc;
 
-    if (!(dc = get_dc_ptr( hdc ))) return 0;
+    if (!dc)
+    {
+        SetLastError( ERROR_INVALID_HANDLE );
+        return 0;
+    }
 
     if ((pen = get_any_obj_ptr( handle, &type )))
     {
@@ -209,10 +236,10 @@ HGDIOBJ WINAPI NtGdiSelectPen( HDC hdc, HGDIOBJ handle )
 
         switch (type)
         {
-        case NTGDI_OBJ_PEN:
+        case OBJ_PEN:
             pattern = NULL;
             break;
-        case NTGDI_OBJ_EXTPEN:
+        case OBJ_EXTPEN:
             pattern = &pen->pattern;
             if (!pattern->info) pattern = NULL;
             break;
@@ -268,7 +295,7 @@ static INT PEN_GetObject( HGDIOBJ handle, INT count, LPVOID buffer )
 
     switch (type)
     {
-    case NTGDI_OBJ_PEN:
+    case OBJ_PEN:
     {
         LOGPEN *lp;
 
@@ -293,7 +320,7 @@ static INT PEN_GetObject( HGDIOBJ handle, INT count, LPVOID buffer )
         break;
     }
 
-    case NTGDI_OBJ_EXTPEN:
+    case OBJ_EXTPEN:
         ret = sizeof(EXTLOGPEN) + pen->logpen.elpNumEntries * sizeof(DWORD) - sizeof(pen->logpen.elpStyleEntry);
         if (buffer)
         {

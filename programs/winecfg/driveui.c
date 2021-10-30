@@ -33,6 +33,7 @@
 #include <shlwapi.h>
 #include <shlobj.h>
 
+#include <wine/unicode.h>
 #include <wine/debug.h>
 
 #include "winecfg.h"
@@ -257,9 +258,9 @@ static int fill_drives_list(HWND dialog)
 static void on_options_click(HWND dialog)
 {
     if (IsDlgButtonChecked(dialog, IDC_SHOW_DOT_FILES) == BST_CHECKED)
-        set_reg_key(config_key, L"", L"ShowDotFiles", L"Y");
+        set_reg_key(config_key, "", "ShowDotFiles", "Y");
     else
-        set_reg_key(config_key, L"", L"ShowDotFiles", L"N");
+        set_reg_key(config_key, "", "ShowDotFiles", "N");
 
     SendMessageW(GetParent(dialog), PSM_CHANGED, 0, 0);
 }
@@ -267,8 +268,8 @@ static void on_options_click(HWND dialog)
 static INT_PTR CALLBACK drivechoose_dlgproc(HWND hwndDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     static int i, sel;
-    WCHAR c;
-    WCHAR drive[] = L"X:";
+    char c;
+    char drive[] = "X:";
 
     switch(uMsg)
     {
@@ -278,10 +279,10 @@ static INT_PTR CALLBACK drivechoose_dlgproc(HWND hwndDlg, UINT uMsg, WPARAM wPar
         for( c = 'A'; c<= 'Z'; c++){
             drive[0] = c;
             if(!( mask & (1 << (c - 'A'))))
-                SendDlgItemMessageW( hwndDlg, IDC_DRIVESA2Z, CB_ADDSTRING, 0, (LPARAM) drive);
+                SendDlgItemMessageA( hwndDlg, IDC_DRIVESA2Z, CB_ADDSTRING, 0, (LPARAM) drive);
         }
         drive[0] = lParam;
-        SendDlgItemMessageW( hwndDlg, IDC_DRIVESA2Z, CB_SELECTSTRING, 0, (LPARAM) drive);
+        SendDlgItemMessageA( hwndDlg, IDC_DRIVESA2Z, CB_SELECTSTRING, 0, (LPARAM) drive);
         return TRUE;
         }
     case WM_COMMAND:
@@ -289,9 +290,9 @@ static INT_PTR CALLBACK drivechoose_dlgproc(HWND hwndDlg, UINT uMsg, WPARAM wPar
         switch (LOWORD(wParam))
         {
         case IDOK:
-            i = SendDlgItemMessageW( hwndDlg, IDC_DRIVESA2Z, CB_GETCURSEL, 0, 0);
+            i = SendDlgItemMessageA( hwndDlg, IDC_DRIVESA2Z, CB_GETCURSEL, 0, 0);
             if( i != CB_ERR){
-                SendDlgItemMessageW( hwndDlg, IDC_DRIVESA2Z, CB_GETLBTEXT, i, (LPARAM) drive);
+                SendDlgItemMessageA( hwndDlg, IDC_DRIVESA2Z, CB_GETLBTEXT, i, (LPARAM) drive);
                 sel = drive[0];
             } else
                 sel = -1;
@@ -488,7 +489,7 @@ static void on_edit_changed(HWND dialog, WORD id)
     {
         case IDC_EDIT_LABEL:
         {
-            WCHAR *label = get_text(dialog, id);
+            WCHAR *label = get_textW(dialog, id);
             HeapFree(GetProcessHeap(), 0, current_drive->label);
             current_drive->label = label;
             current_drive->modified = TRUE;
@@ -506,7 +507,7 @@ static void on_edit_changed(HWND dialog, WORD id)
             char *path;
             int lenW;
 
-            wpath = get_text(dialog, id);
+            wpath = get_textW(dialog, id);
             if( (lenW = WideCharToMultiByte(CP_UNIXCP, 0, wpath, -1, NULL, 0, NULL, NULL)) )
             {
                 path = HeapAlloc(GetProcessHeap(), 0, lenW);
@@ -535,10 +536,10 @@ static void on_edit_changed(HWND dialog, WORD id)
 
         case IDC_EDIT_SERIAL:
         {
-            WCHAR *serial;
+            char *serial;
 
             serial = get_text(dialog, id);
-            current_drive->serial = serial ? wcstoul( serial, NULL, 16 ) : 0;
+            current_drive->serial = serial ? strtoul( serial, NULL, 16 ) : 0;
             HeapFree(GetProcessHeap(), 0, serial);
             current_drive->modified = TRUE;
 
@@ -551,7 +552,7 @@ static void on_edit_changed(HWND dialog, WORD id)
 
         case IDC_EDIT_DEVICE:
         {
-            WCHAR *device = get_text(dialog, id);
+            char *device = get_text(dialog, id);
             /* TODO: handle device if/when it makes sense to do so.... */
             HeapFree(GetProcessHeap(), 0, device);
             break;
@@ -561,7 +562,9 @@ static void on_edit_changed(HWND dialog, WORD id)
 
 BOOL browse_for_unix_folder(HWND dialog, WCHAR *pszPath)
 {
-    static WCHAR wszUnixRootDisplayName[] = L"::{CC702EB2-7DC5-11D9-C687-0004238A01CD}";
+    static WCHAR wszUnixRootDisplayName[] = 
+        { ':',':','{','C','C','7','0','2','E','B','2','-','7','D','C','5','-','1','1','D','9','-',
+          'C','6','8','7','-','0','0','0','4','2','3','8','A','0','1','C','D','}', 0 };
     WCHAR pszChoosePath[FILENAME_MAX];
     BROWSEINFOW bi = {
         dialog,
@@ -646,7 +649,7 @@ static void init_listview_columns(HWND dialog)
 
 static void load_drive_options(HWND dialog)
 {
-    if (!wcscmp(get_reg_key(config_key, L"", L"ShowDotFiles", L"N"), L"Y"))
+    if (!strcmp(get_reg_key(config_key, "", "ShowDotFiles", "N"), "Y"))
         CheckDlgButton(dialog, IDC_SHOW_DOT_FILES, BST_CHECKED);
 }
 

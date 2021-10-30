@@ -17,12 +17,17 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include "debugger.h"
 
 #include "winternl.h"
+#include "wine/exception.h"
+
 #include "wine/debug.h"
 
 /* TODO list:
@@ -144,15 +149,15 @@ void	dbg_outputW(const WCHAR* buffer, int len)
     /* FIXME: should CP_ACP be GetConsoleCP()? */
 }
 
-int WINAPIV dbg_printf(const char* format, ...)
+int	dbg_printf(const char* format, ...)
 {
     static    char	buf[4*1024];
-    __ms_va_list valist;
+    va_list 	valist;
     int		len;
 
-    __ms_va_start(valist, format);
+    va_start(valist, format);
     len = vsnprintf(buf, sizeof(buf), format, valist);
-    __ms_va_end(valist);
+    va_end(valist);
 
     if (len <= -1 || len >= sizeof(buf)) 
     {
@@ -406,6 +411,45 @@ BOOL dbg_init(HANDLE hProc, const WCHAR* in, BOOL invade)
     return ret;
 }
 
+struct mod_loader_info
+{
+    HANDLE              handle;
+    IMAGEHLP_MODULE64*  imh_mod;
+};
+
+static BOOL CALLBACK mod_loader_cb(PCSTR mod_name, DWORD64 base, PVOID ctx)
+{
+    struct mod_loader_info*     mli = ctx;
+
+    if (!strcmp(mod_name, "<wine-loader>"))
+    {
+        if (SymGetModuleInfo64(mli->handle, base, mli->imh_mod))
+            return FALSE; /* stop enum */
+    }
+    return TRUE;
+}
+
+BOOL dbg_get_debuggee_info(HANDLE hProcess, IMAGEHLP_MODULE64* imh_mod)
+{
+    struct mod_loader_info  mli;
+    BOOL                    opt;
+
+    /* this will resynchronize builtin dbghelp's internal ELF module list */
+    SymLoadModule(hProcess, 0, 0, 0, 0, 0);
+    mli.handle  = hProcess;
+    mli.imh_mod = imh_mod;
+    imh_mod->SizeOfStruct = sizeof(*imh_mod);
+    imh_mod->BaseOfImage = 0;
+    /* this is a wine specific options to return also ELF modules in the
+     * enumeration
+     */
+    opt = SymSetExtendedOption(SYMOPT_EX_WINE_NATIVE_MODULES, TRUE);
+    SymEnumerateModules64(hProcess, mod_loader_cb, &mli);
+    SymSetExtendedOption(SYMOPT_EX_WINE_NATIVE_MODULES, opt);
+
+    return imh_mod->BaseOfImage != 0;
+}
+
 BOOL dbg_load_module(HANDLE hProc, HANDLE hFile, const WCHAR* name, DWORD_PTR base, DWORD size)
 {
     BOOL ret = SymLoadModuleExW(hProc, NULL, name, NULL, base, size, NULL, 0);
@@ -596,7 +640,6 @@ static void restart_if_wow64(void)
 
     if (IsWow64Process( GetCurrentProcess(), &is_wow64 ) && is_wow64)
     {
-        static const WCHAR winedbgW[] = {'\\','w','i','n','e','d','b','g','.','e','x','e',0};
         STARTUPINFOW si;
         PROCESS_INFORMATION pi;
         WCHAR filename[MAX_PATH];
@@ -605,8 +648,7 @@ static void restart_if_wow64(void)
 
         memset( &si, 0, sizeof(si) );
         si.cb = sizeof(si);
-        GetSystemDirectoryW( filename, MAX_PATH );
-        lstrcatW( filename, winedbgW );
+        GetModuleFileNameW( 0, filename, MAX_PATH );
 
         Wow64DisableWow64FsRedirection( &redir );
         if (CreateProcessW( filename, GetCommandLineW(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi ))
@@ -652,8 +694,7 @@ int main(int argc, char** argv)
     dbg_init_console();
 
     SymSetOptions((SymGetOptions() & ~(SYMOPT_UNDNAME)) |
-                  SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS | SYMOPT_AUTO_PUBLICS |
-                  SYMOPT_INCLUDE_32BIT_MODULES);
+                  SYMOPT_LOAD_LINES | SYMOPT_DEFERRED_LOADS | SYMOPT_AUTO_PUBLICS);
 
     if (argc && !strcmp(argv[0], "--auto"))
     {

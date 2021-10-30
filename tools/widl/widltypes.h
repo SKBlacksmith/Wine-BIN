@@ -43,7 +43,7 @@ typedef struct _type_t type_t;
 typedef struct _var_t var_t;
 typedef struct _decl_spec_t decl_spec_t;
 typedef struct _declarator_t declarator_t;
-typedef struct _typeref_t typeref_t;
+typedef struct _ifref_t ifref_t;
 typedef struct _typelib_entry_t typelib_entry_t;
 typedef struct _importlib_t importlib_t;
 typedef struct _importinfo_t importinfo_t;
@@ -51,6 +51,7 @@ typedef struct _typelib_t typelib_t;
 typedef struct _user_type_t user_type_t;
 typedef struct _user_type_t context_handle_t;
 typedef struct _user_type_t generic_handle_t;
+typedef struct _type_list_t type_list_t;
 typedef struct _statement_t statement_t;
 typedef struct _warning_t warning_t;
 
@@ -59,7 +60,7 @@ typedef struct list str_list_t;
 typedef struct list expr_list_t;
 typedef struct list var_list_t;
 typedef struct list declarator_list_t;
-typedef struct list typeref_list_t;
+typedef struct list ifref_list_t;
 typedef struct list user_type_list_t;
 typedef struct list context_handle_list_t;
 typedef struct list generic_handle_list_t;
@@ -68,7 +69,6 @@ typedef struct list warning_list_t;
 
 enum attr_type
 {
-    ATTR_ACTIVATABLE,
     ATTR_AGGREGATABLE,
     ATTR_ALLOCATE,
     ATTR_ANNOTATION,
@@ -103,12 +103,8 @@ enum attr_type
     ATTR_ENCODE,
     ATTR_ENDPOINT,
     ATTR_ENTRY,
-    ATTR_EVENTADD,
-    ATTR_EVENTREMOVE,
-    ATTR_EXCLUSIVETO,
     ATTR_EXPLICIT_HANDLE,
     ATTR_FAULTSTATUS,
-    ATTR_FLAGS,
     ATTR_FORCEALLOCATE,
     ATTR_HANDLE,
     ATTR_HELPCONTEXT,
@@ -129,7 +125,6 @@ enum attr_type
     ATTR_LIBLCID,
     ATTR_LICENSED,
     ATTR_LOCAL,
-    ATTR_MARSHALING_BEHAVIOR,
     ATTR_MAYBE,
     ATTR_MESSAGE,
     ATTR_NOCODE,
@@ -162,7 +157,6 @@ enum attr_type
     ATTR_RETVAL,
     ATTR_SIZEIS,
     ATTR_SOURCE,
-    ATTR_STATIC,
     ATTR_STRICTCONTEXTHANDLE,
     ATTR_STRING,
     ATTR_SWITCHIS,
@@ -277,14 +271,6 @@ enum threading_type
     THREADING_BOTH
 };
 
-enum marshaling_type
-{
-    MARSHALING_INVALID = 0,
-    MARSHALING_NONE,
-    MARSHALING_AGILE,
-    MARSHALING_STANDARD,
-};
-
 enum type_basic_type
 {
     TYPE_BASIC_INT8 = 1,
@@ -385,7 +371,6 @@ struct iface_details
   struct _type_t *inherit;
   struct _type_t *disp_inherit;
   struct _type_t *async_iface;
-  typeref_list_t *requires;
 };
 
 struct module_details
@@ -405,7 +390,7 @@ struct array_details
 
 struct coclass_details
 {
-  typeref_list_t *ifaces;
+  ifref_list_t *ifaces;
 };
 
 struct basic_details
@@ -428,22 +413,6 @@ struct bitfield_details
 struct alias_details
 {
     struct _decl_spec_t aliasee;
-};
-
-struct runtimeclass_details
-{
-    typeref_list_t *ifaces;
-};
-
-struct parameterized_details
-{
-    type_t *type;
-    typeref_list_t *params;
-};
-
-struct delegate_details
-{
-    type_t *iface;
 };
 
 #define HASHMAX 64
@@ -473,10 +442,6 @@ enum type_type
     TYPE_ARRAY,
     TYPE_BITFIELD,
     TYPE_APICONTRACT,
-    TYPE_RUNTIMECLASS,
-    TYPE_PARAMETERIZED_TYPE,
-    TYPE_PARAMETER,
-    TYPE_DELEGATE,
 };
 
 struct _type_t {
@@ -497,15 +462,8 @@ struct _type_t {
     struct pointer_details pointer;
     struct bitfield_details bitfield;
     struct alias_details alias;
-    struct runtimeclass_details runtimeclass;
-    struct parameterized_details parameterized;
-    struct delegate_details delegate;
   } details;
   const char *c_name;
-  const char *signature;
-  const char *qualified_name;
-  const char *impl_name;
-  const char *short_name;
   unsigned int typestring_offset;
   unsigned int ptrdesc;           /* used for complex structs */
   int typelib_idx;
@@ -547,8 +505,8 @@ struct _declarator_t {
   struct list entry;
 };
 
-struct _typeref_t {
-  type_t *type;
+struct _ifref_t {
+  type_t *iface;
   attr_list_t *attrs;
 
   /* parser-internal */
@@ -601,16 +559,22 @@ struct _user_type_t {
     const char *name;
 };
 
+struct _type_list_t {
+    type_t *type;
+    struct _type_list_t *next;
+};
+
 struct _statement_t {
     struct list entry;
     enum statement_type type;
     union
     {
+        ifref_t iface;
         type_t *type;
         const char *str;
         var_t *var;
         typelib_t *lib;
-        typeref_list_t *type_list;
+        type_list_t *type_list;
     } u;
     unsigned int declonly : 1; /* for STMT_TYPE and STMT_TYPEDEF */
 };
@@ -654,7 +618,6 @@ void init_loc_info(loc_info_t *);
 
 char *format_namespace(struct namespace *namespace, const char *prefix, const char *separator, const char *suffix,
                        const char *abi_prefix);
-char *format_parameterized_type_name(type_t *type, typeref_list_t *params);
 
 static inline enum type_type type_get_type_detect_alias(const type_t *type)
 {

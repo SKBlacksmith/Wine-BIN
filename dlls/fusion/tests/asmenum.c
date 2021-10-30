@@ -47,6 +47,8 @@ static BOOL init_functionpointers(void)
     HMODULE hfusion;
     HMODULE hmscoree;
 
+    static const WCHAR szFusion[] = {'f','u','s','i','o','n','.','d','l','l',0};
+
     hmscoree = LoadLibraryA("mscoree.dll");
     if (!hmscoree)
     {
@@ -62,7 +64,7 @@ static BOOL init_functionpointers(void)
         return FALSE;
     }
 
-    hr = pLoadLibraryShim(L"fusion.dll", NULL, NULL, &hfusion);
+    hr = pLoadLibraryShim(szFusion, NULL, NULL, &hfusion);
     if (FAILED(hr))
     {
         win_skip("fusion.dll not available\n");

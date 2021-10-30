@@ -29,6 +29,16 @@
 #include "rmxftmpl.h"
 #include "rmxfguid.h"
 
+#ifndef NAN
+/* From wine/port.h */
+static inline float __port_nan(void)
+{
+    static const unsigned __nan_bytes = 0x7fc00000;
+    return *(const float *)&__nan_bytes;
+}
+#define NAN __port_nan()
+#endif
+
 /* Set the WINETEST_DEBUG environment variable to be greater than 1 for verbose
  * function call traces of ID3DXAllocateHierarchy callbacks. */
 #define TRACECALLBACK if(winetest_debug > 1) trace
@@ -3611,7 +3621,7 @@ static inline BOOL is_direction_similar(D3DXVECTOR2 *dir1, D3DXVECTOR2 *dir2, fl
 
 static inline D3DXVECTOR2 *unit_vec2(D3DXVECTOR2 *dir, const D3DXVECTOR2 *pt1, const D3DXVECTOR2 *pt2)
 {
-    return D3DXVec2Normalize(dir, D3DXVec2Subtract(dir, pt2, pt1));
+    return D3DXVec2Normalize(D3DXVec2Subtract(dir, pt2, pt1), dir);
 }
 
 static BOOL attempt_line_merge(struct outline *outline,

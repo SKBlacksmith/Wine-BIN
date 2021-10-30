@@ -386,8 +386,8 @@
 @ stub -arch=win64 ?_Stop@_Timer@details@Concurrency@@IEAAXXZ
 @ stub -arch=win32 ?_Tidy@exception@std@@AAEXXZ
 @ stub -arch=win64 ?_Tidy@exception@std@@AEAAXXZ
-@ cdecl -arch=win32 ?_Trace_ppl_function@Concurrency@@YAXABU_GUID@@EW4ConcRT_EventType@1@@Z(ptr long long) _Trace_ppl_function
-@ cdecl -arch=win64 ?_Trace_ppl_function@Concurrency@@YAXAEBU_GUID@@EW4ConcRT_EventType@1@@Z(ptr long long) _Trace_ppl_function
+@ cdecl -arch=win32 ?_Trace_ppl_function@Concurrency@@YAXABU_GUID@@EW4ConcRT_EventType@1@@Z(ptr long long) Concurrency__Trace_ppl_function
+@ cdecl -arch=win64 ?_Trace_ppl_function@Concurrency@@YAXAEBU_GUID@@EW4ConcRT_EventType@1@@Z(ptr long long) Concurrency__Trace_ppl_function
 @ thiscall -arch=win32 ?_TryAcquire@_NonReentrantBlockingLock@details@Concurrency@@QAE_NXZ(ptr) _ReentrantBlockingLock__TryAcquire
 @ cdecl -arch=win64 ?_TryAcquire@_NonReentrantBlockingLock@details@Concurrency@@QEAA_NXZ(ptr) _ReentrantBlockingLock__TryAcquire
 @ thiscall -arch=win32 ?_TryAcquire@_ReentrantBlockingLock@details@Concurrency@@QAE_NXZ(ptr) _ReentrantBlockingLock__TryAcquire
@@ -501,8 +501,8 @@
 @ cdecl -arch=win64 ?wait@event@Concurrency@@QEAA_KI@Z(ptr long) event_wait
 @ cdecl -arch=win32 ?wait_for_multiple@event@Concurrency@@SAIPAPAV12@I_NI@Z(ptr long long long) event_wait_for_multiple
 @ cdecl -arch=win64 ?wait_for_multiple@event@Concurrency@@SA_KPEAPEAV12@_K_NI@Z(ptr long long long) event_wait_for_multiple
-@ thiscall -arch=i386 ?what@exception@std@@UBEPBDXZ(ptr) exception_what
-@ cdecl -arch=win64 ?what@exception@std@@UEBAPEBDXZ(ptr) exception_what
+@ thiscall -arch=i386 ?what@exception@std@@UBEPBDXZ(ptr) what_exception
+@ cdecl -arch=win64 ?what@exception@std@@UEBAPEBDXZ(ptr) what_exception
 @ cdecl -norelay $I10_OUTPUT(double long long long ptr) I10_OUTPUT
 @ cdecl -arch=i386 _CIacos()
 @ cdecl -arch=i386 _CIasin()
@@ -641,7 +641,7 @@
 @ cdecl __p__mbctype()
 @ cdecl __p__pctype()
 @ cdecl __p__pgmptr()
-@ cdecl __p__pwctype()
+@ stub __p__pwctype()
 @ cdecl __p__timezone()
 @ cdecl __p__tzname()
 @ cdecl __p__wcmdln()
@@ -649,7 +649,7 @@
 @ cdecl __p__wpgmptr()
 @ cdecl __pctype_func()
 @ extern __pioinfo MSVCRT___pioinfo
-@ cdecl __pwctype_func()
+@ stub __pwctype_func
 @ cdecl __pxcptinfoptrs()
 @ stub __report_gsfailure
 @ cdecl __set_app_type(long)
@@ -657,7 +657,7 @@
 @ extern __setlc_active MSVCRT___setlc_active
 @ cdecl __setusermatherr(ptr)
 @ cdecl __strncnt(str long)
-@ varargs __swprintf_l(ptr wstr ptr)
+@ varargs  __swprintf_l(ptr wstr ptr)
 @ cdecl __sys_errlist()
 @ cdecl __sys_nerr()
 @ cdecl __threadhandle() kernel32.GetCurrentThread
@@ -870,7 +870,7 @@
 @ varargs _fwscanf_l(ptr wstr ptr)
 @ varargs _fwscanf_s_l(ptr wstr ptr)
 @ cdecl _gcvt(double long str)
-@ cdecl _gcvt_s(ptr long double long)
+@ cdecl _gcvt_s(ptr long  double long)
 @ cdecl _get_current_locale()
 @ cdecl _get_daylight(ptr)
 @ cdecl _get_doserrno(ptr)
@@ -903,7 +903,7 @@
 @ cdecl _getdrives() kernel32.GetLogicalDrives
 @ cdecl _getmaxstdio()
 @ cdecl _getmbcp()
-@ cdecl _getpid()
+@ cdecl _getpid() _getpid
 @ cdecl _getptd()
 @ stub _getsystime(ptr)
 @ cdecl _getw(ptr)
@@ -1733,7 +1733,7 @@
 @ cdecl ldexp(double long)
 @ cdecl -ret64 ldiv(long long)
 @ cdecl -ret64 llabs(int64)
-@ cdecl -norelay lldiv(int64 int64)
+@ cdecl lldiv(int64 int64)
 @ cdecl localeconv()
 @ cdecl log(double)
 @ cdecl -arch=!i386 logf(float)

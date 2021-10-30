@@ -737,7 +737,7 @@ static HRESULT send_frame(IMemInputPin *sink)
     params->sink = sink;
     params->sample = sample;
     thread = CreateThread(NULL, 0, frame_thread, params, 0, NULL);
-    ret = WaitForSingleObject(thread, 2000);
+    ret = WaitForSingleObject(thread, 500);
     todo_wine_if (ret) ok(!ret, "Wait failed.\n");
     GetExitCodeThread(thread, &ret);
     CloseHandle(thread);
@@ -928,7 +928,7 @@ static void test_eos(IPin *pin, IMemInputPin *input, IMediaControl *control)
     hr = IMediaControl_Run(control);
     ok(hr == S_OK, "Got hr %#x.\n", hr);
     ret = check_ec_complete(eventsrc, 0);
-    ok(ret == 1, "Expected EC_COMPLETE.\n");
+    todo_wine ok(ret == 1, "Expected EC_COMPLETE.\n");
 
     hr = IMediaControl_Stop(control);
     ok(hr == S_OK, "Got hr %#x.\n", hr);

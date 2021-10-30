@@ -25,13 +25,16 @@
 #ifdef __APPLE__
 
 #include "config.h"
+#include "wine/port.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-#include <sys/stat.h>
+#ifdef HAVE_SYS_STAT_H
+# include <sys/stat.h>
+#endif
 #include <fcntl.h>
 #ifdef HAVE_SYS_MMAN_H
 # include <sys/mman.h>
@@ -39,8 +42,9 @@
 #ifdef HAVE_SYS_SYSCALL_H
 # include <sys/syscall.h>
 #endif
-#include <unistd.h>
-#include <dlfcn.h>
+#ifdef HAVE_UNISTD_H
+# include <unistd.h>
+#endif
 #ifdef HAVE_MACH_O_LOADER_H
 #include <mach/thread_status.h>
 #include <mach-o/loader.h>

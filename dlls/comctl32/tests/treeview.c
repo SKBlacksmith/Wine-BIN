@@ -27,16 +27,11 @@
 #include "winuser.h"
 #include "winnls.h"
 #include "winreg.h"
-#include "commctrl.h"
-#include "uxtheme.h"
-#include "vsstyle.h"
+#include "commctrl.h" 
 
 #include "wine/test.h"
 #include "v6util.h"
 #include "msg.h"
-
-static HTHEME (WINAPI *pGetWindowTheme)(HWND);
-static BOOL (WINAPI *pIsThemeBackgroundPartiallyTransparent)(HTHEME, int, int);
 
 static BOOL (WINAPI *pInitCommonControlsEx)(const INITCOMMONCONTROLSEX*);
 static const char *TEST_CALLBACK_TEXT = "callback_text";
@@ -2126,8 +2121,6 @@ static void test_TVS_SINGLEEXPAND(void)
 
 static void test_WM_PAINT(void)
 {
-    BOOL is_glyph_transparent;
-    HTHEME htheme;
     HWND hTree;
     COLORREF clr;
     LONG ret;
@@ -2151,11 +2144,7 @@ static void test_WM_PAINT(void)
     ok(ret == 0, "got %d\n", ret);
 
     clr = GetPixel(hdc, 1, 1);
-    htheme = pGetWindowTheme(hTree);
-    is_glyph_transparent = htheme && pIsThemeBackgroundPartiallyTransparent(htheme, TVP_GLYPH, 0);
-    ok(clr == RGB(255, 0, 0) || broken(clr == RGB(0, 0, 0)) /* win98 */
-       /* When theming is on and treeview glyphs are transparent, parent window needs to be repainted */
-       || (is_glyph_transparent && clr == GetSysColor(COLOR_WINDOW)),
+    ok(clr == RGB(255, 0, 0) || broken(clr == RGB(0, 0, 0)) /* win98 */,
         "got 0x%x\n", clr);
 
     ReleaseDC(hMainWnd, hdc);
@@ -2956,13 +2945,9 @@ static void test_right_click(void)
 static void init_functions(void)
 {
     HMODULE hComCtl32 = LoadLibraryA("comctl32.dll");
-    HMODULE hUxtheme = LoadLibraryA("uxtheme.dll");
 
-#define X(module, f) p##f = (void*)GetProcAddress(module, #f);
-    X(hComCtl32, InitCommonControlsEx);
-
-    X(hUxtheme, GetWindowTheme);
-    X(hUxtheme, IsThemeBackgroundPartiallyTransparent);
+#define X(f) p##f = (void*)GetProcAddress(hComCtl32, #f);
+    X(InitCommonControlsEx);
 #undef X
 }
 

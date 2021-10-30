@@ -24,6 +24,7 @@
 #define COBJMACROS
 
 #include "wine/test.h"
+#include "wine/exception.h"
 #include "ddraw.h"
 #include "d3d.h"
 #include "unknwn.h"

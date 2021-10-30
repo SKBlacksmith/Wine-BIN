@@ -3016,9 +3016,19 @@ static void StorageImpl_SaveFileHeader(
 {
   BYTE   headerBigBlock[HEADER_SIZE];
   int    index;
+  HRESULT hr;
   ULARGE_INTEGER offset;
-  DWORD bytes_written;
+  DWORD bytes_read, bytes_written;
   DWORD major_version, dirsectorcount;
+
+  /*
+   * Get a pointer to the big block of data containing the header.
+   */
+  offset.u.HighPart = 0;
+  offset.u.LowPart = 0;
+  hr = StorageImpl_ReadAt(This, offset, headerBigBlock, HEADER_SIZE, &bytes_read);
+  if (SUCCEEDED(hr) && bytes_read != HEADER_SIZE)
+    hr = STG_E_FILENOTFOUND;
 
   if (This->bigBlockSizeBits == 0x9)
     major_version = 3;
@@ -3030,8 +3040,21 @@ static void StorageImpl_SaveFileHeader(
     major_version = 4;
   }
 
-  memset(headerBigBlock, 0, HEADER_SIZE);
-  memcpy(headerBigBlock, STORAGE_magic, sizeof(STORAGE_magic));
+  /*
+   * If the block read failed, the file is probably new.
+   */
+  if (FAILED(hr))
+  {
+    /*
+     * Initialize for all unknown fields.
+     */
+    memset(headerBigBlock, 0, HEADER_SIZE);
+
+    /*
+     * Initialize the magic number.
+     */
+    memcpy(headerBigBlock, STORAGE_magic, sizeof(STORAGE_magic));
+  }
 
   /*
    * Write the information to the header.
@@ -3127,7 +3150,9 @@ static void StorageImpl_SaveFileHeader(
       (This->bigBlockDepotStart[index]));
   }
 
-  offset.QuadPart = 0;
+  /*
+   * Write the big block back to the file.
+   */
   StorageImpl_WriteAt(This, offset, headerBigBlock, HEADER_SIZE, &bytes_written);
 }
 
@@ -4144,7 +4169,7 @@ static void StorageImpl_SetNextBlockInChain(
  *
  */
 static ULONG StorageImpl_GetNextFreeBigBlock(
-  StorageImpl* This, ULONG neededAddNumBlocks)
+  StorageImpl* This)
 {
   ULONG depotBlockIndexPos;
   BYTE depotBuffer[MAX_BIG_BLOCK_SIZE];
@@ -4269,7 +4294,7 @@ static ULONG StorageImpl_GetNextFreeBigBlock(
   /*
    * make sure that the block physically exists before using it
    */
-  neededSize.QuadPart = StorageImpl_GetBigBlockOffset(This, freeBlock)+This->bigBlockSize * neededAddNumBlocks;
+  neededSize.QuadPart = StorageImpl_GetBigBlockOffset(This, freeBlock)+This->bigBlockSize;
 
   ILockBytes_Stat(This->lockBytes, &statstg, STATFLAG_NONAME);
 
@@ -7403,7 +7428,7 @@ static BOOL BlockChainStream_Enlarge(BlockChainStream* This,
    */
   if (blockIndex == BLOCK_END_OF_CHAIN)
   {
-    blockIndex = StorageImpl_GetNextFreeBigBlock(This->parentStorage, 1);
+    blockIndex = StorageImpl_GetNextFreeBigBlock(This->parentStorage);
     StorageImpl_SetNextBlockInChain(This->parentStorage,
                                       blockIndex,
                                       BLOCK_END_OF_CHAIN);
@@ -7472,7 +7497,7 @@ static BOOL BlockChainStream_Enlarge(BlockChainStream* This,
   {
     while (oldNumBlocks < newNumBlocks)
     {
-      blockIndex = StorageImpl_GetNextFreeBigBlock(This->parentStorage, newNumBlocks - oldNumBlocks);
+      blockIndex = StorageImpl_GetNextFreeBigBlock(This->parentStorage);
 
       StorageImpl_SetNextBlockInChain(
 	This->parentStorage,

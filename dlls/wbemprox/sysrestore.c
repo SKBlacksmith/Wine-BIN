@@ -31,30 +31,30 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(wbemprox);
 
-HRESULT sysrestore_create( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT create_restore_point( IWbemClassObject *obj, IWbemClassObject *in, IWbemClassObject **out )
 {
     FIXME("stub\n");
     return S_OK;
 }
 
-HRESULT sysrestore_disable( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT disable_restore( IWbemClassObject *obj, IWbemClassObject *in, IWbemClassObject **out )
 {
     FIXME("stub\n");
     return S_OK;
 }
 
-HRESULT sysrestore_enable( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT enable_restore( IWbemClassObject *obj, IWbemClassObject *in, IWbemClassObject **out )
 {
     VARIANT drive, retval;
     IWbemClassObject *sig, *out_params = NULL;
     HRESULT hr;
 
-    TRACE("%p, %p, %p, %p\n", obj, context, in, out);
+    TRACE("%p, %p\n", in, out);
 
     hr = IWbemClassObject_Get( in, L"Drive", 0, &drive, NULL, NULL );
     if (hr != S_OK) return hr;
 
-    hr = create_signature( WBEMPROX_NAMESPACE_CIMV2, L"SystemRestore", L"Enable", PARAM_OUT, &sig );
+    hr = create_signature( L"SystemRestore", L"Enable", PARAM_OUT, &sig );
     if (hr != S_OK)
     {
         VariantClear( &drive );
@@ -93,13 +93,13 @@ HRESULT sysrestore_enable( IWbemClassObject *obj, IWbemContext *context, IWbemCl
     return hr;
 }
 
-HRESULT sysrestore_get_last_status( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT get_last_restore_status( IWbemClassObject *obj, IWbemClassObject *in, IWbemClassObject **out )
 {
     FIXME("stub\n");
     return E_NOTIMPL;
 }
 
-HRESULT sysrestore_restore( IWbemClassObject *obj, IWbemContext *context, IWbemClassObject *in, IWbemClassObject **out )
+HRESULT restore( IWbemClassObject *obj, IWbemClassObject *in, IWbemClassObject **out )
 {
     FIXME("stub\n");
     return S_OK;

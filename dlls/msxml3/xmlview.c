@@ -16,10 +16,16 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+
 #include <stdarg.h>
 
 #define COBJMACROS
 #define NONAMELESSUNION
+
+#ifdef HAVE_LIBXML2
+#include <libxml/parser.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -32,7 +38,9 @@
 
 #include "wine/debug.h"
 
-#include "msxml_dispex.h"
+#include "msxml_private.h"
+
+#ifdef HAVE_LIBXML2
 
 WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 
@@ -391,7 +399,7 @@ static inline HRESULT handle_xml_load(BindStatusCallback *This)
     if(FAILED(hres))
         return display_error_page(This);
 
-    hres = dom_document_create(MSXML_DEFAULT, (void **)&xml);
+    hres = DOMDocument_create(MSXML_DEFAULT, (void**)&xml);
     if(FAILED(hres))
         return display_error_page(This);
 
@@ -425,12 +433,12 @@ static inline HRESULT handle_xml_load(BindStatusCallback *This)
     }
 
     /* TODO: fix parsing processing instruction value */
-    if((p = wcsstr(V_BSTR(&var), hrefW))) {
+    if((p = strstrW(V_BSTR(&var), hrefW))) {
         p += ARRAY_SIZE(hrefW) - 1;
         if(*p!='\'' && *p!='\"') p = NULL;
         else {
             href = p+1;
-            p = wcschr(href, *p);
+            p = strchrW(href, *p);
         }
     }
     if(p) {
@@ -467,7 +475,7 @@ static inline HRESULT handle_xml_load(BindStatusCallback *This)
         return display_error_page(This);
     }
 
-    hres = dom_document_create(MSXML_DEFAULT, (void **)&xsl);
+    hres = DOMDocument_create(MSXML_DEFAULT, (void**)&xsl);
     if(FAILED(hres)) {
         VariantClear(&var);
         IXMLDOMDocument3_Release(xml);
@@ -1443,3 +1451,14 @@ HRESULT XMLView_create(void **ppObj)
     *ppObj = &This->IPersistMoniker_iface;
     return S_OK;
 }
+
+#else
+
+HRESULT XMLView_create(void **ppObj)
+{
+    MESSAGE("This program tried to use a XMLView object, but\n"
+            "libxml2 support was not present at compile time.\n");
+    return E_NOTIMPL;
+}
+
+#endif /* HAVE_LIBXML2 */

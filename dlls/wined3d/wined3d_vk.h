@@ -49,9 +49,7 @@
     VK_INSTANCE_PFN(vkGetPhysicalDeviceSurfacePresentModesKHR) \
     VK_INSTANCE_PFN(vkGetPhysicalDeviceSurfaceSupportKHR) \
     /* VK_KHR_win32_surface */ \
-    VK_INSTANCE_PFN(vkCreateWin32SurfaceKHR) \
-    /* VK_EXT_host_query_reset */ \
-    VK_INSTANCE_EXT_PFN(vkResetQueryPoolEXT)
+    VK_INSTANCE_PFN(vkCreateWin32SurfaceKHR)
 
 #define VK_DEVICE_FUNCS() \
     VK_DEVICE_PFN(vkAllocateCommandBuffers) \
@@ -209,11 +207,7 @@ struct vulkan_ops
 enum wined3d_vk_extension
 {
     WINED3D_VK_EXT_NONE,
-
     WINED3D_VK_EXT_TRANSFORM_FEEDBACK,
-    WINED3D_VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE,
-    WINED3D_VK_EXT_HOST_QUERY_RESET,
-
     WINED3D_VK_EXT_COUNT,
 };
 

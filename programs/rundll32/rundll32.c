@@ -83,6 +83,8 @@ static void call_entry_point( void *func, HWND hwnd, HINSTANCE inst, void *cmdli
 }
 #endif
 
+static HINSTANCE16 (WINAPI *pLoadLibrary16)(LPCSTR libname);
+static FARPROC16 (WINAPI *pGetProcAddress16)(HMODULE16 hModule, LPCSTR name);
 static void (WINAPI *pRunDLL_CallEntry16)( FARPROC proc, HWND hwnd, HINSTANCE inst,
                                            LPCSTR cmdline, INT cmdshow );
 
@@ -110,11 +112,8 @@ static ATOM register_class(void)
     return RegisterClassExW(&wcex);
 }
 
-#ifdef __i386__
-
 static HINSTANCE16 load_dll16( LPCWSTR dll )
 {
-    HINSTANCE16 (WINAPI *pLoadLibrary16)(LPCSTR libname);
     HINSTANCE16 ret = 0;
     DWORD len = WideCharToMultiByte( CP_ACP, 0, dll, -1, NULL, 0, NULL, NULL );
     char *dllA = HeapAlloc( GetProcessHeap(), 0, len );
@@ -131,7 +130,6 @@ static HINSTANCE16 load_dll16( LPCWSTR dll )
 
 static FARPROC16 get_entry_point16( HINSTANCE16 inst, LPCWSTR entry )
 {
-    FARPROC16 (WINAPI *pGetProcAddress16)(HMODULE16 hModule, LPCSTR name);
     FARPROC16 ret = 0;
     DWORD len = WideCharToMultiByte( CP_ACP, 0, entry, -1, NULL, 0, NULL, NULL );
     char *entryA = HeapAlloc( GetProcessHeap(), 0, len );
@@ -145,7 +143,6 @@ static FARPROC16 get_entry_point16( HINSTANCE16 inst, LPCWSTR entry )
     }
     return ret;
 }
-#endif
 
 static void *get_entry_point32( HMODULE module, LPCWSTR entry, BOOL *unicode )
 {
@@ -275,8 +272,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE hOldInstance, LPWSTR szCmdLine
 {
     HWND hWnd;
     LPWSTR szDllName,szEntryPoint;
-    void *entry_point = NULL;
-    BOOL unicode = FALSE, win16 = FALSE;
+    void *entry_point;
+    BOOL unicode = FALSE, win16;
     STARTUPINFOW info;
     HMODULE hDll;
 
@@ -303,8 +300,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE hOldInstance, LPWSTR szCmdLine
 
     /* Load the library */
     hDll=LoadLibraryW(szDllName);
-    if (hDll) entry_point = get_entry_point32( hDll, szEntryPoint, &unicode );
-#ifdef __i386__
+    if (hDll)
+    {
+        win16 = FALSE;
+        entry_point = get_entry_point32( hDll, szEntryPoint, &unicode );
+    }
     else
     {
         HINSTANCE16 dll = load_dll16( szDllName );
@@ -315,9 +315,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE hOldInstance, LPWSTR szCmdLine
             goto CLEANUP;
         }
         win16 = TRUE;
+        unicode = FALSE;
         entry_point = get_entry_point16( dll, szEntryPoint );
     }
-#endif
 
     if (!entry_point)
     {

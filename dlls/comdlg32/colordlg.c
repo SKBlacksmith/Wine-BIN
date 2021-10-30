@@ -523,7 +523,6 @@ static void CC_PaintCross(CCPRIV *infoPtr)
    int wc = GetDialogBaseUnits() * 3 / 4;
    RECT rect;
    POINT point, p;
-   HRGN region;
    HPEN hPen;
    int x, y;
 
@@ -532,9 +531,7 @@ static void CC_PaintCross(CCPRIV *infoPtr)
 
    GetClientRect(hwnd, &rect);
    hDC = GetDC(hwnd);
-   region = CreateRectRgnIndirect(&rect);
-   SelectClipRgn(hDC, region);
-   DeleteObject(region);
+   SelectClipRgn( hDC, CreateRectRgnIndirect(&rect));
 
    point.x = ((long)rect.right * (long)x) / (long)MAXHORI;
    point.y = rect.bottom - ((long)rect.bottom * (long)y) / (long)MAXVERT;

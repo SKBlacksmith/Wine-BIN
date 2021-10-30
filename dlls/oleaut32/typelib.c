@@ -629,6 +629,10 @@ HRESULT WINAPI RegisterTypeLib(ITypeLib *ptlib, const WCHAR *szFullPath, const W
     if (FAILED(ITypeLib_GetLibAttr(ptlib, &attr)))
         return E_FAIL;
 
+#ifndef _WIN64
+    if (attr->syskind == SYS_WIN64) return TYPE_E_BADMODULEKIND;
+#endif
+
     get_typelib_key( &attr->guid, attr->wMajorVerNum, attr->wMinorVerNum, keyName );
 
     res = S_OK;
@@ -636,22 +640,17 @@ HRESULT WINAPI RegisterTypeLib(ITypeLib *ptlib, const WCHAR *szFullPath, const W
         KEY_WRITE, NULL, &key, NULL) == ERROR_SUCCESS)
     {
         LPOLESTR doc;
-        LPOLESTR libName;
 
-        /* Set the human-readable name of the typelib to
-           the typelib's doc, if it exists, else to the typelib's name. */
-        if (FAILED(ITypeLib_GetDocumentation(ptlib, -1, &libName, &doc, NULL, NULL)))
+        /* Set the human-readable name of the typelib */
+        if (FAILED(ITypeLib_GetDocumentation(ptlib, -1, NULL, &doc, NULL, NULL)))
             res = E_FAIL;
-        else if (doc || libName)
+        else if (doc)
         {
-            WCHAR *name = doc ? doc : libName;
-
             if (RegSetValueExW(key, NULL, 0, REG_SZ,
-                (BYTE *)name, (lstrlenW(name)+1) * sizeof(OLECHAR)) != ERROR_SUCCESS)
+                (BYTE *)doc, (lstrlenW(doc)+1) * sizeof(OLECHAR)) != ERROR_SUCCESS)
                 res = E_FAIL;
 
             SysFreeString(doc);
-            SysFreeString(libName);
         }
 
         /* Make up the name of the typelib path subkey */
@@ -5588,22 +5587,6 @@ static ULONG WINAPI ITypeInfo_fnAddRef( ITypeInfo2 *iface)
     return ref;
 }
 
-static void typeinfo_release_funcdesc(TLBFuncDesc *func)
-{
-    unsigned int i;
-
-    for (i = 0; i < func->funcdesc.cParams; ++i)
-    {
-        ELEMDESC *elemdesc = &func->funcdesc.lprgelemdescParam[i];
-        if (elemdesc->u.paramdesc.wParamFlags & PARAMFLAG_FHASDEFAULT)
-            VariantClear(&elemdesc->u.paramdesc.pparamdescex->varDefaultValue);
-        TLB_FreeCustData(&func->pParamDesc[i].custdata_list);
-    }
-    heap_free(func->funcdesc.lprgelemdescParam);
-    heap_free(func->pParamDesc);
-    TLB_FreeCustData(&func->custdata_list);
-}
-
 static void ITypeInfoImpl_Destroy(ITypeInfoImpl *This)
 {
     UINT i;
@@ -5612,7 +5595,18 @@ static void ITypeInfoImpl_Destroy(ITypeInfoImpl *This)
 
     for (i = 0; i < This->typeattr.cFuncs; ++i)
     {
-        typeinfo_release_funcdesc(&This->funcdescs[i]);
+        int j;
+        TLBFuncDesc *pFInfo = &This->funcdescs[i];
+        for(j = 0; j < pFInfo->funcdesc.cParams; j++)
+        {
+            ELEMDESC *elemdesc = &pFInfo->funcdesc.lprgelemdescParam[j];
+            if (elemdesc->u.paramdesc.wParamFlags & PARAMFLAG_FHASDEFAULT)
+                VariantClear(&elemdesc->u.paramdesc.pparamdescex->varDefaultValue);
+            TLB_FreeCustData(&pFInfo->pParamDesc[j].custdata_list);
+        }
+        heap_free(pFInfo->funcdesc.lprgelemdescParam);
+        heap_free(pFInfo->pParamDesc);
+        TLB_FreeCustData(&pFInfo->custdata_list);
     }
     heap_free(This->funcdescs);
 
@@ -7217,7 +7211,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
     UINT  *pArgErr)
 {
     ITypeInfoImpl *This = impl_from_ITypeInfo2(iface);
-    int i, j;
+    int i;
     unsigned int var_index;
     TYPEKIND type_kind;
     HRESULT hres;
@@ -7270,11 +7264,10 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
 	case FUNC_VIRTUAL: {
             void *buffer = heap_alloc_zero(INVBUF_ELEMENT_SIZE * func_desc->cParams);
             VARIANT varresult;
-            VARIANT retval = {{{0}}}; /* pointer for storing byref retvals in */
+            VARIANT retval; /* pointer for storing byref retvals in */
             VARIANTARG **prgpvarg = INVBUF_GET_ARG_PTR_ARRAY(buffer, func_desc->cParams);
             VARIANTARG *rgvarg = INVBUF_GET_ARG_ARRAY(buffer, func_desc->cParams);
             VARTYPE *rgvt = INVBUF_GET_ARG_TYPE_ARRAY(buffer, func_desc->cParams);
-            VARIANTARG *missing_arg = INVBUF_GET_MISSING_ARG_ARRAY(buffer, func_desc->cParams);
             UINT cNamedArgs = pDispParams->cNamedArgs;
             DISPID *rgdispidNamedArgs = pDispParams->rgdispidNamedArgs;
             UINT vargs_converted=0;
@@ -7316,21 +7309,24 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
 
                 if (wParamFlags & PARAMFLAG_FLCID)
                 {
-                    prgpvarg[i] = &rgvarg[i];
-                    V_VT(prgpvarg[i]) = VT_I4;
-                    V_I4(prgpvarg[i]) = This->pTypeLib->lcid;
+                    VARIANTARG *arg;
+                    arg = prgpvarg[i] = &rgvarg[i];
+                    V_VT(arg) = VT_I4;
+                    V_I4(arg) = This->pTypeLib->lcid;
                     continue;
                 }
 
                 src_arg = NULL;
 
-                for (j = 0; j < cNamedArgs; j++)
+                if (cNamedArgs)
                 {
-                    if (rgdispidNamedArgs[j] == i || (i == func_desc->cParams-1 && rgdispidNamedArgs[j] == DISPID_PROPERTYPUT))
-                    {
-                        src_arg = &pDispParams->rgvarg[j];
-                        break;
-                    }
+                    USHORT j;
+                    for (j = 0; j < cNamedArgs; j++)
+                        if (rgdispidNamedArgs[j] == i || (i == func_desc->cParams-1 && rgdispidNamedArgs[j] == DISPID_PROPERTYPUT))
+                        {
+                            src_arg = &pDispParams->rgvarg[j];
+                            break;
+                        }
                 }
 
                 if (!src_arg && vargs_converted + cNamedArgs < pDispParams->cArgs)
@@ -7359,9 +7355,12 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                      * native does */
                     if (i == func_desc->cParams - 1)
                     {
-                        prgpvarg[i] = &rgvarg[i];
-                        V_BYREF(prgpvarg[i]) = &retval;
-                        V_VT(prgpvarg[i]) = rgvt[i];
+                        VARIANTARG *arg;
+                        arg = prgpvarg[i] = &rgvarg[i];
+                        memset(arg, 0, sizeof(*arg));
+                        V_VT(arg) = rgvt[i];
+                        memset(&retval, 0, sizeof(retval));
+                        V_BYREF(arg) = &retval;
                     }
                     else
                     {
@@ -7385,6 +7384,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                                 V_VARIANTREF(&rgvarg[i]) = V_VARIANTREF(src_arg);
                             else
                             {
+                                VARIANTARG *missing_arg = INVBUF_GET_MISSING_ARG_ARRAY(buffer, func_desc->cParams);
                                 if (wParamFlags & PARAMFLAG_FIN)
                                     hres = VariantCopy(&missing_arg[i], src_arg);
                                 V_VARIANTREF(&rgvarg[i]) = &missing_arg[i];
@@ -7395,7 +7395,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                         {
                             SAFEARRAYBOUND bound;
                             VARIANT *v;
-
+                            LONG j;
                             bound.lLbound = 0;
                             bound.cElements = pDispParams->cArgs-i;
                             if (!(a = SafeArrayCreate(VT_VARIANT, 1, &bound)))
@@ -7427,6 +7427,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                         }
                         else if ((rgvt[i] & VT_BYREF) && !V_ISBYREF(src_arg))
                         {
+                            VARIANTARG *missing_arg = INVBUF_GET_MISSING_ARG_ARRAY(buffer, func_desc->cParams);
                             if (wParamFlags & PARAMFLAG_FIN)
                                 hres = VariantChangeType(&missing_arg[i], src_arg, 0, rgvt[i] & ~VT_BYREF);
                             else
@@ -7496,22 +7497,20 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                     }
                     else
                     {
+                        VARIANTARG *missing_arg;
                         /* if the function wants a pointer to a variant then
                          * set that up, otherwise just pass the VT_ERROR in
                          * the argument by value */
                         if (rgvt[i] & VT_BYREF)
                         {
-                            V_VT(&missing_arg[i]) = VT_ERROR;
-                            V_ERROR(&missing_arg[i]) = DISP_E_PARAMNOTFOUND;
-
+                            missing_arg = INVBUF_GET_MISSING_ARG_ARRAY(buffer, func_desc->cParams) + i;
                             V_VT(arg) = VT_VARIANT | VT_BYREF;
-                            V_VARIANTREF(arg) = &missing_arg[i];
+                            V_VARIANTREF(arg) = missing_arg;
                         }
                         else
-                        {
-                            V_VT(arg) = VT_ERROR;
-                            V_ERROR(arg) = DISP_E_PARAMNOTFOUND;
-                        }
+                            missing_arg = arg;
+                        V_VT(missing_arg) = VT_ERROR;
+                        V_ERROR(missing_arg) = DISP_E_PARAMNOTFOUND;
                     }
                 }
                 else
@@ -7542,6 +7541,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
             for (i = 0; i < func_desc->cParams; i++)
             {
                 USHORT wParamFlags = func_desc->lprgelemdescParam[i].u.paramdesc.wParamFlags;
+                VARIANTARG *missing_arg = INVBUF_GET_MISSING_ARG_ARRAY(buffer, func_desc->cParams);
 
                 if (wParamFlags & PARAMFLAG_FLCID)
                     continue;
@@ -7580,7 +7580,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                              i == func_desc->cParams-1)
                     {
                         SAFEARRAY *a = V_ARRAY(prgpvarg[i]);
-                        LONG ubound;
+                        LONG j, ubound;
                         VARIANT *v;
                         hres = SafeArrayGetUBound(a, 1, &ubound);
                         if (hres != S_OK)
@@ -11014,7 +11014,6 @@ static HRESULT WINAPI ICreateTypeInfo2_fnAddVarDesc(ICreateTypeInfo2 *iface,
 {
     ITypeInfoImpl *This = info_impl_from_ICreateTypeInfo2(iface);
     TLBVarDesc *var_desc;
-    HRESULT hr;
 
     TRACE("%p %u %p\n", This, index, varDesc);
 
@@ -11040,9 +11039,7 @@ static HRESULT WINAPI ICreateTypeInfo2_fnAddVarDesc(ICreateTypeInfo2 *iface,
         var_desc = This->vardescs = heap_alloc_zero(sizeof(TLBVarDesc));
 
     TLBVarDesc_Constructor(var_desc);
-    hr = TLB_AllocAndInitVarDesc(varDesc, &var_desc->vardesc_create);
-    if (FAILED(hr))
-        return hr;
+    TLB_AllocAndInitVarDesc(varDesc, &var_desc->vardesc_create);
     var_desc->vardesc = *var_desc->vardesc_create;
 
     ++This->typeattr.cVars;
@@ -11376,27 +11373,8 @@ static HRESULT WINAPI ICreateTypeInfo2_fnDeleteFuncDesc(ICreateTypeInfo2 *iface,
         UINT index)
 {
     ITypeInfoImpl *This = info_impl_from_ICreateTypeInfo2(iface);
-    unsigned int i;
-
-    TRACE("%p %u\n", This, index);
-
-    if (index >= This->typeattr.cFuncs)
-        return TYPE_E_ELEMENTNOTFOUND;
-
-    typeinfo_release_funcdesc(&This->funcdescs[index]);
-
-    --This->typeattr.cFuncs;
-    if (index != This->typeattr.cFuncs)
-    {
-        memmove(This->funcdescs + index, This->funcdescs + index + 1,
-                sizeof(*This->funcdescs) * (This->typeattr.cFuncs - index));
-        for (i = index; i < This->typeattr.cFuncs; ++i)
-            TLB_relink_custdata(&This->funcdescs[i].custdata_list);
-    }
-
-    This->needs_layout = TRUE;
-
-    return S_OK;
+    FIXME("%p %u - stub\n", This, index);
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ICreateTypeInfo2_fnDeleteFuncDescByMemId(ICreateTypeInfo2 *iface,

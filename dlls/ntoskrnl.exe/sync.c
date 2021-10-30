@@ -19,12 +19,23 @@
  */
 
 #include <limits.h>
+#include <stdarg.h>
 
-#include "ntoskrnl_private.h"
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
+#include "windef.h"
+#include "winbase.h"
+#include "winternl.h"
 #include "ddk/ntddk.h"
+#include "ddk/wdm.h"
+#include "ddk/ntifs.h"
 
+#include "wine/asm.h"
+#include "wine/debug.h"
 #include "wine/heap.h"
 #include "wine/server.h"
+
+#include "ntoskrnl_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ntoskrnl);
 
@@ -523,10 +534,19 @@ NTSTATUS WINAPI KeDelayExecutionThread( KPROCESSOR_MODE mode, BOOLEAN alertable,
 /***********************************************************************
  *           KeInitializeSpinLock   (NTOSKRNL.EXE.@)
  */
-void WINAPI NTOSKRNL_KeInitializeSpinLock( KSPIN_LOCK *lock )
+void WINAPI KeInitializeSpinLock( KSPIN_LOCK *lock )
 {
     TRACE("lock %p.\n", lock);
     *lock = 0;
+}
+
+static inline void small_pause(void)
+{
+#ifdef __x86_64__
+    __asm__ __volatile__( "rep;nop" : : : "memory" );
+#else
+    __asm__ __volatile__( "" : : : "memory" );
+#endif
 }
 
 /***********************************************************************
@@ -536,7 +556,7 @@ void WINAPI KeAcquireSpinLockAtDpcLevel( KSPIN_LOCK *lock )
 {
     TRACE("lock %p.\n", lock);
     while (InterlockedCompareExchangePointer( (void **)lock, (void *)1, (void *)0 ))
-        YieldProcessor();
+        small_pause();
 }
 
 /***********************************************************************
@@ -572,7 +592,7 @@ void FASTCALL KeAcquireInStackQueuedSpinLockAtDpcLevel( KSPIN_LOCK *lock, KLOCK_
         while (!((ULONG_PTR)InterlockedCompareExchangePointer( (void **)&queue->LockQueue.Lock, 0, 0 )
                  & QUEUED_SPINLOCK_OWNED))
         {
-            YieldProcessor();
+            small_pause();
         }
     }
 }
@@ -599,7 +619,7 @@ void FASTCALL KeReleaseInStackQueuedSpinLockFromDpcLevel( KLOCK_QUEUE_HANDLE *qu
         /* Otherwise, someone just queued themselves, but hasn't yet set
          * themselves as successor. Spin waiting for them to do so. */
         while (!(next = queue->LockQueue.Next))
-            YieldProcessor();
+            small_pause();
     }
 
     InterlockedExchangePointer( (void **)&next->Lock, (KSPIN_LOCK *)((ULONG_PTR)lock | QUEUED_SPINLOCK_OWNED) );
@@ -1361,51 +1381,4 @@ BOOLEAN WINAPI KeSetTimer(KTIMER *timer, LARGE_INTEGER duetime, KDPC *dpc)
     TRACE("timer %p, duetime %I64x, dpc %p.\n", timer, duetime.QuadPart, dpc);
 
     return KeSetTimerEx(timer, duetime, 0, dpc);
-}
-
-void WINAPI KeInitializeDeviceQueue( KDEVICE_QUEUE *queue )
-{
-    TRACE( "queue %p.\n", queue );
-
-    KeInitializeSpinLock( &queue->Lock );
-    InitializeListHead( &queue->DeviceListHead );
-    queue->Busy = FALSE;
-    queue->Type = IO_TYPE_DEVICE_QUEUE;
-    queue->Size = sizeof(*queue);
-}
-
-BOOLEAN WINAPI KeInsertDeviceQueue( KDEVICE_QUEUE *queue, KDEVICE_QUEUE_ENTRY *entry )
-{
-    BOOL insert;
-    KIRQL irql;
-
-    TRACE( "queue %p, entry %p.\n", queue, entry );
-
-    KeAcquireSpinLock( &queue->Lock, &irql );
-    insert = entry->Inserted = queue->Busy;
-    if (insert) InsertTailList( &queue->DeviceListHead, &entry->DeviceListEntry );
-    queue->Busy = TRUE;
-    KeReleaseSpinLock( &queue->Lock, irql );
-
-    return insert;
-}
-
-KDEVICE_QUEUE_ENTRY *WINAPI KeRemoveDeviceQueue( KDEVICE_QUEUE *queue )
-{
-    KDEVICE_QUEUE_ENTRY *entry = NULL;
-    KIRQL irql;
-
-    TRACE( "queue %p.\n", queue );
-
-    KeAcquireSpinLock( &queue->Lock, &irql );
-    if (IsListEmpty( &queue->DeviceListHead )) queue->Busy = FALSE;
-    else
-    {
-        entry = CONTAINING_RECORD( RemoveHeadList( &queue->DeviceListHead ),
-                                   KDEVICE_QUEUE_ENTRY, DeviceListEntry );
-        entry->Inserted = FALSE;
-    }
-    KeReleaseSpinLock( &queue->Lock, irql );
-
-    return entry;
 }

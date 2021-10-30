@@ -1076,11 +1076,13 @@ BOOL WINAPI SetupInstallFromInfSectionW( HWND owner, HINF hinf, PCWSTR section, 
     BOOL ret;
     int i;
 
-    if (flags & SPINST_REGSVR)
+    if (flags & SPINST_REGISTRY)
     {
-        if (iterate_section_fields( hinf, section, L"WineFakeDlls", fake_dlls_callback, NULL ))
-            cleanup_fake_dlls();
-        else
+        struct registry_callback_info info;
+
+        info.default_root = key_root;
+        info.delete = FALSE;
+        if (!iterate_section_fields( hinf, section, L"WinePreInstall", registry_callback, &info ))
             return FALSE;
     }
     if (flags & SPINST_FILES)
@@ -1119,14 +1121,24 @@ BOOL WINAPI SetupInstallFromInfSectionW( HWND owner, HINF hinf, PCWSTR section, 
     }
     if (flags & SPINST_REGSVR)
     {
-        struct register_dll_info info = { .unregister = FALSE };
+        struct register_dll_info info;
         HRESULT hr;
 
+        info.unregister    = FALSE;
+        info.modules_size  = 0;
+        info.modules_count = 0;
+        info.modules       = NULL;
         if (flags & SPINST_REGISTERCALLBACKAWARE)
         {
             info.callback         = callback;
             info.callback_context = context;
         }
+        else info.callback = NULL;
+
+        if (iterate_section_fields( hinf, section, L"WineFakeDlls", fake_dlls_callback, NULL ))
+            cleanup_fake_dlls();
+        else
+            return FALSE;
 
         hr = CoInitialize(NULL);
 
@@ -1141,14 +1153,19 @@ BOOL WINAPI SetupInstallFromInfSectionW( HWND owner, HINF hinf, PCWSTR section, 
     }
     if (flags & SPINST_UNREGSVR)
     {
-        struct register_dll_info info = { .unregister = TRUE };
+        struct register_dll_info info;
         HRESULT hr;
 
+        info.unregister    = TRUE;
+        info.modules_size  = 0;
+        info.modules_count = 0;
+        info.modules       = NULL;
         if (flags & SPINST_REGISTERCALLBACKAWARE)
         {
             info.callback         = callback;
             info.callback_context = context;
         }
+        else info.callback = NULL;
 
         hr = CoInitialize(NULL);
 

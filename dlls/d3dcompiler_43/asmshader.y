@@ -30,11 +30,11 @@ struct asm_parser asm_ctx;
 
 void WINAPIV asmparser_message(struct asm_parser *ctx, const char *fmt, ...)
 {
-    va_list args;
+    __ms_va_list args;
 
-    va_start(args, fmt);
+    __ms_va_start(args, fmt);
     compilation_message(&ctx->messages, fmt, args);
-    va_end(args);
+    __ms_va_end(args);
 }
 
 static void asmshader_error(char const *s) {

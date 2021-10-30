@@ -18,7 +18,7 @@
 @ stdcall DCompositionCreateDevice(ptr ptr ptr)
 @ stub DCompositionCreateSurfaceHandle
 @ stub DeserializeEffectDescription
-@ stdcall -private DllCanUnloadNow()
+@ stub DllCanUnloadNow
 @ stub DllGetActivationFactory
 @ stub DllGetClassObject
 @ stub DwmEnableMMCSS

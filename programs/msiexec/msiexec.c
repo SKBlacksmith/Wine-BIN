@@ -22,7 +22,6 @@
 #define WIN32_LEAN_AND_MEAN
 
 #include <windows.h>
-#include <commctrl.h>
 #include <msi.h>
 #include <winsvc.h>
 #include <objbase.h>
@@ -626,8 +625,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 	DWORD ReturnCode;
 	int argc;
 	LPWSTR *argvW = NULL;
-
-        InitCommonControls();
 
 	/* parse the command line */
 	process_args( GetCommandLineW(), &argc, &argvW );

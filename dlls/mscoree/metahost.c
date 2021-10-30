@@ -29,7 +29,6 @@
 #include "winreg.h"
 #include "winternl.h"
 #include "ole2.h"
-#include "shlwapi.h"
 
 #include "corerror.h"
 #include "cor.h"
@@ -88,8 +87,6 @@ typedef void (CDECL *MonoProfilerRuntimeShutdownBeginCallback) (MonoProfiler *pr
 MonoImage* (CDECL *mono_assembly_get_image)(MonoAssembly *assembly);
 MonoAssembly* (CDECL *mono_assembly_load_from)(MonoImage *image, const char *fname, MonoImageOpenStatus *status);
 const char* (CDECL *mono_assembly_name_get_name)(MonoAssemblyName *aname);
-const char* (CDECL *mono_assembly_name_get_culture)(MonoAssemblyName *aname);
-WORD (CDECL *mono_assembly_name_get_version)(MonoAssemblyName *aname, WORD *minor, WORD *build, WORD *revision);
 MonoAssembly* (CDECL *mono_assembly_open)(const char *filename, MonoImageOpenStatus *status);
 void (CDECL *mono_callspec_set_assembly)(MonoAssembly *assembly);
 MonoClass* (CDECL *mono_class_from_mono_type)(MonoType *type);
@@ -107,7 +104,6 @@ MonoImage* (CDECL *mono_image_open_from_module_handle)(HMODULE module_handle, ch
 static void (CDECL *mono_install_assembly_preload_hook)(MonoAssemblyPreLoadFunc func, void *user_data);
 int (CDECL *mono_jit_exec)(MonoDomain *domain, MonoAssembly *assembly, int argc, char *argv[]);
 MonoDomain* (CDECL *mono_jit_init_version)(const char *domain_name, const char *runtime_version);
-static void (CDECL *mono_jit_set_aot_mode)(MonoAotMode mode);
 static int (CDECL *mono_jit_set_trace_options)(const char* options);
 void* (CDECL *mono_marshal_get_vtfixup_ftnptr)(MonoImage *image, DWORD token, WORD type);
 MonoDomain* (CDECL *mono_object_get_domain)(MonoObject *obj);
@@ -137,6 +133,8 @@ static MonoAssembly* CDECL mono_assembly_preload_hook_fn(MonoAssemblyName *aname
 
 static void CDECL mono_shutdown_callback_fn(MonoProfiler *prof);
 
+static void CDECL mono_print_handler_fn(const char *string, INT is_stdout);
+
 static MonoImage* CDECL image_open_module_handle_dummy(HMODULE module_handle,
     char* fname, UINT has_entry_point, MonoImageOpenStatus* status)
 {
@@ -158,8 +156,6 @@ static HRESULT load_mono(LPCWSTR mono_path)
     WCHAR mono_dll_path[MAX_PATH+16];
     WCHAR mono_lib_path[MAX_PATH+4], mono_etc_path[MAX_PATH+4];
     char mono_lib_path_a[MAX_PATH], mono_etc_path_a[MAX_PATH];
-    int aot_size;
-    char aot_setting[256];
     int trace_size;
     char trace_setting[256];
     int verbose_size;
@@ -197,8 +193,6 @@ static HRESULT load_mono(LPCWSTR mono_path)
         LOAD_MONO_FUNCTION(mono_assembly_get_image);
         LOAD_MONO_FUNCTION(mono_assembly_load_from);
         LOAD_MONO_FUNCTION(mono_assembly_name_get_name);
-        LOAD_MONO_FUNCTION(mono_assembly_name_get_culture);
-        LOAD_MONO_FUNCTION(mono_assembly_name_get_version);
         LOAD_MONO_FUNCTION(mono_assembly_open);
         LOAD_MONO_FUNCTION(mono_config_parse);
         LOAD_MONO_FUNCTION(mono_class_from_mono_type);
@@ -242,7 +236,6 @@ static HRESULT load_mono(LPCWSTR mono_path)
 
         LOAD_OPT_MONO_FUNCTION(mono_callspec_set_assembly, NULL);
         LOAD_OPT_MONO_FUNCTION(mono_image_open_from_module_handle, image_open_module_handle_dummy);
-        LOAD_OPT_MONO_FUNCTION(mono_jit_set_aot_mode, NULL);
         LOAD_OPT_MONO_FUNCTION(mono_profiler_create, NULL);
         LOAD_OPT_MONO_FUNCTION(mono_profiler_install, NULL);
         LOAD_OPT_MONO_FUNCTION(mono_profiler_set_runtime_shutdown_begin_callback, NULL);
@@ -280,30 +273,6 @@ static HRESULT load_mono(LPCWSTR mono_path)
         mono_config_parse(NULL);
 
         mono_install_assembly_preload_hook(mono_assembly_preload_hook_fn, NULL);
-
-        aot_size = GetEnvironmentVariableA("WINE_MONO_AOT", aot_setting, sizeof(aot_setting));
-
-        if (aot_size)
-        {
-            MonoAotMode mode;
-            if (strcmp(aot_setting, "interp") == 0)
-                mode = MONO_AOT_MODE_INTERP_ONLY;
-            else if (strcmp(aot_setting, "none") == 0)
-                mode = MONO_AOT_MODE_NONE;
-            else
-            {
-                ERR("unknown WINE_MONO_AOT setting, valid settings are interp and none\n");
-                mode = MONO_AOT_MODE_NONE;
-            }
-            if (mono_jit_set_aot_mode != NULL)
-            {
-                mono_jit_set_aot_mode(mode);
-            }
-            else
-            {
-                ERR("mono_jit_set_aot_mode export not found\n");
-            }
-        }
 
         trace_size = GetEnvironmentVariableA("WINE_MONO_TRACE", trace_setting, sizeof(trace_setting));
 
@@ -374,6 +343,17 @@ MonoDomain* get_root_domain(void)
 static void CDECL mono_shutdown_callback_fn(MonoProfiler *prof)
 {
     is_mono_shutdown = TRUE;
+}
+
+static void CDECL mono_print_handler_fn(const char *string, INT is_stdout)
+{
+    const char *p;
+    for (; *string; string = p)
+    {
+        if ((p = strstr(string, "\n"))) p++;
+        else p = string + strlen(string);
+        wine_dbg_printf("%.*s", (int)(p - string), string);
+    }
 }
 
 static HRESULT WINAPI thread_set_fn(void)
@@ -1542,9 +1522,8 @@ static DWORD get_basename_search_flags(const char *basename, MonoAssemblyName *a
         return reg_entry.flags;
     }
 
-    if (strcmp(basename, "Microsoft.Xna.Framework.*") == 0 &&
-        mono_assembly_name_get_version(aname, NULL, NULL, NULL) == 4)
-        /* Use FNA as a replacement for XNA4. */
+    if (strcmp(basename, "Microsoft.Xna.Framework.*") == 0)
+        /* XNA redist is broken in Wine Mono, use FNA instead. */
         return 0;
 
     return ASSEMBLY_SEARCH_UNDEFINED;
@@ -1672,48 +1651,24 @@ HRESULT get_file_from_strongname(WCHAR* stringnameW, WCHAR* assemblies_path, int
     return hr;
 }
 
-static MonoAssembly* mono_assembly_try_load(WCHAR *path)
-{
-    MonoAssembly *result = NULL;
-    MonoImageOpenStatus stat;
-    char *pathA;
-
-    if (!(pathA = WtoA(path))) return NULL;
-
-    result = mono_assembly_open(pathA, &stat);
-    HeapFree(GetProcessHeap(), 0, pathA);
-
-    if (result) TRACE("found: %s\n", debugstr_w(path));
-    return result;
-}
-
 static MonoAssembly* CDECL mono_assembly_preload_hook_fn(MonoAssemblyName *aname, char **assemblies_path, void *user_data)
 {
     HRESULT hr;
     MonoAssembly *result=NULL;
     char *stringname=NULL;
     const char *assemblyname;
-    const char *culture;
-    LPWSTR stringnameW, cultureW;
-    int stringnameW_size, cultureW_size;
+    LPWSTR stringnameW;
+    int stringnameW_size;
     WCHAR path[MAX_PATH];
     char *pathA;
     MonoImageOpenStatus stat;
     DWORD search_flags;
     int i;
     static const WCHAR dotdllW[] = {'.','d','l','l',0};
-    static const WCHAR dotexeW[] = {'.','e','x','e',0};
+    static const WCHAR slashW[] = {'\\',0};
 
     stringname = mono_stringify_assembly_name(aname);
     assemblyname = mono_assembly_name_get_name(aname);
-    culture = mono_assembly_name_get_culture(aname);
-    if (culture)
-    {
-        cultureW_size = MultiByteToWideChar(CP_UTF8, 0, culture, -1, NULL, 0);
-        cultureW = HeapAlloc(GetProcessHeap(), 0, cultureW_size * sizeof(WCHAR));
-        if (cultureW) MultiByteToWideChar(CP_UTF8, 0, culture, -1, cultureW, cultureW_size);
-    }
-    else cultureW = NULL;
 
     TRACE("%s\n", debugstr_a(stringname));
 
@@ -1729,60 +1684,26 @@ static MonoAssembly* CDECL mono_assembly_preload_hook_fn(MonoAssemblyName *aname
             MultiByteToWideChar(CP_UTF8, 0, assemblyname, -1, stringnameW, stringnameW_size);
             for (i = 0; private_path[i] != NULL; i++)
             {
-                /* This is the lookup order used in Mono */
-                /* 1st try: [culture]/[name].dll (culture may be empty) */
                 wcscpy(path, private_path[i]);
-                if (cultureW) PathAppendW(path, cultureW);
-                PathAppendW(path, stringnameW);
+                wcscat(path, slashW);
+                wcscat(path, stringnameW);
                 wcscat(path, dotdllW);
-                result = mono_assembly_try_load(path);
-                if (result) break;
-
-                /* 2nd try: [culture]/[name].exe (culture may be empty) */
-                wcscpy(path + wcslen(path) - wcslen(dotdllW), dotexeW);
-                result = mono_assembly_try_load(path);
-                if (result) break;
-
-                /* 3rd try: [culture]/[name]/[name].dll (culture may be empty) */
-                path[wcslen(path) - wcslen(dotexeW)] = 0;
-                PathAppendW(path, stringnameW);
-                wcscat(path, dotdllW);
-                result = mono_assembly_try_load(path);
-                if (result) break;
-
-                /* 4th try: [culture]/[name]/[name].exe (culture may be empty) */
-                wcscpy(path + wcslen(path) - wcslen(dotdllW), dotexeW);
-                result = mono_assembly_try_load(path);
-                if (result) break;
+                pathA = WtoA(path);
+                if (pathA)
+                {
+                    result = mono_assembly_open(pathA, &stat);
+                    if (result)
+                    {
+                        TRACE("found: %s\n", debugstr_w(path));
+                        HeapFree(GetProcessHeap(), 0, pathA);
+                        HeapFree(GetProcessHeap(), 0, stringnameW);
+                        mono_free(stringname);
+                        return result;
+                    }
+                    HeapFree(GetProcessHeap(), 0, pathA);
+                }
             }
             HeapFree(GetProcessHeap(), 0, stringnameW);
-            if (result) goto done;
-        }
-    }
-
-    if (!strcmp(assemblyname, "ManagedStarter"))
-    {
-        /* HACK for Mount & Blade II: Bannerlord
-         *
-         * The launcher executable uses an AssemblyResolve event handler
-         * to redirect loads of the "ManagedStarter" assembly to
-         * Bannerlord.exe. Due to Mono issue #11319, the runtime attempts
-         * to load ManagedStarter before executing the static constructor
-         * that adds this event handler. We work around this by doing the
-         * same thing in our own assembly load hook. */
-        const char* sgi = getenv("SteamGameId");
-        if (sgi && !strcmp(sgi, "261550"))
-        {
-            FIXME("hack, using Bannerlord.exe\n");
-
-            result = mono_assembly_open("Bannerlord.exe", &stat);
-
-            if (result)
-                goto done;
-            else
-            {
-                ERR("Bannerlord.exe failed to load\n");
-            }
         }
     }
 
@@ -1824,8 +1745,6 @@ static MonoAssembly* CDECL mono_assembly_preload_hook_fn(MonoAssemblyName *aname
     else
         TRACE("skipping Windows GAC search due to override setting\n");
 
-done:
-    HeapFree(GetProcessHeap(), 0, cultureW);
     mono_free(stringname);
 
     return result;

@@ -17,6 +17,7 @@
  */
 
 #include <stdarg.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -827,7 +828,6 @@ static const tid_t HTMLFormElement_iface_tids[] = {
 };
 
 static dispex_static_data_t HTMLFormElement_dispex = {
-    L"HTMLFormElement",
     NULL,
     DispHTMLFormElement_tid,
     HTMLFormElement_iface_tids,

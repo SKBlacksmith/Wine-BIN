@@ -1,4 +1,4 @@
-STATICLIB = libstrmbase.a
+MODULE    = libstrmbase.a
 
 C_SRCS = \
 	dispatch.c \
@@ -7,5 +7,6 @@ C_SRCS = \
 	outputqueue.c \
 	pin.c \
 	pospass.c \
+	qualitycontrol.c \
 	renderer.c \
 	seeking.c

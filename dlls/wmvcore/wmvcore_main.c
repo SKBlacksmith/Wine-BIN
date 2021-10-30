@@ -25,35 +25,27 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(wmvcore);
 
-HRESULT WINAPI winegstreamer_create_wm_async_reader(IWMReader **reader);
-HRESULT WINAPI winegstreamer_create_wm_sync_reader(IWMSyncReader **reader);
-
-HRESULT WINAPI WMCreateReader(IUnknown *reserved, DWORD rights, IWMReader **reader)
+BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
-    TRACE("reserved %p, rights %#x, reader %p.\n", reserved, rights, reader);
+    TRACE("(0x%p, %d, %p)\n", hinstDLL, fdwReason, lpvReserved);
 
-    return winegstreamer_create_wm_async_reader(reader);
+    switch (fdwReason)
+    {
+        case DLL_WINE_PREATTACH:
+            return FALSE;    /* prefer native version */
+        case DLL_PROCESS_ATTACH:
+            DisableThreadLibraryCalls(hinstDLL);
+            break;
+    }
+
+    return TRUE;
 }
 
-HRESULT WINAPI WMCreateReaderPriv(IWMReader **reader)
+HRESULT WINAPI DllRegisterServer(void)
 {
-    TRACE("reader %p.\n", reader);
+    FIXME("(): stub\n");
 
-    return winegstreamer_create_wm_async_reader(reader);
-}
-
-HRESULT WINAPI WMCreateSyncReader(IUnknown *reserved, DWORD rights, IWMSyncReader **reader)
-{
-    TRACE("reserved %p, rights %#x, reader %p.\n", reserved, rights, reader);
-
-    return winegstreamer_create_wm_sync_reader(reader);
-}
-
-HRESULT WINAPI WMCreateSyncReaderPriv(IWMSyncReader **reader)
-{
-    TRACE("reader %p.\n", reader);
-
-    return winegstreamer_create_wm_sync_reader(reader);
+    return S_OK;
 }
 
 HRESULT WINAPI WMCheckURLExtension(const WCHAR *url)

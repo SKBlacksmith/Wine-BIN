@@ -82,8 +82,8 @@
 @ cdecl ?unexpected@@YAXXZ() unexpected
 @ cdecl ?vswprintf@@YAHPAGIPBGPAD@Z(ptr long wstr ptr) _vsnwprintf
 @ cdecl ?vswprintf@@YAHPA_WIPB_WPAD@Z(ptr long wstr ptr) _vsnwprintf
-@ thiscall -arch=i386 ?what@exception@@UBEPBDXZ(ptr) exception_what
-@ cdecl -arch=win64 ?what@exception@@UEBAPEBDXZ(ptr) exception_what
+@ thiscall -arch=i386 ?what@exception@@UBEPBDXZ(ptr) what_exception
+@ cdecl -arch=win64 ?what@exception@@UEBAPEBDXZ(ptr) what_exception
 @ cdecl -norelay $I10_OUTPUT(double long long long ptr) I10_OUTPUT
 @ cdecl -arch=i386 _CIacos()
 @ cdecl -arch=i386 _CIasin()
@@ -176,7 +176,7 @@
 @ cdecl __p__osver()
 @ cdecl __p__pctype()
 @ cdecl __p__pgmptr()
-@ cdecl __p__pwctype()
+@ stub __p__pwctype()
 @ cdecl __p__timezone()
 @ cdecl __p__tzname()
 @ cdecl __p__wcmdln()
@@ -187,7 +187,7 @@
 @ cdecl __p__wpgmptr()
 @ cdecl __pctype_func()
 @ extern __pioinfo MSVCRT___pioinfo
-@ cdecl __pwctype_func()
+@ stub __pwctype_func
 @ cdecl __pxcptinfoptrs()
 @ cdecl __security_error_handler(long ptr)
 @ cdecl __set_app_type(long)
@@ -230,7 +230,7 @@
 @ cdecl _amsg_exit(long)
 @ cdecl _assert(str str long)
 @ cdecl _atodbl(ptr str)
-@ cdecl -ret64 _atoi64(str)
+@ cdecl -ret64 _atoi64(str) ntdll._atoi64
 @ cdecl _atoldbl(ptr str)
 @ cdecl _beep(long long)
 @ cdecl _beginthread(ptr long ptr)
@@ -337,7 +337,7 @@
 @ cdecl _getdrives() kernel32.GetLogicalDrives
 @ cdecl _getmaxstdio()
 @ cdecl _getmbcp()
-@ cdecl _getpid()
+@ cdecl _getpid() _getpid
 @ stub _getsystime(ptr)
 @ cdecl _getw(ptr)
 @ cdecl _getwch()
@@ -416,7 +416,7 @@
 @ cdecl _mbbtombc(long)
 @ cdecl _mbbtype(long long)
 # extern _mbcasemap
-@ cdecl _mbccpy(ptr ptr)
+@ cdecl _mbccpy(ptr str)
 @ cdecl _mbcjistojms(long)
 @ cdecl _mbcjmstojis(long)
 @ cdecl _mbclen(ptr)

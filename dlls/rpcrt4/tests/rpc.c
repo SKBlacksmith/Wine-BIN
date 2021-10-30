@@ -78,48 +78,34 @@ static BOOL Uuid_Comparison_Grid[11][11] = {
   { TRUE,  FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE  }
 };
 
-static void test_UuidEqual(void)
-{
-    UUID Uuid1, Uuid2, *PUuid1, *PUuid2;
-    RPC_STATUS status;
-    int i1, i2;
-
-    /* Uuid Equality */
-    for (i1 = 0; i1 < 11; i1++)
-    {
-        for (i2 = 0; i2 < 11; i2++)
-        {
-            if (i1 < 10)
-            {
-                Uuid1 = Uuid_Table[i1];
-                PUuid1 = &Uuid1;
-            }
-            else
-                PUuid1 = NULL;
-
-            if (i2 < 10)
-            {
-                Uuid2 = Uuid_Table[i2];
-                PUuid2 = &Uuid2;
-            }
-            else
-                PUuid2 = NULL;
-            ok(UuidEqual(PUuid1, PUuid2, &status) == Uuid_Comparison_Grid[i1][i2], "UUID Equality\n" );
-        }
-    }
-}
-
-static void test_UuidFromString(void)
-{
+static void UuidConversionAndComparison(void) {
     CHAR strx[100], x;
     LPSTR str = strx;
     WCHAR wstrx[100], wx;
     LPWSTR wstr = wstrx;
 
-    UUID Uuid1, Uuid2;
+    UUID Uuid1, Uuid2, *PUuid1, *PUuid2;
     RPC_STATUS rslt;
 
     int i1,i2;
+
+    /* Uuid Equality */
+    for (i1 = 0; i1 < 11; i1++)
+        for (i2 = 0; i2 < 11; i2++) {
+	    if (i1 < 10) {
+	        Uuid1 = Uuid_Table[i1]; 
+		PUuid1 = &Uuid1;
+            } else {
+	        PUuid1 = NULL;
+	    }        
+	    if (i2 < 10) {
+	        Uuid2 = Uuid_Table[i2];
+		PUuid2 = &Uuid2;
+            } else {
+	        PUuid2 = NULL;
+	    }
+	    ok( (UuidEqual(PUuid1, PUuid2, &rslt) == Uuid_Comparison_Grid[i1][i2]), "UUID Equality\n" );
+        }
 
     /* Uuid to String to Uuid (char) */
     for (i1 = 0; i1 < 10; i1++) {
@@ -155,7 +141,7 @@ static void test_UuidFromString(void)
     }
 }
 
-static void test_DceErrorInqTextA(void)
+static void TestDceErrorInqText (void)
 {
     char bufferInvalid [1024];
     char buffer [1024]; /* The required size is not documented but would
@@ -663,10 +649,17 @@ static void test_RpcStringBindingParseA(void)
     ok(options == NULL, "options was %p instead of NULL\n", options);
 }
 
-static void test_RpcExceptionFilter(void)
+static void test_RpcExceptionFilter(const char *func_name)
 {
-    int retval, retval2;
     ULONG exception;
+    int retval;
+    int (WINAPI *pRpcExceptionFilter)(ULONG) = (void *)GetProcAddress(GetModuleHandleA("rpcrt4.dll"), func_name);
+
+    if (!pRpcExceptionFilter)
+    {
+        win_skip("%s not exported\n", func_name);
+        return;
+    }
 
     for (exception = 0; exception < STATUS_REG_NAT_CONSUMPTION; exception++)
     {
@@ -675,8 +668,7 @@ static void test_RpcExceptionFilter(void)
         if (exception == 0x40000005) exception = 0x80000000;
         if (exception == 0x80000005) exception = 0xc0000000;
 
-        retval = RpcExceptionFilter(exception);
-        retval2 = I_RpcExceptionFilter(exception);
+        retval = pRpcExceptionFilter(exception);
         switch (exception)
         {
         case STATUS_DATATYPE_MISALIGNMENT:
@@ -687,25 +679,17 @@ static void test_RpcExceptionFilter(void)
         case STATUS_INSTRUCTION_MISALIGNMENT:
         case STATUS_STACK_OVERFLOW:
         case STATUS_POSSIBLE_DEADLOCK:
-            ok(retval == EXCEPTION_CONTINUE_SEARCH, "RpcExceptionFilter(0x%x) should have returned %d instead of %d\n",
-                    exception, EXCEPTION_CONTINUE_SEARCH, retval);
-            ok(retval2 == EXCEPTION_CONTINUE_SEARCH, "I_RpcExceptionFilter(0x%x) should have returned %d instead of %d\n",
-                    exception, EXCEPTION_CONTINUE_SEARCH, retval);
+            ok(retval == EXCEPTION_CONTINUE_SEARCH, "%s(0x%x) should have returned %d instead of %d\n",
+               func_name, exception, EXCEPTION_CONTINUE_SEARCH, retval);
             break;
         case STATUS_GUARD_PAGE_VIOLATION:
         case STATUS_IN_PAGE_ERROR:
         case STATUS_HANDLE_NOT_CLOSABLE:
-        todo_wine
-        {
-            ok(!retval, "Unexpected return value %d.\n", retval);
-            ok(!retval2, "Unexpected return value %d.\n", retval2);
-        }
+            trace("%s(0x%x) returned %d\n", func_name, exception, retval);
             break;
         default:
-            ok(retval == EXCEPTION_EXECUTE_HANDLER, "RpcExceptionFilter(0x%x) should have returned %d instead of %d\n",
-                   exception, EXCEPTION_EXECUTE_HANDLER, retval);
-            ok(retval2 == EXCEPTION_EXECUTE_HANDLER, "I_RpcExceptionFilter(0x%x) should have returned %d instead of %d\n",
-                   exception, EXCEPTION_EXECUTE_HANDLER, retval);
+            ok(retval == EXCEPTION_EXECUTE_HANDLER, "%s(0x%x) should have returned %d instead of %d\n",
+               func_name, exception, EXCEPTION_EXECUTE_HANDLER, retval);
         }
     }
 }
@@ -1251,23 +1235,22 @@ START_TEST( rpc )
     static unsigned char np_address[] = ".";
     BOOL firewall_enabled = is_firewall_enabled();
 
-    test_UuidEqual();
-    test_UuidFromString();
-    test_UuidCreate();
-    test_UuidCreateSequential();
-    test_DceErrorInqTextA();
-    test_I_RpcMapWin32Status();
-    test_RpcStringBindingParseA();
-    test_RpcExceptionFilter();
-
     if (firewall_enabled && !is_process_elevated())
     {
         skip("no privileges, skipping tests to avoid firewall dialog\n");
         return;
     }
 
+    UuidConversionAndComparison();
+    TestDceErrorInqText();
     test_towers();
+    test_I_RpcMapWin32Status();
+    test_RpcStringBindingParseA();
+    test_RpcExceptionFilter("I_RpcExceptionFilter");
+    test_RpcExceptionFilter("RpcExceptionFilter");
     test_RpcStringBindingFromBinding();
+    test_UuidCreate();
+    test_UuidCreateSequential();
     test_RpcBindingFree();
     test_RpcIfInqId();
     test_RpcServerInqDefaultPrincName();

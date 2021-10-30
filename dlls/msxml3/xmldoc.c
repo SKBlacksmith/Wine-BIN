@@ -20,9 +20,13 @@
 
 #define COBJMACROS
 
+#include "config.h"
+
 #include <stdarg.h>
-#include <libxml/parser.h>
-#include <libxml/xmlerror.h>
+#ifdef HAVE_LIBXML2
+# include <libxml/parser.h>
+# include <libxml/xmlerror.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -37,6 +41,8 @@
 #include "wine/debug.h"
 
 #include "msxml_private.h"
+
+#ifdef HAVE_LIBXML2
 
 WINE_DEFAULT_DEBUG_CHANNEL(msxml);
 
@@ -591,8 +597,12 @@ static HRESULT WINAPI xmldoc_IPersistStreamInit_IsDirty(
 
 static xmlDocPtr parse_xml(char *ptr, int len)
 {
+#ifdef HAVE_XMLREADMEMORY
     return xmlReadMemory(ptr, len, NULL, NULL,
                          XML_PARSE_NOERROR | XML_PARSE_NOWARNING | XML_PARSE_NOBLANKS);
+#else
+    return xmlParseMemory(ptr, len);
+#endif
 }
 
 static HRESULT WINAPI xmldoc_IPersistStreamInit_Load(
@@ -708,3 +718,14 @@ HRESULT XMLDocument_create(LPVOID *ppObj)
     TRACE("returning iface %p\n", *ppObj);
     return S_OK;
 }
+
+#else
+
+HRESULT XMLDocument_create(LPVOID *ppObj)
+{
+    MESSAGE("This program tried to use an XMLDocument object, but\n"
+            "libxml2 support was not present at compile time.\n");
+    return E_NOTIMPL;
+}
+
+#endif

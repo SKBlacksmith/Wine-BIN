@@ -29,6 +29,8 @@ WINE_DEFAULT_DEBUG_CHANNEL(atl);
 
 #define ATLVer1Size FIELD_OFFSET(_ATL_MODULEW, dwAtlBuildVer)
 
+HINSTANCE atl_instance;
+
 typedef unsigned char cpp_bool;
 
 static ICatRegister *catreg;
@@ -968,6 +970,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 
     switch(fdwReason) {
     case DLL_PROCESS_ATTACH:
+        atl_instance = hinstDLL;
         DisableThreadLibraryCalls(hinstDLL);
         break;
     case DLL_PROCESS_DETACH:

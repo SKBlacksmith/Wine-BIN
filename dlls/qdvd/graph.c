@@ -20,7 +20,7 @@
 
 #include "qdvd_private.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+WINE_DEFAULT_DEBUG_CHANNEL(qdvd);
 
 struct graph_builder
 {

@@ -20,11 +20,18 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include <wine/port.h>
+
 #include <assert.h>
 #include <stdarg.h>
 #include <string.h>
 
+#ifdef HAVE_GSM_GSM_H
+#include <gsm/gsm.h>
+#elif defined(HAVE_GSM_H)
 #include <gsm.h>
+#endif
 
 #include "windef.h"
 #include "winbase.h"
@@ -39,6 +46,63 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(gsm);
 
+#ifdef SONAME_LIBGSM
+
+static void *libgsm_handle;
+#define FUNCPTR(f) static typeof(f) * p##f
+FUNCPTR(gsm_create);
+FUNCPTR(gsm_destroy);
+FUNCPTR(gsm_option);
+FUNCPTR(gsm_encode);
+FUNCPTR(gsm_decode);
+
+#define LOAD_FUNCPTR(f) \
+    if((p##f = dlsym(libgsm_handle, #f)) == NULL) { \
+        dlclose(libgsm_handle); \
+        libgsm_handle = NULL; \
+        return FALSE; \
+    }
+
+/***********************************************************************
+ *           GSM_drvLoad
+ */
+static BOOL GSM_drvLoad(void)
+{
+    libgsm_handle = dlopen(SONAME_LIBGSM, RTLD_NOW);
+    if (libgsm_handle)
+    {
+        LOAD_FUNCPTR(gsm_create);
+        LOAD_FUNCPTR(gsm_destroy);
+        LOAD_FUNCPTR(gsm_option);
+        LOAD_FUNCPTR(gsm_encode);
+        LOAD_FUNCPTR(gsm_decode);
+        return TRUE;
+    }
+    else
+    {
+        ERR("Couldn't load " SONAME_LIBGSM ": %s\n", dlerror());
+        return FALSE;
+    }
+}
+
+/***********************************************************************
+ *           GSM_drvFree
+ */
+static LRESULT GSM_drvFree(void)
+{
+    if (libgsm_handle)
+        dlclose(libgsm_handle);
+    return 1;
+}
+
+#else
+
+static LRESULT GSM_drvFree(void)
+{
+    return 1;
+}
+
+#endif
 
 /***********************************************************************
  *           GSM_DriverDetails
@@ -291,6 +355,7 @@ static	LRESULT	GSM_FormatSuggest(PACMDRVFORMATSUGGEST adfs)
     return MMSYSERR_NOERROR;
 }
 
+#ifdef SONAME_LIBGSM
 /***********************************************************************
  *           GSM_StreamOpen
  *
@@ -299,23 +364,22 @@ static	LRESULT	GSM_StreamOpen(PACMDRVSTREAMINSTANCE adsi)
 {
     int used = 1;
     gsm r;
-    if (adsi->pwfxSrc->wFormatTag != WAVE_FORMAT_GSM610 && adsi->pwfxDst->wFormatTag != WAVE_FORMAT_GSM610)
-        return MMSYSERR_NOTSUPPORTED;
-
     if (!GSM_FormatValidate(adsi->pwfxSrc) || !GSM_FormatValidate(adsi->pwfxDst))
         return MMSYSERR_NOTSUPPORTED;
 
     if (adsi->pwfxSrc->nSamplesPerSec != adsi->pwfxDst->nSamplesPerSec)
         return MMSYSERR_NOTSUPPORTED;
 
-    r = gsm_create();
+    if (!GSM_drvLoad()) return MMSYSERR_NOTSUPPORTED;
+
+    r = pgsm_create();
     if (!r)
         return MMSYSERR_NOMEM;
-    if (gsm_option(r, GSM_OPT_WAV49, &used) < 0)
+    if (pgsm_option(r, GSM_OPT_WAV49, &used) < 0)
     {
         FIXME("Your libgsm library doesn't support GSM_OPT_WAV49\n");
         FIXME("Please recompile libgsm with WAV49 support\n");
-        gsm_destroy(r);
+        pgsm_destroy(r);
         return MMSYSERR_NOTSUPPORTED;
     }
     adsi->dwDriver = (DWORD_PTR)r;
@@ -328,7 +392,7 @@ static	LRESULT	GSM_StreamOpen(PACMDRVSTREAMINSTANCE adsi)
  */
 static	LRESULT	GSM_StreamClose(PACMDRVSTREAMINSTANCE adsi)
 {
-    gsm_destroy((gsm)adsi->dwDriver);
+    pgsm_destroy((gsm)adsi->dwDriver);
     return MMSYSERR_NOERROR;
 }
 
@@ -402,7 +466,7 @@ static LRESULT GSM_StreamConvert(PACMDRVSTREAMINSTANCE adsi, PACMDRVSTREAMHEADER
     }
 
     /* Reset the index to 0, just to be sure */
-    gsm_option(r, GSM_OPT_FRAME_INDEX, &odd);
+    pgsm_option(r, GSM_OPT_FRAME_INDEX, &odd);
 
     /* The native ms codec writes 65 bytes, and this requires 2 libgsm calls.
      * First 32 bytes are written, or 33 bytes read
@@ -420,12 +484,12 @@ static LRESULT GSM_StreamConvert(PACMDRVSTREAMINSTANCE adsi, PACMDRVSTREAMHEADER
         while (nsrc + 65 <= adsh->cbSrcLength)
         {
             /* Decode data */
-            if (gsm_decode(r, src + nsrc, (gsm_signal*)(dst + ndst)) < 0)
+            if (pgsm_decode(r, src + nsrc, (gsm_signal*)(dst + ndst)) < 0)
                 FIXME("Couldn't decode data\n");
             ndst += 320;
             nsrc += 33;
 
-            if (gsm_decode(r, src + nsrc, (gsm_signal*)(dst + ndst)) < 0)
+            if (pgsm_decode(r, src + nsrc, (gsm_signal*)(dst + ndst)) < 0)
                 FIXME("Couldn't decode data\n");
             ndst += 320;
             nsrc += 32;
@@ -449,10 +513,10 @@ static LRESULT GSM_StreamConvert(PACMDRVSTREAMINSTANCE adsi, PACMDRVSTREAMHEADER
         while (nsrc + 640 <= adsh->cbSrcLength)
         {
             /* Encode data */
-            gsm_encode(r, (gsm_signal*)(src+nsrc), dst+ndst);
+            pgsm_encode(r, (gsm_signal*)(src+nsrc), dst+ndst);
             nsrc += 320;
             ndst += 32;
-            gsm_encode(r, (gsm_signal*)(src+nsrc), dst+ndst);
+            pgsm_encode(r, (gsm_signal*)(src+nsrc), dst+ndst);
             nsrc += 320;
             ndst += 33;
         }
@@ -466,25 +530,25 @@ static LRESULT GSM_StreamConvert(PACMDRVSTREAMINSTANCE adsi, PACMDRVSTREAMHEADER
 
             if (todo > 320)
             {
-                gsm_encode(r, (gsm_signal*)(src+nsrc), dst+ndst);
+                pgsm_encode(r, (gsm_signal*)(src+nsrc), dst+ndst);
                 ndst += 32;
                 todo -= 320;
                 nsrc += 320;
 
                 memcpy(emptiness, src+nsrc, todo);
                 memset(emptiness + todo, 0, 320 - todo);
-                gsm_encode(r, (gsm_signal*)emptiness, dst+ndst);
+                pgsm_encode(r, (gsm_signal*)emptiness, dst+ndst);
                 ndst += 33;
             }
             else
             {
                 memcpy(emptiness, src+nsrc, todo);
                 memset(emptiness + todo, 0, 320 - todo);
-                gsm_encode(r, (gsm_signal*)emptiness, dst+ndst);
+                pgsm_encode(r, (gsm_signal*)emptiness, dst+ndst);
                 ndst += 32;
 
                 memset(emptiness, 0, todo);
-                gsm_encode(r, (gsm_signal*)emptiness, dst+ndst);
+                pgsm_encode(r, (gsm_signal*)emptiness, dst+ndst);
                 ndst += 33;
             }
             nsrc = adsh->cbSrcLength;
@@ -496,6 +560,8 @@ static LRESULT GSM_StreamConvert(PACMDRVSTREAMINSTANCE adsi, PACMDRVSTREAMHEADER
     TRACE("%d(%d) -> %d(%d)\n", nsrc, adsh->cbSrcLength, ndst, adsh->cbDstLength);
     return MMSYSERR_NOERROR;
 }
+
+#endif
 
 /**************************************************************************
  * 			GSM_DriverProc			[exported]
@@ -509,7 +575,7 @@ LRESULT CALLBACK GSM_DriverProc(DWORD_PTR dwDevID, HDRVR hDriv, UINT wMsg,
     switch (wMsg)
     {
     case DRV_LOAD:		return 1;
-    case DRV_FREE:		return 1;
+    case DRV_FREE:		return GSM_drvFree();
     case DRV_OPEN:		return 1;
     case DRV_CLOSE:		return 1;
     case DRV_ENABLE:		return 1;
@@ -535,6 +601,7 @@ LRESULT CALLBACK GSM_DriverProc(DWORD_PTR dwDevID, HDRVR hDriv, UINT wMsg,
     case ACMDM_FORMAT_SUGGEST:
 	return GSM_FormatSuggest((PACMDRVFORMATSUGGEST)dwParam1);
 
+#ifdef SONAME_LIBGSM
     case ACMDM_STREAM_OPEN:
 	return GSM_StreamOpen((PACMDRVSTREAMINSTANCE)dwParam1);
 
@@ -546,6 +613,13 @@ LRESULT CALLBACK GSM_DriverProc(DWORD_PTR dwDevID, HDRVR hDriv, UINT wMsg,
 
     case ACMDM_STREAM_CONVERT:
 	return GSM_StreamConvert((PACMDRVSTREAMINSTANCE)dwParam1, (PACMDRVSTREAMHEADER)dwParam2);
+#else
+    case ACMDM_STREAM_OPEN: WARN("libgsm support not compiled in!\n");
+    case ACMDM_STREAM_CLOSE:
+    case ACMDM_STREAM_SIZE:
+    case ACMDM_STREAM_CONVERT:
+        return MMSYSERR_NOTSUPPORTED;
+#endif
 
     case ACMDM_HARDWARE_WAVE_CAPS_INPUT:
     case ACMDM_HARDWARE_WAVE_CAPS_OUTPUT:

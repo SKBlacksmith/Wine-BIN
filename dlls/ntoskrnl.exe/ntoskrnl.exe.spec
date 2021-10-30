@@ -465,7 +465,6 @@
 @ stdcall IoReuseIrp(ptr long)
 @ stub IoSetCompletionRoutineEx
 @ stdcall IoSetDeviceInterfaceState(ptr long)
-@ stdcall IoSetDevicePropertyData(ptr ptr long long long long ptr)
 @ stub IoSetDeviceToVerify
 @ stub IoSetFileOrigin
 @ stub IoSetHardErrorOrVerifyDevice
@@ -567,7 +566,7 @@
 @ stub KeI386SetGdtSelector
 @ stub KeIcacheFlushCount
 @ stdcall KeInitializeApc(ptr ptr long ptr ptr ptr long ptr)
-@ stdcall KeInitializeDeviceQueue(ptr)
+@ stub KeInitializeDeviceQueue
 @ stdcall KeInitializeDpc(ptr ptr ptr)
 @ stdcall KeInitializeEvent(ptr long long)
 @ stub KeInitializeInterrupt
@@ -575,11 +574,11 @@
 @ stdcall KeInitializeMutex(ptr long)
 @ stub KeInitializeQueue
 @ stdcall KeInitializeSemaphore(ptr long long)
-@ stdcall KeInitializeSpinLock(ptr) NTOSKRNL_KeInitializeSpinLock
+@ stdcall KeInitializeSpinLock(ptr)
 @ stdcall KeInitializeTimer(ptr)
 @ stdcall KeInitializeTimerEx(ptr long)
 @ stub KeInsertByKeyDeviceQueue
-@ stdcall KeInsertDeviceQueue(ptr ptr)
+@ stub KeInsertDeviceQueue
 @ stub KeInsertHeadQueue
 @ stdcall KeInsertQueue(ptr ptr)
 @ stub KeInsertQueueApc
@@ -617,7 +616,7 @@
 @ stdcall KeReleaseSpinLockFromDpcLevel(ptr)
 @ stub KeRemoveByKeyDeviceQueue
 @ stub KeRemoveByKeyDeviceQueueIfBusy
-@ stdcall KeRemoveDeviceQueue(ptr)
+@ stub KeRemoveDeviceQueue
 @ stub KeRemoveEntryDeviceQueue
 @ stub KeRemoveQueue
 @ stub KeRemoveQueueDpc
@@ -702,7 +701,7 @@
 @ stub MmFreeMappingAddress
 @ stdcall MmFreeNonCachedMemory(ptr long)
 @ stub MmFreePagesFromMdl
-@ stdcall MmGetPhysicalAddress(ptr)
+@ stub MmGetPhysicalAddress
 @ stub MmGetPhysicalMemoryRanges
 @ stdcall MmGetSystemRoutineAddress(ptr)
 @ stub MmGetVirtualForPhysical
@@ -818,7 +817,6 @@
 @ stdcall NtSetSecurityObject(long long ptr)
 @ stdcall NtSetVolumeInformationFile(long ptr ptr long long)
 @ stdcall NtShutdownSystem(long)
-@ stdcall NtTraceControl(long ptr long ptr long long)
 @ stub NtTraceEvent
 @ stdcall NtUnlockFile(long ptr ptr ptr ptr)
 @ stub NtVdmControl
@@ -888,7 +886,7 @@
 @ stub PsGetContextThread
 @ stdcall PsGetCurrentProcess() IoGetCurrentProcess
 @ stdcall PsGetCurrentProcessId()
-@ stdcall PsGetCurrentProcessSessionId()
+@ stub PsGetCurrentProcessSessionId
 @ stdcall PsGetCurrentThread() KeGetCurrentThread
 @ stdcall PsGetCurrentThreadId()
 @ stub PsGetCurrentThreadPreviousMode
@@ -1214,9 +1212,7 @@
 @ stdcall RtlQueryDynamicTimeZoneInformation(ptr)
 @ stdcall RtlQueryInformationAcl(ptr ptr long long)
 @ stdcall RtlQueryPackageIdentity(long ptr ptr ptr ptr ptr)
-@ stdcall RtlQueryProcessPlaceholderCompatibilityMode()
 @ stdcall RtlQueryRegistryValues(long ptr ptr ptr ptr)
-@ stdcall RtlQueryRegistryValuesEx(long ptr ptr ptr ptr) RtlQueryRegistryValues
 @ stdcall RtlQueryTimeZoneInformation(ptr)
 @ stdcall -norelay RtlRaiseException(ptr)
 @ stdcall RtlRaiseStatus(long)
@@ -1430,21 +1426,21 @@
 @ stdcall -private ZwLockFile(long long ptr ptr ptr ptr ptr ptr long long) NtLockFile
 @ stdcall -private ZwLockVirtualMemory(long ptr ptr long) NtLockVirtualMemory
 @ stdcall ZwMakeTemporaryObject(long) NtMakeTemporaryObject
-@ stdcall ZwMapViewOfSection(long long ptr long long ptr ptr long long long) NtMapViewOfSection
+@ stdcall -private ZwMapViewOfSection(long long ptr long long ptr ptr long long long) NtMapViewOfSection
 @ stdcall -private ZwNotifyChangeDirectoryFile(long long ptr ptr ptr ptr long long long) NtNotifyChangeDirectoryFile
 @ stdcall -private ZwNotifyChangeKey(long long ptr ptr ptr long long ptr long long) NtNotifyChangeKey
 @ stdcall ZwOpenDirectoryObject(ptr long ptr) NtOpenDirectoryObject
 @ stdcall -private ZwOpenEvent(ptr long ptr) NtOpenEvent
 @ stdcall ZwOpenFile(ptr long ptr ptr long long) NtOpenFile
 @ stdcall -private ZwOpenJobObject(ptr long ptr) NtOpenJobObject
-@ stdcall ZwOpenKey(ptr long ptr) NtOpenKey
+@ stdcall -private ZwOpenKey(ptr long ptr) NtOpenKey
 @ stdcall -private ZwOpenKeyEx(ptr long ptr long) NtOpenKeyEx
 @ stdcall -private ZwOpenKeyTransacted(ptr long ptr long) NtOpenKeyTransacted
 @ stdcall -private ZwOpenKeyTransactedEx(ptr long ptr long long) NtOpenKeyTransactedEx
 @ stdcall -private ZwOpenProcess(ptr long ptr ptr) NtOpenProcess
 @ stdcall -private ZwOpenProcessToken(long long ptr) NtOpenProcessToken
 @ stdcall -private ZwOpenProcessTokenEx(long long long ptr) NtOpenProcessTokenEx
-@ stdcall ZwOpenSection(ptr long ptr) NtOpenSection
+@ stdcall -private ZwOpenSection(ptr long ptr) NtOpenSection
 @ stdcall -private ZwOpenSymbolicLinkObject(ptr long ptr) NtOpenSymbolicLinkObject
 @ stdcall -private ZwOpenThread(ptr long ptr ptr) NtOpenThread
 @ stdcall -private ZwOpenThreadToken(long long long ptr) NtOpenThreadToken
@@ -1469,7 +1465,7 @@
 @ stdcall -private ZwQueryInstallUILanguage(ptr) NtQueryInstallUILanguage
 @ stdcall -private ZwQueryKey(long long ptr long ptr) NtQueryKey
 @ stdcall -private ZwQueryLicenseValue(ptr ptr ptr long ptr) NtQueryLicenseValue
-@ stdcall ZwQueryObject(long long ptr long ptr) NtQueryObject
+@ stdcall -private ZwQueryObject(long long ptr long ptr) NtQueryObject
 @ stdcall -private ZwQuerySection(long long ptr long ptr) NtQuerySection
 @ stdcall -private ZwQuerySecurityObject(long long ptr long ptr) NtQuerySecurityObject
 @ stdcall -private ZwQuerySymbolicLinkObject(long ptr ptr) NtQuerySymbolicLinkObject
@@ -1477,7 +1473,7 @@
 @ stdcall -private ZwQuerySystemInformation(long ptr long ptr) NtQuerySystemInformation
 @ stdcall -private ZwQuerySystemInformationEx(long ptr long ptr long ptr) NtQuerySystemInformationEx
 @ stdcall -private ZwQueryTimerResolution(ptr ptr ptr) NtQueryTimerResolution
-@ stdcall ZwQueryValueKey(long ptr long ptr long ptr) NtQueryValueKey
+@ stdcall -private ZwQueryValueKey(long ptr long ptr long ptr) NtQueryValueKey
 @ stdcall -private ZwQueryVirtualMemory(long ptr long ptr long ptr) NtQueryVirtualMemory
 @ stdcall -private ZwQueryVolumeInformationFile(long ptr ptr long long) NtQueryVolumeInformationFile
 @ stdcall -private ZwReadFile(long long ptr ptr ptr ptr long ptr ptr) NtReadFile
@@ -1515,13 +1511,12 @@
 @ stdcall -private ZwSetVolumeInformationFile(long ptr ptr long long) NtSetVolumeInformationFile
 @ stdcall -private ZwTerminateJobObject(long long) NtTerminateJobObject
 @ stdcall -private ZwTerminateProcess(long long) NtTerminateProcess
-@ stdcall -private ZwTraceControl(long ptr long ptr long long) NtTraceControl
 @ stub ZwTranslateFilePath
 @ stdcall ZwUnloadDriver(ptr)
 @ stdcall -private ZwUnloadKey(ptr) NtUnloadKey
 @ stdcall -private ZwUnlockFile(long ptr ptr ptr ptr) NtUnlockFile
 @ stdcall -private ZwUnlockVirtualMemory(long ptr ptr long) NtUnlockVirtualMemory
-@ stdcall ZwUnmapViewOfSection(long ptr) NtUnmapViewOfSection
+@ stdcall -private ZwUnmapViewOfSection(long ptr) NtUnmapViewOfSection
 @ stdcall -private ZwWaitForMultipleObjects(long ptr long long ptr) NtWaitForMultipleObjects
 @ stdcall ZwWaitForSingleObject(long long ptr) NtWaitForSingleObject
 @ stdcall ZwWriteFile(long long ptr ptr ptr ptr long ptr ptr) NtWriteFile
@@ -1690,4 +1685,3 @@
 # or 'wine_' (for user-visible functions) to avoid namespace conflicts.
 
 @ cdecl wine_ntoskrnl_main_loop(long)
-@ cdecl wine_enumerate_root_devices(wstr)

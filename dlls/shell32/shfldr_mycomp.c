@@ -19,6 +19,9 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include "config.h"
+#include "wine/port.h"
+
 #include <stdlib.h>
 #include <string.h>
 #include <stdarg.h>
@@ -242,6 +245,13 @@ static HRESULT WINAPI ISF_MyComputer_fnParseDisplayName (IShellFolder2 *iface,
 /* retrieve a map of drives that should be displayed */
 static DWORD get_drive_map(void)
 {
+    static const WCHAR policiesW[] = {'S','o','f','t','w','a','r','e','\\',
+                                      'M','i','c','r','o','s','o','f','t','\\',
+                                      'W','i','n','d','o','w','s','\\',
+                                      'C','u','r','r','e','n','t','V','e','r','s','i','o','n','\\',
+                                      'P','o','l','i','c','i','e','s','\\',
+                                      'E','x','p','l','o','r','e','r',0};
+    static const WCHAR nodrivesW[] = {'N','o','D','r','i','v','e','s',0};
     static DWORD drive_mask;
     static BOOL init_done = FALSE;
 
@@ -250,17 +260,17 @@ static DWORD get_drive_map(void)
         DWORD type, size, data, mask = 0;
         HKEY hkey;
 
-        if (!RegOpenKeyW( HKEY_LOCAL_MACHINE, L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer", &hkey ))
+        if (!RegOpenKeyW( HKEY_LOCAL_MACHINE, policiesW, &hkey ))
         {
             size = sizeof(data);
-            if (!RegQueryValueExW( hkey, L"NoDrives", NULL, &type, (LPBYTE)&data, &size ) && type == REG_DWORD)
+            if (!RegQueryValueExW( hkey, nodrivesW, NULL, &type, (LPBYTE)&data, &size ) && type == REG_DWORD)
                 mask |= data;
             RegCloseKey( hkey );
         }
-        if (!RegOpenKeyW( HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Policies\\Explorer", &hkey ))
+        if (!RegOpenKeyW( HKEY_CURRENT_USER, policiesW, &hkey ))
         {
             size = sizeof(data);
-            if (!RegQueryValueExW( hkey, L"NoDrives", NULL, &type, (LPBYTE)&data, &size ) && type == REG_DWORD)
+            if (!RegQueryValueExW( hkey, nodrivesW, NULL, &type, (LPBYTE)&data, &size ) && type == REG_DWORD)
                 mask |= data;
             RegCloseKey( hkey );
         }
@@ -274,6 +284,12 @@ static DWORD get_drive_map(void)
 /**************************************************************************
  *  CreateMyCompEnumList()
  */
+static const WCHAR MyComputer_NameSpaceW[] = { 'S','O','F','T','W','A','R','E',
+ '\\','M','i','c','r','o','s','o','f','t','\\','W','i','n','d','o','w','s','\\',
+ 'C','u','r','r','e','n','t','V','e','r','s','i','o','n','\\','E','x','p','l',
+ 'o','r','e','r','\\','M','y','C','o','m','p','u','t','e','r','\\','N','a','m',
+ 'e','s','p','a','c','e','\0' };
+
 static BOOL CreateMyCompEnumList(IEnumIDListImpl *list, DWORD dwFlags)
 {
     BOOL ret = TRUE;
@@ -283,7 +299,7 @@ static BOOL CreateMyCompEnumList(IEnumIDListImpl *list, DWORD dwFlags)
     /* enumerate the folders */
     if (dwFlags & SHCONTF_FOLDERS)
     {
-        WCHAR wszDriveName[] = L"A:\\";
+        WCHAR wszDriveName[] = {'A', ':', '\\', '\0'};
         DWORD dwDrivemap = get_drive_map();
         HKEY hkey;
         UINT i;
@@ -299,8 +315,7 @@ static BOOL CreateMyCompEnumList(IEnumIDListImpl *list, DWORD dwFlags)
         TRACE("-- (%p)-> enumerate (mycomputer shell extensions)\n",list);
         for (i=0; i<2; i++) {
             if (ret && !RegOpenKeyExW(i == 0 ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER,
-                                      L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Explorer\\MyComputer\\Namespace",
-                                      0, KEY_READ, &hkey))
+                                      MyComputer_NameSpaceW, 0, KEY_READ, &hkey))
             {
                 WCHAR iid[50];
                 int i=0;
@@ -364,7 +379,7 @@ static HRESULT WINAPI ISF_MyComputer_fnBindToObject (IShellFolder2 *iface,
     TRACE("(%p)->(pidl=%p,%p,%s,%p)\n", This,
           pidl, pbcReserved, shdebugstr_guid (riid), ppvOut);
 
-    return SHELL32_BindToChild (This->pidlRoot, &CLSID_ShellFSFolder, NULL, pidl, riid, ppvOut);
+    return SHELL32_BindToChild (This->pidlRoot, NULL, pidl, riid, ppvOut);
 }
 
 /**************************************************************************
@@ -601,6 +616,13 @@ static HRESULT WINAPI ISF_MyComputer_fnGetDisplayNameOf (IShellFolder2 *iface,
             {
                 if ((GET_SHGDN_FOR (dwFlags) & (SHGDN_FORPARSING | SHGDN_FORADDRESSBAR)) == SHGDN_FORPARSING)
                 {
+                    static const WCHAR clsidW[] =
+                     { 'C','L','S','I','D','\\',0 };
+                    static const WCHAR shellfolderW[] =
+                     { '\\','s','h','e','l','l','f','o','l','d','e','r',0 };
+                    static const WCHAR wantsForParsingW[] =
+                     { 'W','a','n','t','s','F','o','r','P','a','r','s','i','n',
+                     'g',0 };
                     BOOL bWantsForParsing = FALSE;
                     WCHAR szRegPath[100];
                     LONG r;
@@ -616,10 +638,11 @@ static HRESULT WINAPI ISF_MyComputer_fnGetDisplayNameOf (IShellFolder2 *iface,
                      * Get the "WantsFORPARSING" flag from the registry
                      */
 
-                    lstrcpyW (szRegPath, L"CLSID\\");
+                    lstrcpyW (szRegPath, clsidW);
                     SHELL32_GUIDToStringW (clsid, &szRegPath[6]);
-                    lstrcatW (szRegPath, L"\\shellfolder");
-                    r = SHGetValueW (HKEY_CLASSES_ROOT, szRegPath, L"WantsForParsing", NULL, NULL, NULL);
+                    lstrcatW (szRegPath, shellfolderW);
+                    r = SHGetValueW (HKEY_CLASSES_ROOT, szRegPath, 
+                                     wantsForParsingW, NULL, NULL, NULL);
                     if (r == ERROR_SUCCESS)
                         bWantsForParsing = TRUE;
 
@@ -670,14 +693,16 @@ static HRESULT WINAPI ISF_MyComputer_fnGetDisplayNameOf (IShellFolder2 *iface,
             /* long view "lw_name (C:)" */
             if (!(dwFlags & SHGDN_FORPARSING))
             {
+                static const WCHAR wszOpenBracket[] = {' ','(',0};
+                static const WCHAR wszCloseBracket[] = {')',0};
                 WCHAR wszDrive[32 /* label */ + 6 /* ' (C:)'\0 */] = {0};
 
                 GetVolumeInformationW (pszPath, wszDrive, ARRAY_SIZE(wszDrive) - 5, NULL, NULL,
                         NULL, NULL, 0);
-                lstrcatW (wszDrive, L" (");
-                lstrcpynW (wszDrive + lstrlenW(wszDrive), pszPath, 3);
-                lstrcatW (wszDrive, L")");
-                lstrcpyW (pszPath, wszDrive);
+                strcatW (wszDrive, wszOpenBracket);
+                lstrcpynW (wszDrive + strlenW(wszDrive), pszPath, 3);
+                strcatW (wszDrive, wszCloseBracket);
+                strcpyW (pszPath, wszDrive);
             }
         }
         else 
@@ -809,6 +834,13 @@ static HRESULT WINAPI ISF_MyComputer_fnGetDetailsOf (IShellFolder2 *iface,
 
     switch (iColumn)
     {
+        case 0:        /* name */
+            hr = IShellFolder2_GetDisplayNameOf (iface, pidl,
+                       SHGDN_NORMAL | SHGDN_INFOLDER, &psd->str);
+            break;
+        case 1:        /* type */
+            _ILGetFileType (pidl, psd->str.u.cStr, MAX_PATH);
+            break;
         case 2:        /* total size */
             if (_ILIsDrive (pidl))
             {
@@ -825,9 +857,6 @@ static HRESULT WINAPI ISF_MyComputer_fnGetDetailsOf (IShellFolder2 *iface,
                 StrFormatByteSizeA (ulBytes.u.LowPart, psd->str.u.cStr, MAX_PATH);
             }
             break;
-
-        default:
-            return shellfolder_get_file_details( iface, pidl, mycomputer_header, iColumn, psd );
     }
 
     return hr;

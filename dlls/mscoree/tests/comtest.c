@@ -166,7 +166,7 @@ static void run_registry_test(run_type run)
     if (run == run_type_exe_directory) result_expected = S_OK;
     else result_expected = HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND);
 
-    sprintf(buffer, "CLSID\\%s", wine_dbgstr_guid(&CLSID_Test));
+    sprintf(buffer, "CLSID\\%s", wine_dbgstr_guid(&CLSID_Test), "");
     ret = RegCreateKeyA( HKEY_CLASSES_ROOT, buffer, &hkey );
     if (ret == ERROR_ACCESS_DENIED && !IsUserAnAdmin())
     {
@@ -195,7 +195,7 @@ static void run_registry_test(run_type run)
         ok(hr == S_OK, "Got %x\n", hr);
         ok(i == 42, "Expected 42, got %d\n", i);
         hr = ITest_QueryInterface(test, &IID_ITest2, (void**)&unk);
-        ok(hr == S_OK, "ITest_QueryInterface returned %x\n", hr);
+        todo_wine ok(hr == S_OK, "ITest_QueryInterface returned %x\n", hr);
         if (hr == S_OK) IUnknown_Release(unk);
         ITest_Release(test);
     }

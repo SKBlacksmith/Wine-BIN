@@ -199,11 +199,6 @@ typedef struct _RTL_USER_PROCESS_PARAMETERS
     UNICODE_STRING      ShellInfo;
     UNICODE_STRING      RuntimeInfo;
     RTL_DRIVE_LETTER_CURDIR DLCurrentDirectory[0x20];
-    ULONG_PTR           EnvironmentSize;
-    ULONG_PTR           EnvironmentVersion;
-    PVOID               PackageDependencyData;
-    ULONG               ProcessGroupId;
-    ULONG               LoaderThreads;
 } RTL_USER_PROCESS_PARAMETERS, *PRTL_USER_PROCESS_PARAMETERS;
 
 /* value for Flags field (FIXME: not the correct name) */
@@ -504,18 +499,9 @@ typedef struct _TEB
 
 
 /***********************************************************************
- * The 32-bit/64-bit version of the PEB and TEB for WoW64
+ * The 64-bit version of the PEB and TEB for WoW64
  */
-typedef struct _NT_TIB32
-{
-    ULONG ExceptionList;        /* 0000 */
-    ULONG StackBase;            /* 0004 */
-    ULONG StackLimit;           /* 0008 */
-    ULONG SubSystemTib;         /* 000c */
-    ULONG FiberData;            /* 0010 */
-    ULONG ArbitraryUserPointer; /* 0014 */
-    ULONG Self;                 /* 0018 */
-} NT_TIB32;
+#ifndef _WIN64
 
 typedef struct _NT_TIB64
 {
@@ -528,23 +514,11 @@ typedef struct _NT_TIB64
     ULONG64 Self;                 /* 0030 */
 } NT_TIB64;
 
-typedef struct _CLIENT_ID32
-{
-   ULONG UniqueProcess;
-   ULONG UniqueThread;
-} CLIENT_ID32;
-
 typedef struct _CLIENT_ID64
 {
    ULONG64 UniqueProcess;
    ULONG64 UniqueThread;
 } CLIENT_ID64;
-
-typedef struct _LIST_ENTRY32
-{
-    ULONG Flink;
-    ULONG Blink;
-} LIST_ENTRY32;
 
 typedef struct _LIST_ENTRY64
 {
@@ -552,28 +526,12 @@ typedef struct _LIST_ENTRY64
   ULONG64 Blink;
 } LIST_ENTRY64;
 
-typedef struct _UNICODE_STRING32
-{
-    USHORT  Length;
-    USHORT  MaximumLength;
-    ULONG   Buffer;
-} UNICODE_STRING32;
-
 typedef struct _UNICODE_STRING64
 {
   USHORT  Length;
   USHORT  MaximumLength;
   ULONG64 Buffer;
 } UNICODE_STRING64;
-
-typedef struct _ACTIVATION_CONTEXT_STACK32
-{
-    ULONG        ActiveFrame;
-    LIST_ENTRY32 FrameListCache;
-    ULONG        Flags;
-    ULONG        NextCookieSequenceNumber;
-    ULONG32      StackId;
-} ACTIVATION_CONTEXT_STACK32;
 
 typedef struct _ACTIVATION_CONTEXT_STACK64
 {
@@ -583,225 +541,6 @@ typedef struct _ACTIVATION_CONTEXT_STACK64
     ULONG        NextCookieSequenceNumber;
     ULONG64      StackId;
 } ACTIVATION_CONTEXT_STACK64;
-
-typedef struct _CURDIR32
-{
-    UNICODE_STRING32 DosPath;
-    ULONG Handle;
-} CURDIR32;
-
-typedef struct _CURDIR64
-{
-    UNICODE_STRING64 DosPath;
-    ULONG64 Handle;
-} CURDIR64;
-
-typedef struct RTL_DRIVE_LETTER_CURDIR32
-{
-    USHORT              Flags;
-    USHORT              Length;
-    ULONG               TimeStamp;
-    UNICODE_STRING32    DosPath;
-} RTL_DRIVE_LETTER_CURDIR32;
-
-typedef struct RTL_DRIVE_LETTER_CURDIR64
-{
-    USHORT              Flags;
-    USHORT              Length;
-    ULONG               TimeStamp;
-    UNICODE_STRING64    DosPath;
-} RTL_DRIVE_LETTER_CURDIR64;
-
-typedef struct _RTL_USER_PROCESS_PARAMETERS32
-{
-    ULONG               AllocationSize;
-    ULONG               Size;
-    ULONG               Flags;
-    ULONG               DebugFlags;
-    ULONG               ConsoleHandle;
-    ULONG               ConsoleFlags;
-    ULONG               hStdInput;
-    ULONG               hStdOutput;
-    ULONG               hStdError;
-    CURDIR32            CurrentDirectory;
-    UNICODE_STRING32    DllPath;
-    UNICODE_STRING32    ImagePathName;
-    UNICODE_STRING32    CommandLine;
-    ULONG               Environment;
-    ULONG               dwX;
-    ULONG               dwY;
-    ULONG               dwXSize;
-    ULONG               dwYSize;
-    ULONG               dwXCountChars;
-    ULONG               dwYCountChars;
-    ULONG               dwFillAttribute;
-    ULONG               dwFlags;
-    ULONG               wShowWindow;
-    UNICODE_STRING32    WindowTitle;
-    UNICODE_STRING32    Desktop;
-    UNICODE_STRING32    ShellInfo;
-    UNICODE_STRING32    RuntimeInfo;
-    RTL_DRIVE_LETTER_CURDIR32 DLCurrentDirectory[0x20];
-    ULONG               EnvironmentSize;
-    ULONG               EnvironmentVersion;
-    ULONG               PackageDependencyData;
-    ULONG               ProcessGroupId;
-    ULONG               LoaderThreads;
-} RTL_USER_PROCESS_PARAMETERS32;
-
-typedef struct _RTL_USER_PROCESS_PARAMETERS64
-{
-    ULONG               AllocationSize;
-    ULONG               Size;
-    ULONG               Flags;
-    ULONG               DebugFlags;
-    ULONG64             ConsoleHandle;
-    ULONG               ConsoleFlags;
-    ULONG64             hStdInput;
-    ULONG64             hStdOutput;
-    ULONG64             hStdError;
-    CURDIR64            CurrentDirectory;
-    UNICODE_STRING64    DllPath;
-    UNICODE_STRING64    ImagePathName;
-    UNICODE_STRING64    CommandLine;
-    ULONG64             Environment;
-    ULONG               dwX;
-    ULONG               dwY;
-    ULONG               dwXSize;
-    ULONG               dwYSize;
-    ULONG               dwXCountChars;
-    ULONG               dwYCountChars;
-    ULONG               dwFillAttribute;
-    ULONG               dwFlags;
-    ULONG               wShowWindow;
-    UNICODE_STRING64    WindowTitle;
-    UNICODE_STRING64    Desktop;
-    UNICODE_STRING64    ShellInfo;
-    UNICODE_STRING64    RuntimeInfo;
-    RTL_DRIVE_LETTER_CURDIR64 DLCurrentDirectory[0x20];
-    ULONG64             EnvironmentSize;
-    ULONG64             EnvironmentVersion;
-    ULONG64             PackageDependencyData;
-    ULONG               ProcessGroupId;
-    ULONG               LoaderThreads;
-} RTL_USER_PROCESS_PARAMETERS64;
-
-typedef struct _PEB_LDR_DATA32
-{
-    ULONG               Length;
-    BOOLEAN             Initialized;
-    ULONG               SsHandle;
-    LIST_ENTRY32        InLoadOrderModuleList;
-    LIST_ENTRY32        InMemoryOrderModuleList;
-    LIST_ENTRY32        InInitializationOrderModuleList;
-    ULONG               EntryInProgress;
-    BOOLEAN             ShutdownInProgress;
-    ULONG               ShutdownThreadId;
-} PEB_LDR_DATA32, *PPEB_LDR_DATA32;
-
-typedef struct _PEB_LDR_DATA64
-{
-    ULONG               Length;
-    BOOLEAN             Initialized;
-    ULONG64             SsHandle;
-    LIST_ENTRY64        InLoadOrderModuleList;
-    LIST_ENTRY64        InMemoryOrderModuleList;
-    LIST_ENTRY64        InInitializationOrderModuleList;
-    ULONG64             EntryInProgress;
-    BOOLEAN             ShutdownInProgress;
-    ULONG64             ShutdownThreadId;
-} PEB_LDR_DATA64, *PPEB_LDR_DATA64;
-
-typedef struct _PEB32
-{
-    BOOLEAN                      InheritedAddressSpace;             /* 0000 */
-    BOOLEAN                      ReadImageFileExecOptions;          /* 0001 */
-    BOOLEAN                      BeingDebugged;                     /* 0002 */
-    BOOLEAN                      SpareBool;                         /* 0003 */
-    ULONG                        Mutant;                            /* 0004 */
-    ULONG                        ImageBaseAddress;                  /* 0008 */
-    ULONG                        LdrData;                           /* 000c */
-    ULONG                        ProcessParameters;                 /* 0010 */
-    ULONG                        SubSystemData;                     /* 0014 */
-    ULONG                        ProcessHeap;                       /* 0018 */
-    ULONG                        FastPebLock;                       /* 001c */
-    ULONG                        FastPebLockRoutine;                /* 0020 */
-    ULONG                        FastPebUnlockRoutine;              /* 0024 */
-    ULONG                        EnvironmentUpdateCount;            /* 0028 */
-    ULONG                        KernelCallbackTable;               /* 002c */
-    ULONG                        Reserved;                          /* 0030 */
-    ULONG                        AtlThunkSListPtr32;                /* 0034 */
-    ULONG                        FreeList;                          /* 0038 */
-    ULONG                        TlsExpansionCounter;               /* 003c */
-    ULONG                        TlsBitmap;                         /* 0040 */
-    ULONG                        TlsBitmapBits[2];                  /* 0044 */
-    ULONG                        ReadOnlySharedMemoryBase;          /* 004c */
-    ULONG                        ReadOnlySharedMemoryHeap;          /* 0050 */
-    ULONG                        ReadOnlyStaticServerData;          /* 0054 */
-    ULONG                        AnsiCodePageData;                  /* 0058 */
-    ULONG                        OemCodePageData;                   /* 005c */
-    ULONG                        UnicodeCaseTableData;              /* 0060 */
-    ULONG                        NumberOfProcessors;                /* 0064 */
-    ULONG                        NtGlobalFlag;                      /* 0068 */
-    LARGE_INTEGER                CriticalSectionTimeout;            /* 0070 */
-    ULONG                        HeapSegmentReserve;                /* 0078 */
-    ULONG                        HeapSegmentCommit;                 /* 007c */
-    ULONG                        HeapDeCommitTotalFreeThreshold;    /* 0080 */
-    ULONG                        HeapDeCommitFreeBlockThreshold;    /* 0084 */
-    ULONG                        NumberOfHeaps;                     /* 0088 */
-    ULONG                        MaximumNumberOfHeaps;              /* 008c */
-    ULONG                        ProcessHeaps;                      /* 0090 */
-    ULONG                        GdiSharedHandleTable;              /* 0094 */
-    ULONG                        ProcessStarterHelper;              /* 0098 */
-    ULONG                        GdiDCAttributeList;                /* 009c */
-    ULONG                        LoaderLock;                        /* 00a0 */
-    ULONG                        OSMajorVersion;                    /* 00a4 */
-    ULONG                        OSMinorVersion;                    /* 00a8 */
-    ULONG                        OSBuildNumber;                     /* 00ac */
-    ULONG                        OSPlatformId;                      /* 00b0 */
-    ULONG                        ImageSubSystem;                    /* 00b4 */
-    ULONG                        ImageSubSystemMajorVersion;        /* 00b8 */
-    ULONG                        ImageSubSystemMinorVersion;        /* 00bc */
-    ULONG                        ImageProcessAffinityMask;          /* 00c0 */
-    ULONG                        GdiHandleBuffer[28];               /* 00c4 */
-    ULONG                        unknown[6];                        /* 0134 */
-    ULONG                        PostProcessInitRoutine;            /* 014c */
-    ULONG                        TlsExpansionBitmap;                /* 0150 */
-    ULONG                        TlsExpansionBitmapBits[32];        /* 0154 */
-    ULONG                        SessionId;                         /* 01d4 */
-    ULARGE_INTEGER               AppCompatFlags;                    /* 01d8 */
-    ULARGE_INTEGER               AppCompatFlagsUser;                /* 01e0 */
-    ULONG                        ShimData;                          /* 01e8 */
-    ULONG                        AppCompatInfo;                     /* 01ec */
-    UNICODE_STRING               CSDVersion;                        /* 01f0 */
-    ULONG                        ActivationContextData;             /* 01f8 */
-    ULONG                        ProcessAssemblyStorageMap;         /* 01fc */
-    ULONG                        SystemDefaultActivationData;       /* 0200 */
-    ULONG                        SystemAssemblyStorageMap;          /* 0204 */
-    ULONG                        MinimumStackCommit;                /* 0208 */
-    ULONG                        FlsCallback;                       /* 020c */
-    LIST_ENTRY                   FlsListHead;                       /* 0210 */
-    ULONG                        FlsBitmap;                         /* 0218 */
-    ULONG                        FlsBitmapBits[4];                  /* 021c */
-    ULONG                        FlsHighIndex;                      /* 022c */
-    ULONG                        WerRegistrationData;               /* 0230 */
-    ULONG                        WerShipAssertPtr;                  /* 0234 */
-    ULONG                        pUnused;                           /* 0238 */
-    ULONG                        pImageHeaderHash;                  /* 023c */
-    ULONG                        TracingFlags;                      /* 0240 */
-    ULONGLONG                    CsrServerReadOnlySharedMemoryBase; /* 0248 */
-    ULONG                        TppWorkerpListLock;                /* 0250 */
-    LIST_ENTRY                   TppWorkerpList;                    /* 0254 */
-    ULONG                        WaitOnAddressHashTable [0x80];     /* 025c */
-    ULONG                        TelemetryCoverageHeader;           /* 045c */
-    ULONG                        CloudFileFlags;                    /* 0460 */
-    ULONG                        CloudFileDiagFlags;                /* 0464 */
-    CHAR                         PlaceholderCompatibilityMode;      /* 0468 */
-    CHAR                         PlaceholderCompatibilityModeReserved[7]; /* 0469 */
-    ULONG                        LeapSecondData;                    /* 0470 */
-    ULONG                        LeapSecondFlags;                   /* 0474 */
-    ULONG                        NtGlobalFlag2;                     /* 0478 */
-} PEB32;
 
 typedef struct _PEB64
 {
@@ -893,98 +632,6 @@ typedef struct _PEB64
     ULONG                        LeapSecondFlags;                   /* 07c0 */
     ULONG                        NtGlobalFlag2;                     /* 07c4 */
 } PEB64;
-
-typedef struct _TEB32
-{
-    NT_TIB32                     Tib;                               /* 0000 */
-    ULONG                        EnvironmentPointer;                /* 001c */
-    CLIENT_ID32                  ClientId;                          /* 0020 */
-    ULONG                        ActiveRpcHandle;                   /* 0028 */
-    ULONG                        ThreadLocalStoragePointer;         /* 002c */
-    ULONG                        Peb;                               /* 0030 */
-    ULONG                        LastErrorValue;                    /* 0034 */
-    ULONG                        CountOfOwnedCriticalSections;      /* 0038 */
-    ULONG                        CsrClientThread;                   /* 003c */
-    ULONG                        Win32ThreadInfo;                   /* 0040 */
-    ULONG                        User32Reserved[26];                /* 0044 */
-    ULONG                        UserReserved[5];                   /* 00ac */
-    ULONG                        WOW32Reserved;                     /* 00c0 */
-    ULONG                        CurrentLocale;                     /* 00c4 */
-    ULONG                        FpSoftwareStatusRegister;          /* 00c8 */
-    ULONG                        ReservedForDebuggerInstrumentation[16]; /* 00cc */
-    ULONG                        SystemReserved1[26];               /* 010c */
-    char                         PlaceholderCompatibilityMode;      /* 0174 */
-    char                         PlaceholderReserved[11];           /* 0175 */
-    DWORD                        ProxiedProcessId;                  /* 0180 */
-    ACTIVATION_CONTEXT_STACK32   ActivationContextStack;            /* 0184 */
-    UCHAR                        WorkingOnBehalfOfTicket[8];        /* 019c */
-    LONG                         ExceptionCode;                     /* 01a4 */
-    ULONG                        ActivationContextStackPointer;     /* 01a8 */
-    ULONG                        InstrumentationCallbackSp;         /* 01ac */
-    ULONG                        InstrumentationCallbackPreviousPc; /* 01b0 */
-    ULONG                        InstrumentationCallbackPreviousSp; /* 01b4 */
-    BOOLEAN                      InstrumentationCallbackDisabled;   /* 01b8 */
-    BYTE                         SpareBytes1[23];                   /* 01b9 */
-    ULONG                        TxFsContext;                       /* 01d0 */
-    ULONG                        GdiTebBatch[0x138];                /* 01d4 */
-    CLIENT_ID32                  RealClientId;                      /* 06b4 */
-    ULONG                        GdiCachedProcessHandle;            /* 06bc */
-    ULONG                        GdiClientPID;                      /* 06c0 */
-    ULONG                        GdiClientTID;                      /* 06c4 */
-    ULONG                        GdiThreadLocaleInfo;               /* 06c8 */
-    ULONG                        Win32ClientInfo[62];               /* 06cc */
-    ULONG                        glDispatchTable[233];              /* 07c4 */
-    ULONG                        glReserved1[29];                   /* 0b68 */
-    ULONG                        glReserved2;                       /* 0bdc */
-    ULONG                        glSectionInfo;                     /* 0be0 */
-    ULONG                        glSection;                         /* 0be4 */
-    ULONG                        glTable;                           /* 0be8 */
-    ULONG                        glCurrentRC;                       /* 0bec */
-    ULONG                        glContext;                         /* 0bf0 */
-    ULONG                        LastStatusValue;                   /* 0bf4 */
-    UNICODE_STRING32             StaticUnicodeString;               /* 0bf8 */
-    WCHAR                        StaticUnicodeBuffer[261];          /* 0c00 */
-    ULONG                        DeallocationStack;                 /* 0e0c */
-    ULONG                        TlsSlots[64];                      /* 0e10 */
-    LIST_ENTRY32                 TlsLinks;                          /* 0f10 */
-    ULONG                        Vdm;                               /* 0f18 */
-    ULONG                        ReservedForNtRpc;                  /* 0f1c */
-    ULONG                        DbgSsReserved[2];                  /* 0f20 */
-    ULONG                        HardErrorDisabled;                 /* 0f28 */
-    ULONG                        Instrumentation[16];               /* 0f2c */
-    ULONG                        WinSockData;                       /* 0f6c */
-    ULONG                        GdiBatchCount;                     /* 0f70 */
-    ULONG                        Spare2;                            /* 0f74 */
-    ULONG                        GuaranteedStackBytes;              /* 0f78 */
-    ULONG                        ReservedForPerf;                   /* 0f7c */
-    ULONG                        ReservedForOle;                    /* 0f80 */
-    ULONG                        WaitingOnLoaderLock;               /* 0f84 */
-    ULONG                        Reserved5[3];                      /* 0f88 */
-    ULONG                        TlsExpansionSlots;                 /* 0f94 */
-    ULONG                        ImpersonationLocale;               /* 0f98 */
-    ULONG                        IsImpersonating;                   /* 0f9c */
-    ULONG                        NlsCache;                          /* 0fa0 */
-    ULONG                        ShimData;                          /* 0fa4 */
-    ULONG                        HeapVirtualAffinity;               /* 0fa8 */
-    ULONG                        CurrentTransactionHandle;          /* 0fac */
-    ULONG                        ActiveFrame;                       /* 0fb0 */
-    ULONG                        FlsSlots;                          /* 0fb4 */
-    ULONG                        PreferredLanguages;                /* 0fb8 */
-    ULONG                        UserPrefLanguages;                 /* 0fbc */
-    ULONG                        MergedPrefLanguages;               /* 0fc0 */
-    ULONG                        MuiImpersonation;                  /* 0fc4 */
-    USHORT                       CrossTebFlags;                     /* 0fc8 */
-    USHORT                       SameTebFlags;                      /* 0fca */
-    ULONG                        TxnScopeEnterCallback;             /* 0fcc */
-    ULONG                        TxnScopeExitCallback;              /* 0fd0 */
-    ULONG                        TxnScopeContext;                   /* 0fd4 */
-    ULONG                        LockCount;                         /* 0fd8 */
-    LONG                         WowTebOffset;                      /* 0fdc */
-    ULONG                        ResourceRetValue;                  /* 0fe0 */
-    ULONG                        ReservedForWdf;                    /* 0fe4 */
-    ULONGLONG                    ReservedForCrt;                    /* 0fe8 */
-    GUID                         EffectiveContainerId;              /* 0ff0 */
-} TEB32;
 
 typedef struct _TEB64
 {
@@ -1080,10 +727,9 @@ typedef struct _TEB64
 } TEB64;
 
 /* reserved TEB64 TLS slots for Wow64 */
-#define WOW64_TLS_CPURESERVED  1
-#define WOW64_TLS_TEMPLIST     3
 #define WOW64_TLS_FILESYSREDIR 8
 
+#endif  /* _WIN64 */
 
 /***********************************************************************
  * Enums
@@ -1473,13 +1119,6 @@ typedef struct _FILE_IO_COMPLETION_NOTIFICATION_INFORMATION {
 #define FILE_SKIP_SET_EVENT_ON_HANDLE        0x2
 #define FILE_SKIP_SET_USER_EVENT_ON_FAST_IO  0x4
 
-typedef struct _PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION
-{
-    ULONG  Version;
-    ULONG  Reserved;
-    VOID  *Callback;
-} PROCESS_INSTRUMENTATION_CALLBACK_INFORMATION, *PPROCESS_INSTRUMENTATION_CALLBACK_INFORMATION;
-
 typedef enum _FSINFOCLASS {
     FileFsVolumeInformation = 1,
     FileFsLabelInformation,
@@ -1516,7 +1155,7 @@ typedef enum _OBJECT_INFORMATION_CLASS {
     ObjectBasicInformation,
     ObjectNameInformation,
     ObjectTypeInformation,
-    ObjectTypesInformation,
+    ObjectAllInformation,
     ObjectDataInformation
 } OBJECT_INFORMATION_CLASS, *POBJECT_INFORMATION_CLASS;
 
@@ -1565,10 +1204,7 @@ typedef enum _PROCESSINFOCLASS {
     ProcessThreadStackAllocation = 41,
     ProcessWorkingSetWatchEx = 42,
     ProcessImageFileNameWin32 = 43,
-    MaxProcessInfoClass,
-#ifdef __WINESRC__
-    ProcessWineMakeProcessSystem = 1000,
-#endif
+    MaxProcessInfoClass
 } PROCESSINFOCLASS, PROCESS_INFORMATION_CLASS;
 
 #define MEM_EXECUTE_OPTION_DISABLE   0x01
@@ -1586,57 +1222,54 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemCpuInformation = 1,
     SystemPerformanceInformation = 2,
     SystemTimeOfDayInformation = 3, /* was SystemTimeInformation */
-    SystemPathInformation = 4,
+    Unknown4,
     SystemProcessInformation = 5,
-    SystemCallCountInformation = 6,
-    SystemDeviceInformation = 7,
+    Unknown6,
+    Unknown7,
     SystemProcessorPerformanceInformation = 8,
-    SystemFlagsInformation = 9,
-    SystemCallTimeInformation = 10,
+    Unknown9,
+    Unknown10,
     SystemModuleInformation = 11,
-    SystemLocksInformation = 12,
-    SystemStackTraceInformation = 13,
-    SystemPagedPoolInformation = 14,
-    SystemNonPagedPoolInformation = 15,
+    Unknown12,
+    Unknown13,
+    Unknown14,
+    Unknown15,
     SystemHandleInformation = 16,
-    SystemObjectInformation = 17,
+    Unknown17,
     SystemPageFileInformation = 18,
-    SystemVdmInstemulInformation = 19,
-    SystemVdmBopInformation = 20,
-    SystemFileCacheInformation = 21,
-    SystemPoolTagInformation = 22,
+    Unknown19,
+    Unknown20,
+    SystemCacheInformation = 21,
+    Unknown22,
     SystemInterruptInformation = 23,
-    SystemDpcBehaviorInformation = 24,
+    SystemDpcBehaviourInformation = 24,
     SystemFullMemoryInformation = 25,
     SystemNotImplemented6 = 25,
-    SystemLoadGdiDriverInformation = 26,
-    SystemUnloadGdiDriverInformation = 27,
+    SystemLoadImage = 26,
+    SystemUnloadImage = 27,
     SystemTimeAdjustmentInformation = 28,
     SystemTimeAdjustment = 28,
     SystemSummaryMemoryInformation = 29,
-    SystemMirrorMemoryInformation = 30,
-    SystemPerformanceTraceInformation = 31,
-    SystemObsolete0 = 32,
+    SystemNotImplemented7 = 29,
+    SystemNextEventIdInformation = 30,
+    SystemNotImplemented8 = 30,
+    SystemEventIdsInformation = 31,
+    SystemCrashDumpInformation = 32,
     SystemExceptionInformation = 33,
     SystemCrashDumpStateInformation = 34,
     SystemKernelDebuggerInformation = 35,
     SystemContextSwitchInformation = 36,
     SystemRegistryQuotaInformation = 37,
-    SystemExtendServiceTableInformation = 38,
-    SystemPrioritySeperation = 39,
-    SystemVerifierAddDriverInformation = 40,
-    SystemVerifierRemoveDriverInformation = 41,
-    SystemProcessorIdleInformation = 42,
-    SystemLegacyDriverInformation = 43,
     SystemCurrentTimeZoneInformation = 44,
+    SystemTimeZoneInformation = 44,
     SystemLookasideInformation = 45,
-    SystemTimeSlipNotification = 46,
-    SystemSessionCreate = 47,
-    SystemSessionDetach = 48,
-    SystemSessionInformation = 49,
+    SystemSetTimeSlipEvent = 46,
+    SystemCreateSession = 47,
+    SystemDeleteSession = 48,
+    SystemInvalidInfoClass4 = 49,
     SystemRangeStartInformation = 50,
     SystemVerifierInformation = 51,
-    SystemVerifierThunkExtend = 52,
+    SystemAddVerifier = 52,
     SystemSessionProcessesInformation	= 53,
     SystemLoadGdiDriverInSystemSpace = 54,
     SystemNumaProcessorMap = 55,
@@ -1658,7 +1291,7 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemWatchdogTimerHandler = 71,
     SystemWatchdogTimerInformation = 72,
     SystemLogicalProcessorInformation = 73,
-    SystemWow64SharedInformationObsolete = 74,
+    SystemWow64SharedInformation = 74,
     SystemRegisterFirmwareTableInformationHandler = 75,
     SystemFirmwareTableInformation = 76,
     SystemModuleInformationEx = 77,
@@ -1666,172 +1299,10 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
     SystemSuperfetchInformation = 79,
     SystemMemoryListInformation = 80,
     SystemFileCacheInformationEx = 81,
-    SystemThreadPriorityClientIdInformation = 82,
-    SystemProcessorIdleCycleTimeInformation = 83,
-    SystemVerifierCancellationInformation = 84,
-    SystemProcessorPowerInformationEx = 85,
-    SystemRefTraceInformation = 86,
-    SystemSpecialPoolInformation = 87,
-    SystemProcessIdInformation = 88,
-    SystemErrorPortInformation = 89,
-    SystemBootEnvironmentInformation = 90,
-    SystemHypervisorInformation = 91,
-    SystemVerifierInformationEx = 92,
-    SystemTimeZoneInformation = 93,
-    SystemImageFileExecutionOptionsInformation = 94,
-    SystemCoverageInformation = 95,
-    SystemPrefetchPatchInformation = 96,
-    SystemVerifierFaultsInformation = 97,
-    SystemSystemPartitionInformation = 98,
-    SystemSystemDiskInformation = 99,
-    SystemProcessorPerformanceDistribution = 100,
-    SystemNumaProximityNodeInformation = 101,
     SystemDynamicTimeZoneInformation = 102,
-    SystemCodeIntegrityInformation = 103,
-    SystemProcessorMicrocodeUpdateInformation = 104,
-    SystemProcessorBrandString = 105,
-    SystemVirtualAddressInformation = 106,
     SystemLogicalProcessorInformationEx = 107,
-    SystemProcessorCycleTimeInformation = 108,
-    SystemStoreInformation = 109,
-    SystemRegistryAppendString = 110,
-    SystemAitSamplingValue = 111,
-    SystemVhdBootInformation = 112,
-    SystemCpuQuotaInformation = 113,
-    SystemNativeBasicInformation = 114,
-    SystemErrorPortTimeouts = 115,
-    SystemLowPriorityIoInformation = 116,
-    SystemTpmBootEntropyInformation = 117,
-    SystemVerifierCountersInformation = 118,
-    SystemPagedPoolInformationEx = 119,
-    SystemSystemPtesInformationEx = 120,
-    SystemNodeDistanceInformation = 121,
-    SystemAcpiAuditInformation = 122,
-    SystemBasicPerformanceInformation = 123,
-    SystemQueryPerformanceCounterInformation = 124,
-    SystemSessionBigPoolInformation = 125,
-    SystemBootGraphicsInformation = 126,
-    SystemScrubPhysicalMemoryInformation = 127,
-    SystemBadPageInformation = 128,
-    SystemProcessorProfileControlArea = 129,
-    SystemCombinePhysicalMemoryInformation = 130,
-    SystemEntropyInterruptTimingInformation = 131,
-    SystemConsoleInformation = 132,
-    SystemPlatformBinaryInformation = 133,
-    SystemPolicyInformation = 134,
-    SystemHypervisorProcessorCountInformation = 135,
-    SystemDeviceDataInformation = 136,
-    SystemDeviceDataEnumerationInformation = 137,
-    SystemMemoryTopologyInformation = 138,
-    SystemMemoryChannelInformation = 139,
-    SystemBootLogoInformation = 140,
-    SystemProcessorPerformanceInformationEx = 141,
-    SystemCriticalProcessErrorLogInformation = 142,
-    SystemSecureBootPolicyInformation = 143,
-    SystemPageFileInformationEx = 144,
-    SystemSecureBootInformation = 145,
-    SystemEntropyInterruptTimingRawInformation = 146,
-    SystemPortableWorkspaceEfiLauncherInformation = 147,
-    SystemFullProcessInformation = 148,
-    SystemKernelDebuggerInformationEx = 149,
-    SystemBootMetadataInformation = 150,
-    SystemSoftRebootInformation = 151,
-    SystemElamCertificateInformation = 152,
-    SystemOfflineDumpConfigInformation = 153,
-    SystemProcessorFeaturesInformation = 154,
-    SystemRegistryReconciliationInformation = 155,
-    SystemEdidInformation = 156,
-    SystemManufacturingInformation = 157,
-    SystemEnergyEstimationConfigInformation = 158,
-    SystemHypervisorDetailInformation = 159,
-    SystemProcessorCycleStatsInformation = 160,
-    SystemVmGenerationCountInformation = 161,
-    SystemTrustedPlatformModuleInformation = 162,
-    SystemKernelDebuggerFlags = 163,
-    SystemCodeIntegrityPolicyInformation = 164,
-    SystemIsolatedUserModeInformation = 165,
-    SystemHardwareSecurityTestInterfaceResultsInformation = 166,
-    SystemSingleModuleInformation = 167,
-    SystemAllowedCpuSetsInformation = 168,
-    SystemVsmProtectionInformation = 169,
-    SystemInterruptCpuSetsInformation = 170,
-    SystemSecureBootPolicyFullInformation = 171,
-    SystemCodeIntegrityPolicyFullInformation = 172,
-    SystemAffinitizedInterruptProcessorInformation = 173,
-    SystemRootSiloInformation = 174,
-    SystemCpuSetInformation = 175,
-    SystemCpuSetTagInformation = 176,
-    SystemWin32WerStartCallout = 177,
-    SystemSecureKernelProfileInformation = 178,
-    SystemCodeIntegrityPlatformManifestInformation = 179,
-    SystemInterruptSteeringInformation = 180,
-    SystemSupportedProcessorArchitectures = 181,
-    SystemMemoryUsageInformation = 182,
-    SystemCodeIntegrityCertificateInformation = 183,
-    SystemPhysicalMemoryInformation = 184,
-    SystemControlFlowTransition = 185,
-    SystemKernelDebuggingAllowed = 186,
-    SystemActivityModerationExeState = 187,
-    SystemActivityModerationUserSettings = 188,
-    SystemCodeIntegrityPoliciesFullInformation = 189,
-    SystemCodeIntegrityUnlockInformation = 190,
-    SystemIntegrityQuotaInformation = 191,
-    SystemFlushInformation = 192,
-    SystemProcessorIdleMaskInformation = 193,
-    SystemSecureDumpEncryptionInformation = 194,
-    SystemWriteConstraintInformation = 195,
-    SystemKernelVaShadowInformation = 196,
-    SystemHypervisorSharedPageInformation = 197,
-    SystemFirmwareBootPerformanceInformation = 198,
-    SystemCodeIntegrityVerificationInformation = 199,
-    SystemFirmwarePartitionInformation = 200,
-    SystemSpeculationControlInformation = 201,
-    SystemDmaGuardPolicyInformation = 202,
-    SystemEnclaveLaunchControlInformation = 203,
-    SystemWorkloadAllowedCpuSetsInformation = 204,
-    SystemCodeIntegrityUnlockModeInformation = 205,
-    SystemLeapSecondInformation = 206,
-    SystemFlags2Information = 207,
-    SystemSecurityModelInformation = 208,
-    SystemCodeIntegritySyntheticCacheInformation = 209,
-    SystemFeatureConfigurationInformation = 210,
-    SystemFeatureConfigurationSectionInformation = 211,
-    SystemFeatureUsageSubscriptionInformation = 212,
-    SystemSecureSpeculationControlInformation = 213,
-    SystemSpacesBootInformation = 214,
-    SystemFwRamdiskInformation = 215,
-    SystemWheaIpmiHardwareInformation = 216,
-    SystemDifSetRuleClassInformation = 217,
-    SystemDifClearRuleClassInformation = 218,
-    SystemDifApplyPluginVerificationOnDriver = 219,
-    SystemDifRemovePluginVerificationOnDriver = 220,
-    SystemShadowStackInformation = 221,
-    SystemBuildVersionInformation = 222,
-#ifdef __WINESRC__
-    SystemWineVersionInformation = 1000,
-#endif
+    SystemInformationClassMax
 } SYSTEM_INFORMATION_CLASS, *PSYSTEM_INFORMATION_CLASS;
-
-typedef struct _SYSTEM_CODEINTEGRITY_INFORMATION
-{
-    ULONG Length;
-    ULONG CodeIntegrityOptions;
-} SYSTEM_CODEINTEGRITY_INFORMATION, *PSYSTEM_CODEINTEGRITY_INFORMATION;
-
-#define CODEINTEGRITY_OPTION_ENABLED                      0x0001
-#define CODEINTEGRITY_OPTION_TESTSIGN                     0x0002
-#define CODEINTEGRITY_OPTION_UMCI_ENABLED                 0x0004
-#define CODEINTEGRITY_OPTION_UMCI_AUDITMODE_ENABLED       0x0008
-#define CODEINTEGRITY_OPTION_UMCI_EXCLUSIONPATHS_ENABLED  0x0010
-#define CODEINTEGRITY_OPTION_TEST_BUILD                   0x0020
-#define CODEINTEGRITY_OPTION_PREPRODUCTION_BUILD          0x0040
-#define CODEINTEGRITY_OPTION_DEBUGMODE_ENABLED            0x0080
-#define CODEINTEGRITY_OPTION_FLIGHT_BUILD                 0x0100
-#define CODEINTEGRITY_OPTION_FLIGHTING_ENABLED            0x0200
-#define CODEINTEGRITY_OPTION_HVCI_KMCI_ENABLED            0x0400
-#define CODEINTEGRITY_OPTION_HVCI_KMCI_AUDITMODE_ENABLED  0x0800
-#define CODEINTEGRITY_OPTION_HVCI_KMCI_STRICTMODE_ENABLED 0x1000
-#define CODEINTEGRITY_OPTION_HVCI_IUM_ENABLED             0x2000
 
 typedef enum _THREADINFOCLASS {
     ThreadBasicInformation = 0,
@@ -1907,21 +1378,10 @@ typedef enum _WINSTATIONINFOCLASS {
 
 typedef enum _MEMORY_INFORMATION_CLASS {
     MemoryBasicInformation,
-    MemoryWorkingSetInformation,
-    MemoryMappedFilenameInformation,
-    MemoryRegionInformation,
-    MemoryWorkingSetExInformation,
-    MemorySharedCommitInformation,
-    MemoryImageInformation,
-    MemoryRegionInformationEx,
-    MemoryPrivilegedBasicInformation,
-    MemoryEnclaveImageInformation,
-    MemoryBasicInformationCapped,
-    MemoryPhysicalContiguityInformation,
-#ifdef __WINESRC__
-    MemoryWineUnixFuncs = 1000,
-    MemoryWineUnixWow64Funcs,
-#endif
+    MemoryWorkingSetList,
+    MemorySectionName,
+    MemoryBasicVlmInformation,
+    MemoryWorkingSetExInformation
 } MEMORY_INFORMATION_CLASS;
 
 typedef struct _MEMORY_SECTION_NAME
@@ -2134,41 +1594,15 @@ typedef struct _OBJECT_NAME_INFORMATION {
 
 typedef struct __OBJECT_TYPE_INFORMATION {
     UNICODE_STRING TypeName;
-    ULONG TotalNumberOfObjects;
-    ULONG TotalNumberOfHandles;
-    ULONG TotalPagedPoolUsage;
-    ULONG TotalNonPagedPoolUsage;
-    ULONG TotalNamePoolUsage;
-    ULONG TotalHandleTableUsage;
-    ULONG HighWaterNumberOfObjects;
-    ULONG HighWaterNumberOfHandles;
-    ULONG HighWaterPagedPoolUsage;
-    ULONG HighWaterNonPagedPoolUsage;
-    ULONG HighWaterNamePoolUsage;
-    ULONG HighWaterHandleTableUsage;
-    ULONG InvalidAttributes;
-    GENERIC_MAPPING GenericMapping;
-    ULONG ValidAccessMask;
-    BOOLEAN SecurityRequired;
-    BOOLEAN MaintainHandleCount;
-    UCHAR TypeIndex;
-    CHAR ReservedByte;
-    ULONG PoolType;
-    ULONG DefaultPagedPoolCharge;
-    ULONG DefaultNonPagedPoolCharge;
+    ULONG Reserved [22];
 } OBJECT_TYPE_INFORMATION, *POBJECT_TYPE_INFORMATION;
-
-typedef struct _OBJECT_TYPES_INFORMATION
-{
-    ULONG NumberOfTypes;
-} OBJECT_TYPES_INFORMATION, *POBJECT_TYPES_INFORMATION;
 
 typedef struct _PROCESS_BASIC_INFORMATION {
 #ifdef __WINESRC__
-    NTSTATUS  ExitStatus;
-    PEB      *PebBaseAddress;
-    ULONG_PTR AffinityMask;
-    LONG      BasePriority;
+    DWORD_PTR ExitStatus;
+    PPEB PebBaseAddress;
+    DWORD_PTR AffinityMask;
+    DWORD_PTR BasePriority;
     ULONG_PTR UniqueProcessId;
     ULONG_PTR InheritedFromUniqueProcessId;
 #else
@@ -2254,11 +1688,11 @@ typedef struct _SYSTEM_BASIC_INFORMATION {
 /* System Information Class 0x01 */
 
 typedef struct _SYSTEM_CPU_INFORMATION {
-    USHORT ProcessorArchitecture;
-    USHORT ProcessorLevel;
-    USHORT ProcessorRevision;
-    USHORT MaximumProcessors;
-    ULONG  ProcessorFeatureBits;
+    WORD Architecture;
+    WORD Level;
+    WORD Revision;       /* combination of CPU model and stepping */
+    WORD Reserved;       /* always zero */
+    DWORD FeatureSet;    /* see bit flags below */
 } SYSTEM_CPU_INFORMATION, *PSYSTEM_CPU_INFORMATION;
 
 /* definitions of bits in the Feature set for the x86 processors */
@@ -2293,9 +1727,9 @@ typedef struct _SYSTEM_CPU_INFORMATION {
 #define CPU_FEATURE_SSE42         0x02000000   /* SSE42 instructions */
 #define CPU_FEATURE_AVX           0x40000000   /* AVX instructions */
 #define CPU_FEATURE_AVX2          0x80000000   /* AVX2 instructions */
+
 #define CPU_FEATURE_PAE           0x00200000
 #define CPU_FEATURE_DAZ           0x00400000
-
 #define CPU_FEATURE_ARM_VFP_32    0x00000001
 #define CPU_FEATURE_ARM_NEON      0x00000002
 #define CPU_FEATURE_ARM_V8_CRC32  0x00000004
@@ -2455,26 +1889,21 @@ typedef struct _SYSTEM_HANDLE_INFORMATION_EX
 /* System Information Class 0x15 */
 
 typedef struct _SYSTEM_CACHE_INFORMATION {
-    SIZE_T CurrentSize;
-    SIZE_T PeakSize;
+    ULONG CurrentSize;
+    ULONG PeakSize;
     ULONG PageFaultCount;
-    SIZE_T MinimumWorkingSet;
-    SIZE_T MaximumWorkingSet;
-    SIZE_T CurrentSizeIncludingTransitionInPages;
-    SIZE_T PeakSizeIncludingTransitionInPages;
-    ULONG TransitionRePurposeCount;
-    ULONG Flags;
+    ULONG MinimumWorkingSet;
+    ULONG MaximumWorkingSet;
+    ULONG unused[4];
+#ifdef _WIN64
+    ULONG unknown64[7];
+#endif
 } SYSTEM_CACHE_INFORMATION, *PSYSTEM_CACHE_INFORMATION;
 
 /* System Information Class 0x17 */
 
 typedef struct _SYSTEM_INTERRUPT_INFORMATION {
-    ULONG ContextSwitches;
-    ULONG DpcCount;
-    ULONG DpcRate;
-    ULONG TimeIncrement;
-    ULONG DpcBypassCount;
-    ULONG ApcBypassCount;
+    BYTE Reserved1[24];
 } SYSTEM_INTERRUPT_INFORMATION, *PSYSTEM_INTERRUPT_INFORMATION;
 
 typedef struct _SYSTEM_CONFIGURATION_INFO {
@@ -2508,12 +1937,6 @@ typedef struct _SYSTEM_KERNEL_DEBUGGER_INFORMATION {
 	BOOLEAN  DebuggerEnabled;
 	BOOLEAN  DebuggerNotPresent;
 } SYSTEM_KERNEL_DEBUGGER_INFORMATION, *PSYSTEM_KERNEL_DEBUGGER_INFORMATION;
-
-typedef struct _SYSTEM_KERNEL_DEBUGGER_INFORMATION_EX {
-    BOOLEAN  DebuggerAllowed;
-    BOOLEAN  DebuggerEnabled;
-    BOOLEAN  DebuggerPresent;
-} SYSTEM_KERNEL_DEBUGGER_INFORMATION_EX, *PSYSTEM_KERNEL_DEBUGGER_INFORMATION_EX;
 
 typedef struct _VM_COUNTERS
 {
@@ -2719,6 +2142,12 @@ typedef struct _PORT_MESSAGE_HEADER {
 
 typedef unsigned short RTL_ATOM, *PRTL_ATOM;
 
+/* Wine doesn't implement atom table as NT does:
+ * - in NT, atom tables are user space tables, which ntdll directly accesses
+ * - on Wine, (even local) atom tables are wineserver objects, hence a HANDLE
+ */
+typedef struct atom_table *RTL_ATOM_TABLE, **PRTL_ATOM_TABLE;
+
 typedef enum _ATOM_INFORMATION_CLASS {
    AtomBasicInformation         = 0,
    AtomTableInformation         = 1,
@@ -2748,26 +2177,6 @@ typedef struct _RTL_HANDLE_TABLE
     PVOID ReservedMemory;  /* 0x18 */
     PVOID MaxHandle;       /* 0x1c */
 } RTL_HANDLE_TABLE;
-
-typedef struct _RTL_ATOM_TABLE_ENTRY
-{
-    struct _RTL_ATOM_TABLE_ENTRY *HashLink;
-    WORD                          HandleIndex;
-    WORD                          Atom;
-    WORD                          ReferenceCount;
-    UCHAR                         Flags;
-    UCHAR                         NameLength;
-    WCHAR                         Name[1];
-} RTL_ATOM_TABLE_ENTRY, *PRTL_ATOM_TABLE_ENTRY;
-
-typedef struct _RTL_ATOM_TABLE
-{
-    ULONG                 Signature;
-    RTL_CRITICAL_SECTION  CriticalSection;
-    RTL_HANDLE_TABLE      HandleTable;
-    ULONG                 NumberOfBuckets;
-    RTL_ATOM_TABLE_ENTRY *Buckets[1];
-} *RTL_ATOM_TABLE, **PRTL_ATOM_TABLE;
 
 /***********************************************************************
  * Defines
@@ -3020,9 +2429,6 @@ typedef enum _SECTION_INFORMATION_CLASS
 {
   SectionBasicInformation,
   SectionImageInformation,
-  SectionRelocationInformation,
-  SectionOriginalBaseInformation,
-  SectionInternalImageInformation
 } SECTION_INFORMATION_CLASS;
 
 typedef struct _SECTION_BASIC_INFORMATION {
@@ -3037,10 +2443,9 @@ typedef struct _SECTION_IMAGE_INFORMATION {
   SIZE_T MaximumStackSize;
   SIZE_T CommittedStackSize;
   ULONG SubSystemType;
-  USHORT MinorSubsystemVersion;
-  USHORT MajorSubsystemVersion;
-  USHORT MajorOperatingSystemVersion;
-  USHORT MinorOperatingSystemVersion;
+  WORD SubsystemVersionLow;
+  WORD SubsystemVersionHigh;
+  ULONG GpValue;
   USHORT ImageCharacteristics;
   USHORT DllCharacteristics;
   USHORT Machine;
@@ -3055,13 +2460,7 @@ typedef struct _SECTION_IMAGE_INFORMATION {
           UCHAR ImageDynamicallyRelocated : 1;
           UCHAR ImageMappedFlat           : 1;
           UCHAR BaseBelow4gb              : 1;
-          UCHAR ComPlusPrefer32bit        : 1;
-#ifdef __WINESRC__  /* Wine extensions */
-          UCHAR WineBuiltin               : 1;
-          UCHAR WineFakeDll               : 1;
-#else
-          UCHAR Reserved                  : 2;
-#endif
+          UCHAR Reserved                  : 3;
       } DUMMYSTRUCTNAME;
   } DUMMYUNIONNAME;
   ULONG LoaderFlags;
@@ -3109,6 +2508,23 @@ typedef enum _SHUTDOWN_ACTION {
   ShutdownReboot,
   ShutdownPowerOff
 } SHUTDOWN_ACTION, *PSHUTDOWN_ACTION;
+
+typedef struct _COUNTED_REASON_CONTEXT
+{
+    ULONG Version;
+    ULONG Flags;
+    union
+    {
+        struct
+        {
+            UNICODE_STRING ResourceFileName;
+            USHORT ResourceReasonId;
+            ULONG StringCount;
+            UNICODE_STRING *ReasonStrings;
+        } DUMMYSTRUCTNAME;
+        UNICODE_STRING SimpleString;
+    } DUMMYUNIONNAME;
+} COUNTED_REASON_CONTEXT, *PCOUNTED_REASON_CONTEXT;
 
 typedef enum _KPROFILE_SOURCE {
   ProfileTime,
@@ -3260,14 +2676,6 @@ typedef struct _LDRP_CSLIST
     SINGLE_LIST_ENTRY *Tail;
 } LDRP_CSLIST, *PLDRP_CSLIST;
 
-typedef struct _LDR_DEPENDENCY
-{
-    LDRP_CSLIST dependency_to_entry;
-    struct _LDR_DDAG_NODE *dependency_to;
-    LDRP_CSLIST dependency_from_entry;
-    struct _LDR_DDAG_NODE *dependency_from;
-} LDR_DEPENDENCY, *PLDR_DEPENDENCY;
-
 typedef enum _LDR_DDAG_STATE
 {
     LdrModulesMerged = -5,
@@ -3291,14 +2699,19 @@ typedef struct _LDR_DDAG_NODE
 {
     LIST_ENTRY Modules;
     LDR_SERVICE_TAG_RECORD *ServiceTagList;
-    LONG LoadCount;
-    ULONG LoadWhileUnloadingCount;
-    ULONG LowestLink;
-    LDRP_CSLIST Dependencies;
+    ULONG LoadCount;
+    ULONG ReferenceCount;
+    ULONG DependencyCount;
+    union
+    {
+        LDRP_CSLIST Dependencies;
+        SINGLE_LIST_ENTRY RemovalLink;
+    };
     LDRP_CSLIST IncomingDependencies;
     LDR_DDAG_STATE State;
     SINGLE_LIST_ENTRY CondenseLink;
     ULONG PreorderNumber;
+    ULONG LowestLink;
 } LDR_DDAG_NODE, *PLDR_DDAG_NODE;
 
 typedef enum _LDR_DLL_LOAD_REASON
@@ -3326,7 +2739,8 @@ typedef struct _LDR_DATA_TABLE_ENTRY
     ULONG               Flags;
     SHORT               LoadCount;
     SHORT               TlsIndex;
-    LIST_ENTRY          HashLinks;
+    HANDLE              SectionHandle;
+    ULONG               CheckSum;
     ULONG               TimeDateStamp;
     HANDLE              ActivationContext;
     void*               Lock;
@@ -3387,17 +2801,13 @@ typedef void (CALLBACK *PLDR_DLL_NOTIFICATION_FUNCTION)(ULONG, LDR_DLL_NOTIFICAT
 /* flag for LdrAddRefDll */
 #define LDR_ADDREF_DLL_PIN              0x00000001
 
-/* flags for LdrGetDllHandleEx */
-#define LDR_GET_DLL_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT 0x00000001
-#define LDR_GET_DLL_HANDLE_EX_FLAG_PIN                0x00000002
-
 #define LDR_DLL_NOTIFICATION_REASON_LOADED   1
 #define LDR_DLL_NOTIFICATION_REASON_UNLOADED 2
 
 /* FIXME: to be checked */
 #define MAXIMUM_FILENAME_LENGTH 256
 
-typedef struct _RTL_PROCESS_MODULE_INFORMATION
+typedef struct _SYSTEM_MODULE
 {
     PVOID               Section;                        /* 00/00 */
     PVOID               MappedBaseAddress;              /* 04/08 */
@@ -3409,13 +2819,13 @@ typedef struct _RTL_PROCESS_MODULE_INFORMATION
     WORD                LoadCount;                      /* 18/24 */
     WORD                NameOffset;                     /* 1a/26 */
     BYTE                Name[MAXIMUM_FILENAME_LENGTH];  /* 1c/28 */
-} RTL_PROCESS_MODULE_INFORMATION, *PRTL_PROCESS_MODULE_INFORMATION;
+} SYSTEM_MODULE, *PSYSTEM_MODULE;
 
-typedef struct _RTL_PROCESS_MODULES
+typedef struct _SYSTEM_MODULE_INFORMATION
 {
     ULONG               ModulesCount;
-    RTL_PROCESS_MODULE_INFORMATION Modules[1]; /* FIXME: should be Modules[0] */
-} RTL_PROCESS_MODULES, *PRTL_PROCESS_MODULES;
+    SYSTEM_MODULE       Modules[1]; /* FIXME: should be Modules[0] */
+} SYSTEM_MODULE_INFORMATION, *PSYSTEM_MODULE_INFORMATION;
 
 #define PROCESS_CREATE_FLAGS_BREAKAWAY              0x00000001
 #define PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT       0x00000002
@@ -3432,7 +2842,7 @@ typedef struct _RTL_PROCESS_MODULES
 typedef struct _RTL_PROCESS_MODULE_INFORMATION_EX
 {
     USHORT NextOffset;
-    RTL_PROCESS_MODULE_INFORMATION BaseInfo;
+    SYSTEM_MODULE BaseInfo;
     ULONG ImageCheckSum;
     ULONG TimeDateStamp;
     void *DefaultBase;
@@ -3444,37 +2854,6 @@ typedef struct _RTL_PROCESS_MODULE_INFORMATION_EX
 #define THREAD_CREATE_FLAGS_HAS_SECURITY_DESCRIPTOR 0x00000010
 #define THREAD_CREATE_FLAGS_ACCESS_CHECK_IN_TARGET  0x00000020
 #define THREAD_CREATE_FLAGS_INITIAL_THREAD          0x00000080
-
-#define EH_NONCONTINUABLE   0x01
-#define EH_UNWINDING        0x02
-#define EH_EXIT_UNWIND      0x04
-#define EH_STACK_INVALID    0x08
-#define EH_NESTED_CALL      0x10
-#define EH_TARGET_UNWIND    0x20
-#define EH_COLLIDED_UNWIND  0x40
-
-#ifdef __WINESRC__
-
-/* Wine-specific exceptions codes */
-
-#define EXCEPTION_WINE_STUB       0x80000100  /* stub entry point called */
-#define EXCEPTION_WINE_ASSERTION  0x80000101  /* assertion failed */
-
-/* Wine extension; Windows doesn't have a name for this code.  This is an
-   undocumented exception understood by MS VC debugger, allowing the program
-   to name a particular thread. */
-#define EXCEPTION_WINE_NAME_THREAD     0x406D1388
-
-/* used for C++ exceptions in msvcrt
- * parameters:
- * [0] CXX_FRAME_MAGIC
- * [1] pointer to exception object
- * [2] pointer to type
- */
-#define EXCEPTION_WINE_CXX_EXCEPTION   0xe06d7363
-#define EXCEPTION_WINE_CXX_FRAME_MAGIC 0x19930520
-
-#endif
 
 typedef LONG (CALLBACK *PRTL_EXCEPTION_FILTER)(PEXCEPTION_POINTERS);
 
@@ -3638,161 +3017,6 @@ typedef struct _PS_CREATE_INFO
     };
 } PS_CREATE_INFO, *PPS_CREATE_INFO;
 
-typedef struct _DBGKM_EXCEPTION
-{
-    EXCEPTION_RECORD ExceptionRecord;
-    ULONG FirstChance;
-} DBGKM_EXCEPTION, *PDBGKM_EXCEPTION;
-
-typedef struct _DBGKM_CREATE_THREAD
-{
-    ULONG SubSystemKey;
-    PVOID StartAddress;
-} DBGKM_CREATE_THREAD, *PDBGKM_CREATE_THREAD;
-
-typedef struct _DBGKM_CREATE_PROCESS
-{
-    ULONG SubSystemKey;
-    HANDLE FileHandle;
-    PVOID BaseOfImage;
-    ULONG DebugInfoFileOffset;
-    ULONG DebugInfoSize;
-    DBGKM_CREATE_THREAD InitialThread;
-} DBGKM_CREATE_PROCESS, *PDBGKM_CREATE_PROCESS;
-
-typedef struct _DBGKM_EXIT_THREAD
-{
-    NTSTATUS ExitStatus;
-} DBGKM_EXIT_THREAD, *PDBGKM_EXIT_THREAD;
-
-typedef struct _DBGKM_EXIT_PROCESS
-{
-    NTSTATUS ExitStatus;
-} DBGKM_EXIT_PROCESS, *PDBGKM_EXIT_PROCESS;
-
-typedef struct _DBGKM_LOAD_DLL
-{
-    HANDLE FileHandle;
-    PVOID BaseOfDll;
-    ULONG DebugInfoFileOffset;
-    ULONG DebugInfoSize;
-    PVOID NamePointer;
-} DBGKM_LOAD_DLL, *PDBGKM_LOAD_DLL;
-
-typedef struct _DBGKM_UNLOAD_DLL
-{
-    PVOID BaseAddress;
-} DBGKM_UNLOAD_DLL, *PDBGKM_UNLOAD_DLL;
-
-typedef enum _DBG_STATE
-{
-    DbgIdle,
-    DbgReplyPending,
-    DbgCreateThreadStateChange,
-    DbgCreateProcessStateChange,
-    DbgExitThreadStateChange,
-    DbgExitProcessStateChange,
-    DbgExceptionStateChange,
-    DbgBreakpointStateChange,
-    DbgSingleStepStateChange,
-    DbgLoadDllStateChange,
-    DbgUnloadDllStateChange
-} DBG_STATE, *PDBG_STATE;
-
-typedef struct _DBGUI_CREATE_THREAD
-{
-    HANDLE HandleToThread;
-    DBGKM_CREATE_THREAD NewThread;
-} DBGUI_CREATE_THREAD, *PDBGUI_CREATE_THREAD;
-
-typedef struct _DBGUI_CREATE_PROCESS
-{
-    HANDLE HandleToProcess;
-    HANDLE HandleToThread;
-    DBGKM_CREATE_PROCESS NewProcess;
-} DBGUI_CREATE_PROCESS, *PDBGUI_CREATE_PROCESS;
-
-typedef struct _DBGUI_WAIT_STATE_CHANGE
-{
-    DBG_STATE NewState;
-    CLIENT_ID AppClientId;
-    union
-    {
-        DBGKM_EXCEPTION Exception;
-        DBGUI_CREATE_THREAD CreateThread;
-        DBGUI_CREATE_PROCESS CreateProcessInfo;
-        DBGKM_EXIT_THREAD ExitThread;
-        DBGKM_EXIT_PROCESS ExitProcess;
-        DBGKM_LOAD_DLL LoadDll;
-        DBGKM_UNLOAD_DLL UnloadDll;
-    } StateInfo;
-} DBGUI_WAIT_STATE_CHANGE, *PDBGUI_WAIT_STATE_CHANGE;
-
-struct _DEBUG_EVENT;
-
-#define DEBUG_READ_EVENT        0x0001
-#define DEBUG_PROCESS_ASSIGN    0x0002
-#define DEBUG_SET_INFORMATION   0x0004
-#define DEBUG_QUERY_INFORMATION 0x0008
-#define DEBUG_ALL_ACCESS        (STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x0f)
-
-#define DEBUG_KILL_ON_CLOSE 0x1
-
-typedef enum _DEBUGOBJECTINFOCLASS
-{
-    DebugObjectKillProcessOnExitInformation = 1,
-    MaxDebugObjectInfoClass
-} DEBUGOBJECTINFOCLASS, *PDEBUGOBJECTINFOCLASS;
-
-
-typedef struct _WOW64_CPURESERVED
-{
-    USHORT          Flags;
-    USHORT          Machine;
-    /* CONTEXT context */
-    /* CONTEXT_EX *context_ex */
-} WOW64_CPURESERVED, *PWOW64_CPURESERVED;
-
-#define WOW64_CPURESERVED_FLAG_RESET_STATE 1
-
-typedef struct _WOW64_CPU_AREA_INFO
-{
-    void              *Context;
-    void              *ContextEx;
-    void              *ContextFlagsLocation;
-    WOW64_CPURESERVED *CpuReserved;
-    ULONG              ContextFlag;
-    USHORT             Machine;
-} WOW64_CPU_AREA_INFO, *PWOW64_CPU_AREA_INFO;
-
-#ifdef __WINESRC__
-/* undocumented layout of LdrSystemDllInitBlock */
-/* this varies across Windows version; we are using the win10-2004 layout */
-typedef struct
-{
-    ULONG   version;
-    ULONG   unknown1[3];
-    ULONG64 unknown2;
-    ULONG64 pLdrInitializeThunk;
-    ULONG64 pKiUserExceptionDispatcher;
-    ULONG64 pKiUserApcDispatcher;
-    ULONG64 pKiUserCallbackDispatcher;
-    ULONG64 pRtlUserThreadStart;
-    ULONG64 pRtlpQueryProcessDebugInformationRemote;
-    ULONG64 ntdll_handle;
-    ULONG64 pLdrSystemDllInitBlock;
-    ULONG64 pRtlpFreezeTimeBias;
-} SYSTEM_DLL_INIT_BLOCK;
-#endif
-
-typedef struct
-{
-    ULONG_PTR *ServiceTable;
-    ULONG_PTR *CounterTable;
-    ULONG_PTR  ServiceLimit;
-    BYTE      *ArgumentTable;
-} SYSTEM_SERVICE_TABLE;
-
 /***********************************************************************
  * Function declarations
  */
@@ -3800,16 +3024,8 @@ typedef struct
 NTSYSAPI void      WINAPI DbgBreakPoint(void);
 NTSYSAPI NTSTATUS WINAPIV DbgPrint(LPCSTR fmt, ...);
 NTSYSAPI NTSTATUS WINAPIV DbgPrintEx(ULONG iComponentId, ULONG Level, LPCSTR fmt, ...);
-NTSYSAPI NTSTATUS  WINAPI DbgUiConnectToDbg(void);
-NTSYSAPI NTSTATUS  WINAPI DbgUiContinue(CLIENT_ID*,NTSTATUS);
-NTSYSAPI NTSTATUS  WINAPI DbgUiConvertStateChangeStructure(DBGUI_WAIT_STATE_CHANGE*,struct _DEBUG_EVENT*);
-NTSYSAPI NTSTATUS WINAPI  DbgUiDebugActiveProcess(HANDLE);
-NTSYSAPI HANDLE    WINAPI DbgUiGetThreadDebugObject(void);
 NTSYSAPI NTSTATUS  WINAPI DbgUiIssueRemoteBreakin(HANDLE);
 NTSYSAPI void      WINAPI DbgUiRemoteBreakin(void*);
-NTSYSAPI void      WINAPI DbgUiSetThreadDebugObject(HANDLE);
-NTSYSAPI NTSTATUS  WINAPI DbgUiStopDebugging(HANDLE);
-NTSYSAPI NTSTATUS  WINAPI DbgUiWaitStateChange(DBGUI_WAIT_STATE_CHANGE*,LARGE_INTEGER*);
 NTSYSAPI void      WINAPI DbgUserBreakPoint(void);
 NTSYSAPI NTSTATUS  WINAPI LdrAccessResource(HMODULE,const IMAGE_RESOURCE_DATA_ENTRY*,void**,PULONG);
 NTSYSAPI NTSTATUS  WINAPI LdrAddDllDirectory(const UNICODE_STRING*,void**);
@@ -3820,15 +3036,13 @@ NTSYSAPI NTSTATUS  WINAPI LdrFindResourceDirectory_U(HMODULE,const LDR_RESOURCE_
 NTSYSAPI NTSTATUS  WINAPI LdrFindResource_U(HMODULE,const LDR_RESOURCE_INFO*,ULONG,const IMAGE_RESOURCE_DATA_ENTRY**);
 NTSYSAPI NTSTATUS  WINAPI LdrGetDllDirectory(UNICODE_STRING*);
 NTSYSAPI NTSTATUS  WINAPI LdrGetDllHandle(LPCWSTR, ULONG, const UNICODE_STRING*, HMODULE*);
-NTSYSAPI NTSTATUS  WINAPI LdrGetDllHandleEx(ULONG, LPCWSTR, ULONG *, const UNICODE_STRING*, HMODULE*);
 NTSYSAPI NTSTATUS  WINAPI LdrGetDllPath(PCWSTR,ULONG,PWSTR*,PWSTR*);
-NTSYSAPI NTSTATUS  WINAPI LdrGetDllFullName(HMODULE, UNICODE_STRING*);
 NTSYSAPI NTSTATUS  WINAPI LdrGetProcedureAddress(HMODULE, const ANSI_STRING*, ULONG, void**);
 NTSYSAPI NTSTATUS  WINAPI LdrLoadDll(LPCWSTR, DWORD, const UNICODE_STRING*, HMODULE*);
 NTSYSAPI NTSTATUS  WINAPI LdrLockLoaderLock(ULONG,ULONG*,ULONG_PTR*);
 IMAGE_BASE_RELOCATION * WINAPI LdrProcessRelocationBlock(void*,UINT,USHORT*,INT_PTR);
 NTSYSAPI NTSTATUS  WINAPI LdrQueryImageFileExecutionOptions(const UNICODE_STRING*,LPCWSTR,ULONG,void*,ULONG,ULONG*);
-NTSYSAPI NTSTATUS  WINAPI LdrQueryProcessModuleInformation(RTL_PROCESS_MODULES*, ULONG, ULONG*);
+NTSYSAPI NTSTATUS  WINAPI LdrQueryProcessModuleInformation(SYSTEM_MODULE_INFORMATION*, ULONG, ULONG*);
 NTSYSAPI NTSTATUS  WINAPI LdrRegisterDllNotification(ULONG,PLDR_DLL_NOTIFICATION_FUNCTION,void*,void**);
 NTSYSAPI NTSTATUS  WINAPI LdrRemoveDllDirectory(void*);
 NTSYSAPI NTSTATUS  WINAPI LdrSetDefaultDllDirectories(ULONG);
@@ -3857,12 +3071,12 @@ NTSYSAPI NTSTATUS  WINAPI NtCancelIoFile(HANDLE,PIO_STATUS_BLOCK);
 NTSYSAPI NTSTATUS  WINAPI NtCancelIoFileEx(HANDLE,PIO_STATUS_BLOCK,PIO_STATUS_BLOCK);
 NTSYSAPI NTSTATUS  WINAPI NtCancelTimer(HANDLE, BOOLEAN*);
 NTSYSAPI NTSTATUS  WINAPI NtClearEvent(HANDLE);
+NTSYSAPI NTSTATUS  WINAPI NtClearPowerRequest(HANDLE,POWER_REQUEST_TYPE);
 NTSYSAPI NTSTATUS  WINAPI NtClose(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtCloseObjectAuditAlarm(PUNICODE_STRING,HANDLE,BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI NtCompleteConnectPort(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtConnectPort(PHANDLE,PUNICODE_STRING,PSECURITY_QUALITY_OF_SERVICE,PLPC_SECTION_WRITE,PLPC_SECTION_READ,PULONG,PVOID,PULONG);
 NTSYSAPI NTSTATUS  WINAPI NtContinue(PCONTEXT,BOOLEAN);
-NTSYSAPI NTSTATUS  WINAPI NtCreateDebugObject(HANDLE*,ACCESS_MASK,OBJECT_ATTRIBUTES*,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtCreateDirectoryObject(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES);
 NTSYSAPI NTSTATUS  WINAPI NtCreateEvent(PHANDLE,ACCESS_MASK,const OBJECT_ATTRIBUTES *,EVENT_TYPE,BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI NtCreateEventPair(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES);
@@ -3872,24 +3086,22 @@ NTSYSAPI NTSTATUS  WINAPI NtCreateJobObject(PHANDLE,ACCESS_MASK,const OBJECT_ATT
 NTSYSAPI NTSTATUS  WINAPI NtCreateKey(PHANDLE,ACCESS_MASK,const OBJECT_ATTRIBUTES*,ULONG,const UNICODE_STRING*,ULONG,PULONG);
 NTSYSAPI NTSTATUS  WINAPI NtCreateKeyTransacted(PHANDLE,ACCESS_MASK,const OBJECT_ATTRIBUTES*,ULONG,const UNICODE_STRING*,ULONG,HANDLE,ULONG*);
 NTSYSAPI NTSTATUS  WINAPI NtCreateKeyedEvent(HANDLE*,ACCESS_MASK,const OBJECT_ATTRIBUTES*,ULONG);
-NTSYSAPI NTSTATUS  WINAPI NtCreateLowBoxToken(HANDLE*,HANDLE,ACCESS_MASK,OBJECT_ATTRIBUTES*,SID*,ULONG,SID_AND_ATTRIBUTES*,ULONG,HANDLE*);
 NTSYSAPI NTSTATUS  WINAPI NtCreateMailslotFile(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,PIO_STATUS_BLOCK,ULONG,ULONG,ULONG,PLARGE_INTEGER);
 NTSYSAPI NTSTATUS  WINAPI NtCreateMutant(HANDLE*,ACCESS_MASK,const OBJECT_ATTRIBUTES*,BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI NtCreateNamedPipeFile(PHANDLE,ULONG,POBJECT_ATTRIBUTES,PIO_STATUS_BLOCK,ULONG,ULONG,ULONG,ULONG,ULONG,ULONG,ULONG,ULONG,ULONG,PLARGE_INTEGER);
 NTSYSAPI NTSTATUS  WINAPI NtCreatePagingFile(PUNICODE_STRING,PLARGE_INTEGER,PLARGE_INTEGER,PLARGE_INTEGER);
 NTSYSAPI NTSTATUS  WINAPI NtCreatePort(PHANDLE,POBJECT_ATTRIBUTES,ULONG,ULONG,PULONG);
+NTSYSAPI NTSTATUS  WINAPI NtCreatePowerRequest(HANDLE*,COUNTED_REASON_CONTEXT*);
 NTSYSAPI NTSTATUS  WINAPI NtCreateProcess(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,HANDLE,BOOLEAN,HANDLE,HANDLE,HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtCreateProfile(PHANDLE,HANDLE,PVOID,ULONG,ULONG,PVOID,ULONG,KPROFILE_SOURCE,KAFFINITY);
 NTSYSAPI NTSTATUS  WINAPI NtCreateSection(HANDLE*,ACCESS_MASK,const OBJECT_ATTRIBUTES*,const LARGE_INTEGER*,ULONG,ULONG,HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtCreateSemaphore(PHANDLE,ACCESS_MASK,const OBJECT_ATTRIBUTES*,LONG,LONG);
 NTSYSAPI NTSTATUS  WINAPI NtCreateSymbolicLinkObject(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,PUNICODE_STRING);
 NTSYSAPI NTSTATUS  WINAPI NtCreateThread(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,HANDLE,PCLIENT_ID,PCONTEXT,PINITIAL_TEB,BOOLEAN);
-NTSYSAPI NTSTATUS  WINAPI NtCreateThreadEx(HANDLE*,ACCESS_MASK,OBJECT_ATTRIBUTES*,HANDLE,PRTL_THREAD_START_ROUTINE,void*,ULONG,ULONG_PTR,SIZE_T,SIZE_T,PS_ATTRIBUTE_LIST*);
+NTSYSAPI NTSTATUS  WINAPI NtCreateThreadEx(HANDLE*,ACCESS_MASK,OBJECT_ATTRIBUTES*,HANDLE,PRTL_THREAD_START_ROUTINE,void*,ULONG,SIZE_T,SIZE_T,SIZE_T,PS_ATTRIBUTE_LIST*);
 NTSYSAPI NTSTATUS  WINAPI NtCreateTimer(HANDLE*, ACCESS_MASK, const OBJECT_ATTRIBUTES*, TIMER_TYPE);
 NTSYSAPI NTSTATUS  WINAPI NtCreateToken(PHANDLE,ACCESS_MASK,POBJECT_ATTRIBUTES,TOKEN_TYPE,PLUID,PLARGE_INTEGER,PTOKEN_USER,PTOKEN_GROUPS,PTOKEN_PRIVILEGES,PTOKEN_OWNER,PTOKEN_PRIMARY_GROUP,PTOKEN_DEFAULT_DACL,PTOKEN_SOURCE);
 NTSYSAPI NTSTATUS  WINAPI NtCreateUserProcess(HANDLE*,HANDLE*,ACCESS_MASK,ACCESS_MASK,OBJECT_ATTRIBUTES*,OBJECT_ATTRIBUTES*,ULONG,ULONG,RTL_USER_PROCESS_PARAMETERS*,PS_CREATE_INFO*,PS_ATTRIBUTE_LIST*);
-NTSYSAPI NTSTATUS  WINAPI NtDebugActiveProcess(HANDLE,HANDLE);
-NTSYSAPI NTSTATUS  WINAPI NtDebugContinue(HANDLE,CLIENT_ID*,NTSTATUS);
 NTSYSAPI NTSTATUS  WINAPI NtDelayExecution(BOOLEAN,const LARGE_INTEGER*);
 NTSYSAPI NTSTATUS  WINAPI NtDeleteAtom(RTL_ATOM);
 NTSYSAPI NTSTATUS  WINAPI NtDeleteFile(POBJECT_ATTRIBUTES);
@@ -3914,7 +3126,6 @@ NTSYSAPI NTSTATUS  WINAPI NtFreeVirtualMemory(HANDLE,PVOID*,SIZE_T*,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtFsControlFile(HANDLE,HANDLE,PIO_APC_ROUTINE,PVOID,PIO_STATUS_BLOCK,ULONG,PVOID,ULONG,PVOID,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtGetContextThread(HANDLE,CONTEXT*);
 NTSYSAPI ULONG     WINAPI NtGetCurrentProcessorNumber(void);
-NTSYSAPI NTSTATUS  WINAPI NtGetNextThread(HANDLE,HANDLE,ACCESS_MASK,ULONG,ULONG,HANDLE*);
 NTSYSAPI NTSTATUS  WINAPI NtGetNlsSectionPtr(ULONG,ULONG,void*,void**,SIZE_T*);
 NTSYSAPI NTSTATUS  WINAPI NtGetPlugPlayEvent(ULONG,ULONG,PVOID,ULONG);
 NTSYSAPI ULONG     WINAPI NtGetTickCount(VOID);
@@ -3928,7 +3139,6 @@ NTSYSAPI NTSTATUS  WINAPI NtIsProcessInJob(HANDLE,HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtListenPort(HANDLE,PLPC_MESSAGE);
 NTSYSAPI NTSTATUS  WINAPI NtLoadDriver(const UNICODE_STRING *);
 NTSYSAPI NTSTATUS  WINAPI NtLoadKey(const OBJECT_ATTRIBUTES *,OBJECT_ATTRIBUTES *);
-NTSYSAPI NTSTATUS  WINAPI NtLoadKey2(const OBJECT_ATTRIBUTES *,OBJECT_ATTRIBUTES *,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtLockFile(HANDLE,HANDLE,PIO_APC_ROUTINE,void*,PIO_STATUS_BLOCK,PLARGE_INTEGER,PLARGE_INTEGER,ULONG*,BOOLEAN,BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI NtLockVirtualMemory(HANDLE,PVOID*,SIZE_T*,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtMakeTemporaryObject(HANDLE);
@@ -3995,7 +3205,6 @@ NTSYSAPI NTSTATUS  WINAPI NtQuerySection(HANDLE,SECTION_INFORMATION_CLASS,PVOID,
 NTSYSAPI NTSTATUS  WINAPI NtQuerySemaphore(HANDLE,SEMAPHORE_INFORMATION_CLASS,PVOID,ULONG,PULONG);
 NTSYSAPI NTSTATUS  WINAPI NtQuerySymbolicLinkObject(HANDLE,PUNICODE_STRING,PULONG);
 NTSYSAPI NTSTATUS  WINAPI NtQuerySystemEnvironmentValue(PUNICODE_STRING,PWCHAR,ULONG,PULONG);
-NTSYSAPI NTSTATUS  WINAPI NtQuerySystemEnvironmentValueEx(PUNICODE_STRING,GUID*,void*,ULONG*,ULONG*);
 NTSYSAPI NTSTATUS  WINAPI NtQuerySystemInformation(SYSTEM_INFORMATION_CLASS,PVOID,ULONG,PULONG);
 NTSYSAPI NTSTATUS  WINAPI NtQuerySystemInformationEx(SYSTEM_INFORMATION_CLASS,void*,ULONG,void*,ULONG,ULONG*);
 NTSYSAPI NTSTATUS  WINAPI NtQuerySystemTime(PLARGE_INTEGER);
@@ -4017,7 +3226,6 @@ NTSYSAPI NTSTATUS  WINAPI NtReleaseMutant(HANDLE,PLONG);
 NTSYSAPI NTSTATUS  WINAPI NtReleaseSemaphore(HANDLE,ULONG,PULONG);
 NTSYSAPI NTSTATUS  WINAPI NtRemoveIoCompletion(HANDLE,PULONG_PTR,PULONG_PTR,PIO_STATUS_BLOCK,PLARGE_INTEGER);
 NTSYSAPI NTSTATUS  WINAPI NtRemoveIoCompletionEx(HANDLE,FILE_IO_COMPLETION_INFORMATION*,ULONG,ULONG*,LARGE_INTEGER*,BOOLEAN);
-NTSYSAPI NTSTATUS  WINAPI NtRemoveProcessDebug(HANDLE,HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtRenameKey(HANDLE,UNICODE_STRING*);
 NTSYSAPI NTSTATUS  WINAPI NtReplaceKey(POBJECT_ATTRIBUTES,HANDLE,POBJECT_ATTRIBUTES);
 NTSYSAPI NTSTATUS  WINAPI NtReplyPort(HANDLE,PLPC_MESSAGE);
@@ -4042,7 +3250,6 @@ NTSYSAPI NTSTATUS  WINAPI NtSetEvent(HANDLE,LONG*);
 NTSYSAPI NTSTATUS  WINAPI NtSetHighEventPair(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtSetHighWaitLowEventPair(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtSetHighWaitLowThread(VOID);
-NTSYSAPI NTSTATUS  WINAPI NtSetInformationDebugObject(HANDLE,DEBUGOBJECTINFOCLASS,PVOID,ULONG,ULONG*);
 NTSYSAPI NTSTATUS  WINAPI NtSetInformationFile(HANDLE,PIO_STATUS_BLOCK,PVOID,ULONG,FILE_INFORMATION_CLASS);
 NTSYSAPI NTSTATUS  WINAPI NtSetInformationJobObject(HANDLE,JOBOBJECTINFOCLASS,PVOID,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtSetInformationKey(HANDLE,const int,PVOID,ULONG);
@@ -4056,6 +3263,7 @@ NTSYSAPI NTSTATUS  WINAPI NtSetLdtEntries(ULONG,LDT_ENTRY,ULONG,LDT_ENTRY);
 NTSYSAPI NTSTATUS  WINAPI NtSetLowEventPair(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtSetLowWaitHighEventPair(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtSetLowWaitHighThread(VOID);
+NTSYSAPI NTSTATUS  WINAPI NtSetPowerRequest(HANDLE,POWER_REQUEST_TYPE);
 NTSYSAPI NTSTATUS  WINAPI NtSetSecurityObject(HANDLE,SECURITY_INFORMATION,PSECURITY_DESCRIPTOR);
 NTSYSAPI NTSTATUS  WINAPI NtSetSystemEnvironmentValue(PUNICODE_STRING,PUNICODE_STRING);
 NTSYSAPI NTSTATUS  WINAPI NtSetSystemInformation(SYSTEM_INFORMATION_CLASS,PVOID,ULONG);
@@ -4077,7 +3285,6 @@ NTSYSAPI NTSTATUS  WINAPI NtTerminateJobObject(HANDLE,NTSTATUS);
 NTSYSAPI NTSTATUS  WINAPI NtTerminateProcess(HANDLE,LONG);
 NTSYSAPI NTSTATUS  WINAPI NtTerminateThread(HANDLE,LONG);
 NTSYSAPI NTSTATUS  WINAPI NtTestAlert(VOID);
-NTSYSAPI NTSTATUS  WINAPI NtTraceControl(ULONG,void*,ULONG,void*,ULONG,ULONG*);
 NTSYSAPI NTSTATUS  WINAPI NtUnloadDriver(const UNICODE_STRING *);
 NTSYSAPI NTSTATUS  WINAPI NtUnloadKey(POBJECT_ATTRIBUTES);
 NTSYSAPI NTSTATUS  WINAPI NtUnloadKeyEx(POBJECT_ATTRIBUTES,HANDLE);
@@ -4085,7 +3292,6 @@ NTSYSAPI NTSTATUS  WINAPI NtUnlockFile(HANDLE,PIO_STATUS_BLOCK,PLARGE_INTEGER,PL
 NTSYSAPI NTSTATUS  WINAPI NtUnlockVirtualMemory(HANDLE,PVOID*,SIZE_T*,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtUnmapViewOfSection(HANDLE,PVOID);
 NTSYSAPI NTSTATUS  WINAPI NtVdmControl(ULONG,PVOID);
-NTSYSAPI NTSTATUS  WINAPI NtWaitForDebugEvent(HANDLE,BOOLEAN,LARGE_INTEGER*,DBGUI_WAIT_STATE_CHANGE*);
 NTSYSAPI NTSTATUS  WINAPI NtWaitForKeyedEvent(HANDLE,const void*,BOOLEAN,const LARGE_INTEGER*);
 NTSYSAPI NTSTATUS  WINAPI NtWaitForSingleObject(HANDLE,BOOLEAN,const LARGE_INTEGER*);
 NTSYSAPI NTSTATUS  WINAPI NtWaitForMultipleObjects(ULONG,const HANDLE*,BOOLEAN,BOOLEAN,const LARGE_INTEGER*);
@@ -4149,8 +3355,6 @@ NTSYSAPI NTSTATUS  WINAPI RtlCompressBuffer(USHORT,PUCHAR,ULONG,PUCHAR,ULONG,ULO
 NTSYSAPI DWORD     WINAPI RtlComputeCrc32(DWORD,const BYTE*,INT);
 NTSYSAPI NTSTATUS  WINAPI RtlConvertSidToUnicodeString(PUNICODE_STRING,PSID,BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI RtlConvertToAutoInheritSecurityObject(PSECURITY_DESCRIPTOR,PSECURITY_DESCRIPTOR,PSECURITY_DESCRIPTOR*,GUID*,BOOL,PGENERIC_MAPPING);
-NTSYSAPI NTSTATUS  WINAPI RtlCopyContext(CONTEXT*,DWORD,CONTEXT*);
-NTSYSAPI NTSTATUS  WINAPI RtlCopyExtendedContext(CONTEXT_EX*,ULONG,CONTEXT_EX*);
 NTSYSAPI void      WINAPI RtlCopyLuid(PLUID,const LUID*);
 NTSYSAPI void      WINAPI RtlCopyLuidAndAttributesArray(ULONG,const LUID_AND_ATTRIBUTES*,PLUID_AND_ATTRIBUTES);
 NTSYSAPI BOOLEAN   WINAPI RtlCopySid(DWORD,PSID,PSID);
@@ -4169,7 +3373,7 @@ NTSYSAPI NTSTATUS  WINAPI RtlCreateTimer(PHANDLE, HANDLE, RTL_WAITORTIMERCALLBAC
 NTSYSAPI BOOLEAN   WINAPI RtlCreateUnicodeString(PUNICODE_STRING,LPCWSTR);
 NTSYSAPI BOOLEAN   WINAPI RtlCreateUnicodeStringFromAsciiz(PUNICODE_STRING,LPCSTR);
 NTSYSAPI NTSTATUS  WINAPI RtlCreateUserProcess(UNICODE_STRING*,ULONG,RTL_USER_PROCESS_PARAMETERS*,SECURITY_DESCRIPTOR*,SECURITY_DESCRIPTOR*,HANDLE,BOOLEAN,HANDLE,HANDLE,RTL_USER_PROCESS_INFORMATION*);
-NTSYSAPI NTSTATUS  WINAPI RtlCreateUserThread(HANDLE,SECURITY_DESCRIPTOR*,BOOLEAN,ULONG,SIZE_T,SIZE_T,PRTL_THREAD_START_ROUTINE,void*,HANDLE*,CLIENT_ID*);
+NTSYSAPI NTSTATUS  WINAPI RtlCreateUserThread(HANDLE,SECURITY_DESCRIPTOR*,BOOLEAN,PVOID,SIZE_T,SIZE_T,PRTL_THREAD_START_ROUTINE,void*,HANDLE*,CLIENT_ID*);
 NTSYSAPI NTSTATUS  WINAPI RtlCreateUserStack(SIZE_T,SIZE_T,ULONG,SIZE_T,SIZE_T,INITIAL_TEB*);
 NTSYSAPI NTSTATUS  WINAPI RtlCustomCPToUnicodeN(CPTABLEINFO*,WCHAR*,DWORD,DWORD*,const char*,DWORD);
 NTSYSAPI void      WINAPI RtlDeactivateActivationContext(DWORD,ULONG_PTR);
@@ -4224,7 +3428,6 @@ NTSYSAPI NTSTATUS  WINAPI RtlFindCharInUnicodeString(int,const UNICODE_STRING*,c
 NTSYSAPI ULONG     WINAPI RtlFindClearBits(PCRTL_BITMAP,ULONG,ULONG);
 NTSYSAPI ULONG     WINAPI RtlFindClearBitsAndSet(PRTL_BITMAP,ULONG,ULONG);
 NTSYSAPI ULONG     WINAPI RtlFindClearRuns(PCRTL_BITMAP,PRTL_BITMAP_RUN,ULONG,BOOLEAN);
-NTSYSAPI void *    WINAPI RtlFindExportedRoutineByName(HMODULE,const char*);
 NTSYSAPI ULONG     WINAPI RtlFindLastBackwardRunSet(PCRTL_BITMAP,ULONG,PULONG);
 NTSYSAPI ULONG     WINAPI RtlFindLastBackwardRunClear(PCRTL_BITMAP,ULONG,PULONG);
 NTSYSAPI CCHAR     WINAPI RtlFindLeastSignificantBit(ULONGLONG);
@@ -4260,11 +3463,7 @@ NTSYSAPI NTSTATUS  WINAPI RtlGetControlSecurityDescriptor(PSECURITY_DESCRIPTOR, 
 NTSYSAPI ULONG     WINAPI RtlGetCurrentDirectory_U(ULONG, LPWSTR);
 NTSYSAPI PEB *     WINAPI RtlGetCurrentPeb(void);
 NTSYSAPI NTSTATUS  WINAPI RtlGetDaclSecurityDescriptor(PSECURITY_DESCRIPTOR,PBOOLEAN,PACL *,PBOOLEAN);
-NTSYSAPI ULONG64   WINAPI RtlGetEnabledExtendedFeatures(ULONG64);
 NTSYSAPI NTSTATUS  WINAPI RtlGetExePath(PCWSTR,PWSTR*);
-NTSYSAPI NTSTATUS  WINAPI RtlGetExtendedContextLength(ULONG,ULONG*);
-NTSYSAPI NTSTATUS  WINAPI RtlGetExtendedContextLength2(ULONG,ULONG*,ULONG64);
-NTSYSAPI ULONG64   WINAPI RtlGetExtendedFeaturesMask(CONTEXT_EX*);
 NTSYSAPI TEB_ACTIVE_FRAME * WINAPI RtlGetFrame(void);
 NTSYSAPI ULONG     WINAPI RtlGetFullPathName_U(PCWSTR,ULONG,PWSTR,PWSTR*);
 NTSYSAPI NTSTATUS  WINAPI RtlGetGroupSecurityDescriptor(PSECURITY_DESCRIPTOR,PSID *,PBOOLEAN);
@@ -4306,8 +3505,6 @@ NTSYSAPI void      WINAPI RtlInitializeConditionVariable(RTL_CONDITION_VARIABLE 
 NTSYSAPI NTSTATUS  WINAPI RtlInitializeCriticalSection(RTL_CRITICAL_SECTION *);
 NTSYSAPI NTSTATUS  WINAPI RtlInitializeCriticalSectionAndSpinCount(RTL_CRITICAL_SECTION *,ULONG);
 NTSYSAPI NTSTATUS  WINAPI RtlInitializeCriticalSectionEx(RTL_CRITICAL_SECTION *,ULONG,ULONG);
-NTSYSAPI NTSTATUS  WINAPI RtlInitializeExtendedContext(void*,ULONG,CONTEXT_EX**);
-NTSYSAPI NTSTATUS  WINAPI RtlInitializeExtendedContext2(void*,ULONG,CONTEXT_EX**,ULONG64);
 NTSYSAPI void      WINAPI RtlInitializeHandleTable(ULONG,ULONG,RTL_HANDLE_TABLE *);
 NTSYSAPI void      WINAPI RtlInitializeResource(LPRTL_RWLOCK);
 NTSYSAPI void      WINAPI RtlInitializeSRWLock(RTL_SRWLOCK*);
@@ -4331,9 +3528,6 @@ NTSYSAPI ULONG     WINAPI RtlLengthSecurityDescriptor(PSECURITY_DESCRIPTOR);
 NTSYSAPI DWORD     WINAPI RtlLengthSid(PSID);
 NTSYSAPI NTSTATUS  WINAPI RtlLocalTimeToSystemTime(const LARGE_INTEGER*,PLARGE_INTEGER);
 NTSYSAPI NTSTATUS  WINAPI RtlLocaleNameToLcid(const WCHAR*,LCID*,ULONG);
-NTSYSAPI void *    WINAPI RtlLocateExtendedFeature(CONTEXT_EX*,ULONG,ULONG*);
-NTSYSAPI void *    WINAPI RtlLocateExtendedFeature2(CONTEXT_EX*,ULONG,XSTATE_CONFIGURATION*,ULONG*);
-NTSYSAPI void *    WINAPI RtlLocateLegacyContext(CONTEXT_EX*,ULONG*);
 NTSYSAPI BOOLEAN   WINAPI RtlLockHeap(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI RtlLookupAtomInAtomTable(RTL_ATOM_TABLE,const WCHAR*,RTL_ATOM*);
 NTSYSAPI NTSTATUS  WINAPI RtlMakeSelfRelativeSD(PSECURITY_DESCRIPTOR,PSECURITY_DESCRIPTOR,LPDWORD);
@@ -4398,7 +3592,6 @@ NTSYSAPI NTSTATUS  WINAPI RtlSetCurrentDirectory_U(const UNICODE_STRING*);
 NTSYSAPI void      WINAPI RtlSetCurrentEnvironment(PWSTR, PWSTR*);
 NTSYSAPI NTSTATUS  WINAPI RtlSetDaclSecurityDescriptor(PSECURITY_DESCRIPTOR,BOOLEAN,PACL,BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI RtlSetEnvironmentVariable(PWSTR*,PUNICODE_STRING,PUNICODE_STRING);
-NTSYSAPI void      WINAPI RtlSetExtendedFeaturesMask(CONTEXT_EX*,ULONG64);
 NTSYSAPI NTSTATUS  WINAPI RtlSetHeapInformation(HANDLE,HEAP_INFORMATION_CLASS,PVOID,SIZE_T);
 NTSYSAPI NTSTATUS  WINAPI RtlSetOwnerSecurityDescriptor(PSECURITY_DESCRIPTOR,PSID,BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI RtlSetGroupSecurityDescriptor(PSECURITY_DESCRIPTOR,PSID,BOOLEAN);
@@ -4442,6 +3635,12 @@ NTSYSAPI NTSTATUS  WINAPI RtlUnicodeToUTF8N(LPSTR,DWORD,LPDWORD,LPCWSTR,DWORD);
 NTSYSAPI ULONG     WINAPI RtlUniform(PULONG);
 NTSYSAPI BOOLEAN   WINAPI RtlUnlockHeap(HANDLE);
 NTSYSAPI void      WINAPI RtlUnwind(PVOID,PVOID,PEXCEPTION_RECORD,PVOID);
+#ifdef __x86_64__
+NTSYSAPI void      WINAPI RtlUnwindEx(PVOID,PVOID,PEXCEPTION_RECORD,PVOID,PCONTEXT,PUNWIND_HISTORY_TABLE);
+#elif defined(__ia64__)
+NTSYSAPI void      WINAPI RtlUnwind2(FRAME_POINTERS,PVOID,PEXCEPTION_RECORD,PVOID,PCONTEXT);
+NTSYSAPI void      WINAPI RtlUnwindEx(FRAME_POINTERS,PVOID,PEXCEPTION_RECORD,PVOID,PCONTEXT,PUNWIND_HISTORY_TABLE);
+#endif
 NTSYSAPI WCHAR     WINAPI RtlUpcaseUnicodeChar(WCHAR);
 NTSYSAPI NTSTATUS  WINAPI RtlUpcaseUnicodeString(UNICODE_STRING*,const UNICODE_STRING *,BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI RtlUpcaseUnicodeStringToAnsiString(STRING*,const UNICODE_STRING*,BOOLEAN);
@@ -4468,9 +3667,10 @@ NTSYSAPI void      WINAPI RtlWakeConditionVariable(RTL_CONDITION_VARIABLE *);
 NTSYSAPI NTSTATUS  WINAPI RtlWalkHeap(HANDLE,PVOID);
 NTSYSAPI NTSTATUS  WINAPI RtlWow64EnableFsRedirection(BOOLEAN);
 NTSYSAPI NTSTATUS  WINAPI RtlWow64EnableFsRedirectionEx(ULONG,ULONG*);
-NTSYSAPI USHORT    WINAPI RtlWow64GetCurrentMachine(void);
-NTSYSAPI NTSTATUS  WINAPI RtlWow64GetProcessMachines(HANDLE,USHORT*,USHORT*);
-NTSYSAPI NTSTATUS  WINAPI RtlWow64IsWowGuestMachineSupported(USHORT,BOOLEAN*);
+#ifdef __x86_64__
+NTSYSAPI NTSTATUS  WINAPI RtlWow64GetThreadContext(HANDLE, WOW64_CONTEXT *);
+NTSYSAPI NTSTATUS  WINAPI RtlWow64SetThreadContext(HANDLE, const WOW64_CONTEXT *);
+#endif
 NTSYSAPI NTSTATUS  WINAPI RtlWriteRegistryValue(ULONG,PCWSTR,PCWSTR,ULONG,PVOID,ULONG);
 NTSYSAPI NTSTATUS  WINAPI RtlZombifyActivationContext(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI RtlpNtCreateKey(PHANDLE,ACCESS_MASK,const OBJECT_ATTRIBUTES*,ULONG,const UNICODE_STRING*,ULONG,PULONG);
@@ -4480,23 +3680,27 @@ NTSYSAPI NTSTATUS  WINAPI RtlpUnWaitCriticalSection(RTL_CRITICAL_SECTION *);
 NTSYSAPI NTSTATUS  WINAPI vDbgPrintEx(ULONG,ULONG,LPCSTR,__ms_va_list);
 NTSYSAPI NTSTATUS  WINAPI vDbgPrintExWithPrefix(LPCSTR,ULONG,ULONG,LPCSTR,__ms_va_list);
 
+#if defined(__x86_64__) || defined(__i386__)
+NTSYSAPI NTSTATUS  WINAPI RtlCopyExtendedContext(CONTEXT_EX*,ULONG,CONTEXT_EX*);
+NTSYSAPI NTSTATUS  WINAPI RtlInitializeExtendedContext(void*,ULONG,CONTEXT_EX**);
+NTSYSAPI NTSTATUS  WINAPI RtlInitializeExtendedContext2(void*,ULONG,CONTEXT_EX**,ULONG64);
+NTSYSAPI ULONG64   WINAPI RtlGetEnabledExtendedFeatures(ULONG64);
+NTSYSAPI NTSTATUS  WINAPI RtlGetExtendedContextLength(ULONG,ULONG*);
+NTSYSAPI NTSTATUS  WINAPI RtlGetExtendedContextLength2(ULONG,ULONG*,ULONG64);
+NTSYSAPI void *    WINAPI RtlLocateLegacyContext(CONTEXT_EX*,ULONG*);
+NTSYSAPI void *    WINAPI RtlLocateExtendedFeature(CONTEXT_EX*,ULONG,ULONG*);
+NTSYSAPI void *    WINAPI RtlLocateExtendedFeature2(CONTEXT_EX*,ULONG,XSTATE_CONFIGURATION*,ULONG*);
+NTSYSAPI ULONG64   WINAPI RtlGetExtendedFeaturesMask(CONTEXT_EX*);
+NTSYSAPI void      WINAPI RtlSetExtendedFeaturesMask(CONTEXT_EX*,ULONG64);
+#endif
+
 #ifndef __WINE_USE_MSVCRT
 NTSYSAPI int __cdecl _strnicmp(LPCSTR,LPCSTR,size_t);
 #endif
 
-/* 32-bit or 64-bit only functions */
+/* 32-bit only functions */
 
-#ifdef _WIN64
-NTSYSAPI NTSTATUS  WINAPI RtlWow64GetCpuAreaInfo(WOW64_CPURESERVED*,ULONG,WOW64_CPU_AREA_INFO*);
-NTSYSAPI NTSTATUS  WINAPI RtlWow64GetCurrentCpuArea(USHORT*,void**,void**);
-NTSYSAPI NTSTATUS  WINAPI RtlWow64GetThreadContext(HANDLE,WOW64_CONTEXT*);
-NTSYSAPI NTSTATUS  WINAPI RtlWow64GetThreadSelectorEntry(HANDLE,THREAD_DESCRIPTOR_INFORMATION*,ULONG,ULONG*);
-NTSYSAPI NTSTATUS  WINAPI RtlWow64SetThreadContext(HANDLE,const WOW64_CONTEXT*);
-#else
-NTSYSAPI NTSTATUS  WINAPI NtWow64AllocateVirtualMemory64(HANDLE,ULONG64*,ULONG64,ULONG64*,ULONG,ULONG);
-NTSYSAPI NTSTATUS  WINAPI NtWow64GetNativeSystemInformation(SYSTEM_INFORMATION_CLASS,void*,ULONG,ULONG*);
-NTSYSAPI NTSTATUS  WINAPI NtWow64ReadVirtualMemory64(HANDLE,ULONG64,void*,ULONG64,ULONG64*);
-NTSYSAPI NTSTATUS  WINAPI NtWow64WriteVirtualMemory64(HANDLE,ULONG64,const void*,ULONG64,ULONG64*);
+#ifndef _WIN64
 NTSYSAPI LONGLONG  WINAPI RtlConvertLongToLargeInteger(LONG);
 NTSYSAPI ULONGLONG WINAPI RtlConvertUlongToLargeInteger(ULONG);
 NTSYSAPI LONGLONG  WINAPI RtlEnlargedIntegerMultiply(INT,INT);
@@ -4556,9 +3760,9 @@ NTSYSAPI void      WINAPI TpWaitForWork(TP_WORK *,BOOL);
 
 /* Wine internal functions */
 
-NTSYSAPI NTSTATUS WINAPI wine_nt_to_unix_file_name( const OBJECT_ATTRIBUTES *attr, char *nameA, ULONG *size,
-                                                    UINT disposition );
-NTSYSAPI NTSTATUS WINAPI wine_unix_to_nt_file_name( const char *name, WCHAR *buffer, ULONG *size );
+NTSYSAPI NTSTATUS CDECL wine_nt_to_unix_file_name( const UNICODE_STRING *nameW, char *nameA, SIZE_T *size,
+                                                   UINT disposition );
+NTSYSAPI NTSTATUS CDECL wine_unix_to_nt_file_name( const char *name, WCHAR *buffer, SIZE_T *size );
 
 
 /***********************************************************************
@@ -4647,7 +3851,6 @@ static inline PLIST_ENTRY RemoveTailList(PLIST_ENTRY le)
 
 /* Wine internal functions */
 extern NTSTATUS CDECL __wine_init_unix_lib( HMODULE module, DWORD reason, const void *ptr_in, void *ptr_out );
-extern NTSTATUS WINAPI __wine_unix_spawnvp( char * const argv[], int wait );
 
 /* The thread information for 16-bit threads */
 /* NtCurrentTeb()->SubSystemTib points to this */

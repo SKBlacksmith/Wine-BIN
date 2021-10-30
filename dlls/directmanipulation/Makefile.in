@@ -1,7 +1,7 @@
 MODULE    = directmanipulation.dll
 IMPORTS   = uuid
 
-EXTRADLLFLAGS = -Wb,--prefer-native
+EXTRADLLFLAGS = -mno-cygwin
 
 IDL_SRCS = directmanip.idl
 

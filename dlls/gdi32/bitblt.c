@@ -26,7 +26,7 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "ntgdi_private.h"
+#include "gdi_private.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(bitblt);
@@ -236,8 +236,8 @@ static RGBQUAD get_dc_rgb_color( DC *dc, int color_table_size, COLORREF color )
     {
         PALETTEENTRY pal;
 
-        if (!get_palette_entries( dc->hPalette, LOWORD(color), 1, &pal ))
-            get_palette_entries( dc->hPalette, 0, 1, &pal );
+        if (!GetPaletteEntries( dc->hPalette, LOWORD(color), 1, &pal ))
+            GetPaletteEntries( dc->hPalette, 0, 1, &pal );
         ret.rgbRed   = pal.peRed;
         ret.rgbGreen = pal.peGreen;
         ret.rgbBlue  = pal.peBlue;
@@ -261,8 +261,8 @@ static RGBQUAD get_dc_rgb_color( DC *dc, int color_table_size, COLORREF color )
 /* helper to retrieve either both colors or only the background color for monochrome blits */
 void get_mono_dc_colors( DC *dc, int color_table_size, BITMAPINFO *info, int count )
 {
-    info->bmiColors[count - 1] = get_dc_rgb_color( dc, color_table_size, dc->attr->background_color );
-    if (count > 1) info->bmiColors[0] = get_dc_rgb_color( dc, color_table_size, dc->attr->text_color );
+    info->bmiColors[count - 1] = get_dc_rgb_color( dc, color_table_size, dc->backgroundColor );
+    if (count > 1) info->bmiColors[0] = get_dc_rgb_color( dc, color_table_size, dc->textColor );
     info->bmiHeader.biClrUsed = count;
 }
 
@@ -313,7 +313,7 @@ BOOL CDECL nulldrv_StretchBlt( PHYSDEV dst_dev, struct bitblt_coords *dst,
         ((src->width != dst->width) || (src->height != dst->height)))
     {
         copy_bitmapinfo( src_info, dst_info );
-        err = stretch_bits( src_info, src, dst_info, dst, &bits, dc_dst->attr->stretch_blt_mode );
+        err = stretch_bits( src_info, src, dst_info, dst, &bits, dc_dst->stretchBltMode );
         if (!err) err = dst_dev->funcs->pPutImage( dst_dev, 0, dst_info, &bits, src, dst, rop );
     }
 
@@ -482,9 +482,9 @@ BOOL CDECL nulldrv_GradientFill( PHYSDEV dev, TRIVERTEX *vert_array, ULONG nvert
         pts[i].y -= dst.visrect.top;
     }
 
-    rgn = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+    rgn = CreateRectRgn( 0, 0, 0, 0 );
     gradient_bitmapinfo( info, bits.ptr, vert_array, nvert, grad_array, ngrad, mode, pts, rgn );
-    NtGdiOffsetRgn( rgn, dst.visrect.left, dst.visrect.top );
+    OffsetRgn( rgn, dst.visrect.left, dst.visrect.top );
     ret = !dev->funcs->pPutImage( dev, rgn, info, &bits, &src, &dst, SRCCOPY );
 
     if (bits.free) bits.free( &bits );
@@ -525,9 +525,9 @@ COLORREF CDECL nulldrv_GetPixel( PHYSDEV dev, INT x, INT y )
 
 
 /***********************************************************************
- *           NtGdiPatBlt    (win32u.@)
+ *           PatBlt    (GDI32.@)
  */
-BOOL WINAPI NtGdiPatBlt( HDC hdc, INT left, INT top, INT width, INT height, DWORD rop )
+BOOL WINAPI PatBlt( HDC hdc, INT left, INT top, INT width, INT height, DWORD rop)
 {
     DC * dc;
     BOOL ret = FALSE;
@@ -543,7 +543,7 @@ BOOL WINAPI NtGdiPatBlt( HDC hdc, INT left, INT top, INT width, INT height, DWOR
         dst.log_y      = top;
         dst.log_width  = width;
         dst.log_height = height;
-        dst.layout     = dc->attr->layout;
+        dst.layout     = dc->layout;
         if (rop & NOMIRRORBITMAP)
         {
             dst.layout |= LAYOUT_BITMAPORIENTATIONPRESERVED;
@@ -569,25 +569,25 @@ BOOL WINAPI NtGdiPatBlt( HDC hdc, INT left, INT top, INT width, INT height, DWOR
 /***********************************************************************
  *           BitBlt    (GDI32.@)
  */
-BOOL WINAPI NtGdiBitBlt( HDC hdc_dst, INT x_dst, INT y_dst, INT width, INT height,
-                         HDC hdc_src, INT x_src, INT y_src, DWORD rop, DWORD bk_color, FLONG fl )
+BOOL WINAPI DECLSPEC_HOTPATCH BitBlt( HDC hdcDst, INT xDst, INT yDst, INT width,
+                                      INT height, HDC hdcSrc, INT xSrc, INT ySrc, DWORD rop )
 {
-    return NtGdiStretchBlt( hdc_dst, x_dst, y_dst, width, height,
-                            hdc_src, x_src, y_src, width, height, rop, bk_color );
+    if (!rop_uses_src( rop )) return PatBlt( hdcDst, xDst, yDst, width, height, rop );
+    else return StretchBlt( hdcDst, xDst, yDst, width, height,
+                            hdcSrc, xSrc, ySrc, width, height, rop );
 }
 
 
 /***********************************************************************
- *           NtGdiStretchBlt    (win32u.@)
+ *           StretchBlt    (GDI32.@)
  */
-BOOL WINAPI NtGdiStretchBlt( HDC hdcDst, INT xDst, INT yDst, INT widthDst, INT heightDst,
-                             HDC hdcSrc, INT xSrc, INT ySrc, INT widthSrc, INT heightSrc,
-                             DWORD rop, COLORREF bk_color )
+BOOL WINAPI StretchBlt( HDC hdcDst, INT xDst, INT yDst, INT widthDst, INT heightDst,
+                        HDC hdcSrc, INT xSrc, INT ySrc, INT widthSrc, INT heightSrc, DWORD rop )
 {
     BOOL ret = FALSE;
     DC *dcDst, *dcSrc;
 
-    if (!rop_uses_src( rop )) return NtGdiPatBlt( hdcDst, xDst, yDst, widthDst, heightDst, rop );
+    if (!rop_uses_src( rop )) return PatBlt( hdcDst, xDst, yDst, widthDst, heightDst, rop );
 
     if (!(dcDst = get_dc_ptr( hdcDst ))) return FALSE;
 
@@ -602,12 +602,12 @@ BOOL WINAPI NtGdiStretchBlt( HDC hdcDst, INT xDst, INT yDst, INT widthDst, INT h
         src.log_y      = ySrc;
         src.log_width  = widthSrc;
         src.log_height = heightSrc;
-        src.layout     = dcSrc->attr->layout;
+        src.layout     = dcSrc->layout;
         dst.log_x      = xDst;
         dst.log_y      = yDst;
         dst.log_width  = widthDst;
         dst.log_height = heightDst;
-        dst.layout     = dcDst->attr->layout;
+        dst.layout     = dcDst->layout;
         if (rop & NOMIRRORBITMAP)
         {
             src.layout |= LAYOUT_BITMAPORIENTATIONPRESERVED;
@@ -785,50 +785,50 @@ BOOL WINAPI MaskBlt(HDC hdcDest, INT nXDest, INT nYDest,
 	return BitBlt(hdcDest, nXDest, nYDest, nWidth, nHeight, hdcSrc, nXSrc, nYSrc, FRGND_ROP3(dwRop));
 
     hbrMask = CreatePatternBrush(hbmMask);
-    hbrDst = NtGdiSelectBrush(hdcDest, GetStockObject(NULL_BRUSH));
+    hbrDst = SelectObject(hdcDest, GetStockObject(NULL_BRUSH));
 
     /* make bitmap */
-    hDC1 = NtGdiCreateCompatibleDC( hdcDest );
+    hDC1 = CreateCompatibleDC(hdcDest);
     hBitmap1 = CreateCompatibleBitmap(hdcDest, nWidth, nHeight);
-    hOldBitmap1 = NtGdiSelectBitmap(hDC1, hBitmap1);
+    hOldBitmap1 = SelectObject(hDC1, hBitmap1);
 
     /* draw using bkgnd rop */
     BitBlt(hDC1, 0, 0, nWidth, nHeight, hdcDest, nXDest, nYDest, SRCCOPY);
-    hbrTmp = NtGdiSelectBrush(hDC1, hbrDst);
+    hbrTmp = SelectObject(hDC1, hbrDst);
     BitBlt(hDC1, 0, 0, nWidth, nHeight, hdcSrc, nXSrc, nYSrc, BKGND_ROP3(dwRop));
-    NtGdiSelectBrush(hDC1, hbrTmp);
+    SelectObject(hDC1, hbrTmp);
 
     /* make bitmap */
-    hDC2 = NtGdiCreateCompatibleDC( hdcDest );
+    hDC2 = CreateCompatibleDC(hdcDest);
     hBitmap2 = CreateCompatibleBitmap(hdcDest, nWidth, nHeight);
-    hOldBitmap2 = NtGdiSelectBitmap(hDC2, hBitmap2);
+    hOldBitmap2 = SelectObject(hDC2, hBitmap2);
 
     /* draw using foregnd rop */
     BitBlt(hDC2, 0, 0, nWidth, nHeight, hdcDest, nXDest, nYDest, SRCCOPY);
-    hbrTmp = NtGdiSelectBrush(hDC2, hbrDst);
+    hbrTmp = SelectObject(hDC2, hbrDst);
     BitBlt(hDC2, 0, 0, nWidth, nHeight, hdcSrc, nXSrc, nYSrc, FRGND_ROP3(dwRop));
 
     /* combine both using the mask as a pattern brush */
-    NtGdiSelectBrush(hDC2, hbrMask);
+    SelectObject(hDC2, hbrMask);
     SetBrushOrgEx(hDC2, -xMask, -yMask, NULL);
     BitBlt(hDC2, 0, 0, nWidth, nHeight, hDC1, 0, 0, 0xac0744 ); /* (D & P) | (S & ~P) */ 
-    NtGdiSelectBrush(hDC2, hbrTmp);
+    SelectObject(hDC2, hbrTmp);
 
     /* blit to dst */
     BitBlt(hdcDest, nXDest, nYDest, nWidth, nHeight, hDC2, 0, 0, SRCCOPY);
 
     /* restore all objects */
-    NtGdiSelectBrush(hdcDest, hbrDst);
-    NtGdiSelectBitmap(hDC1, hOldBitmap1);
-    NtGdiSelectBitmap(hDC2, hOldBitmap2);
+    SelectObject(hdcDest, hbrDst);
+    SelectObject(hDC1, hOldBitmap1);
+    SelectObject(hDC2, hOldBitmap2);
 
     /* delete all temp objects */
     DeleteObject(hBitmap1);
     DeleteObject(hBitmap2);
     DeleteObject(hbrMask);
 
-    NtGdiDeleteObjectApp( hDC1 );
-    NtGdiDeleteObjectApp( hDC2 );
+    DeleteDC(hDC1);
+    DeleteDC(hDC2);
 
     return TRUE;
 }
@@ -864,7 +864,7 @@ BOOL WINAPI GdiTransparentBlt( HDC hdcDest, int xDest, int yDest, int widthDest,
     oldStretchMode = GetStretchBltMode(hdcSrc);
     if(oldStretchMode == BLACKONWHITE || oldStretchMode == WHITEONBLACK)
         SetStretchBltMode(hdcSrc, COLORONCOLOR);
-    hdcWork = NtGdiCreateCompatibleDC( hdcDest );
+    hdcWork = CreateCompatibleDC(hdcDest);
     if ((GetObjectType( hdcDest ) != OBJ_MEMDC ||
          GetObjectW( GetCurrentObject( hdcDest, OBJ_BITMAP ), sizeof(dib), &dib ) == sizeof(BITMAP)) &&
         GetDeviceCaps( hdcDest, BITSPIXEL ) == 32)
@@ -880,7 +880,7 @@ BOOL WINAPI GdiTransparentBlt( HDC hdcDest, int xDest, int yDest, int widthDest,
         bmpWork = CreateDIBSection( 0, &info, DIB_RGB_COLORS, NULL, NULL, 0 );
     }
     else bmpWork = CreateCompatibleBitmap(hdcDest, widthDest, heightDest);
-    oldWork = NtGdiSelectBitmap(hdcWork, bmpWork);
+    oldWork = SelectObject(hdcWork, bmpWork);
     if(!StretchBlt(hdcWork, 0, 0, widthDest, heightDest, hdcSrc, xSrc, ySrc, widthSrc, heightSrc, SRCCOPY)) {
         TRACE("Failed to stretch\n");
         goto error;
@@ -888,9 +888,9 @@ BOOL WINAPI GdiTransparentBlt( HDC hdcDest, int xDest, int yDest, int widthDest,
     SetBkColor(hdcWork, crTransparent);
 
     /* Create mask */
-    hdcMask = NtGdiCreateCompatibleDC( hdcDest );
+    hdcMask = CreateCompatibleDC(hdcDest);
     bmpMask = CreateCompatibleBitmap(hdcMask, widthDest, heightDest);
-    oldMask = NtGdiSelectBitmap(hdcMask, bmpMask);
+    oldMask = SelectObject(hdcMask, bmpMask);
     if(!BitBlt(hdcMask, 0, 0, widthDest, heightDest, hdcWork, 0, 0, SRCCOPY)) {
         TRACE("Failed to create mask\n");
         goto error;
@@ -922,24 +922,24 @@ error:
     SetBkColor(hdcDest, oldBackground);
     SetTextColor(hdcDest, oldForeground);
     if(hdcWork) {
-        NtGdiSelectBitmap(hdcWork, oldWork);
-        NtGdiDeleteObjectApp( hdcWork );
+        SelectObject(hdcWork, oldWork);
+        DeleteDC(hdcWork);
     }
     if(bmpWork) DeleteObject(bmpWork);
     if(hdcMask) {
-        NtGdiSelectBitmap(hdcMask, oldMask);
-        NtGdiDeleteObjectApp( hdcMask );
+        SelectObject(hdcMask, oldMask);
+        DeleteDC(hdcMask);
     }
     if(bmpMask) DeleteObject(bmpMask);
     return ret;
 }
 
 /******************************************************************************
- *           NtGdiAlphaBlend   (win32u.@)
+ *           GdiAlphaBlend [GDI32.@]
  */
-BOOL WINAPI NtGdiAlphaBlend( HDC hdcDst, int xDst, int yDst, int widthDst, int heightDst,
-                             HDC hdcSrc, int xSrc, int ySrc, int widthSrc, int heightSrc,
-                             BLENDFUNCTION blendFunction, HANDLE xform )
+BOOL WINAPI GdiAlphaBlend(HDC hdcDst, int xDst, int yDst, int widthDst, int heightDst,
+                          HDC hdcSrc, int xSrc, int ySrc, int widthSrc, int heightSrc,
+                          BLENDFUNCTION blendFunction)
 {
     BOOL ret = FALSE;
     DC *dcDst, *dcSrc;
@@ -958,12 +958,12 @@ BOOL WINAPI NtGdiAlphaBlend( HDC hdcDst, int xDst, int yDst, int widthDst, int h
         src.log_y      = ySrc;
         src.log_width  = widthSrc;
         src.log_height = heightSrc;
-        src.layout     = dcSrc->attr->layout;
+        src.layout     = dcSrc->layout;
         dst.log_x      = xDst;
         dst.log_y      = yDst;
         dst.log_width  = widthDst;
         dst.log_height = heightDst;
-        dst.layout     = dcDst->attr->layout;
+        dst.layout     = dcDst->layout;
         ret = !get_vis_rectangles( dcDst, &dst, dcSrc, &src );
 
         TRACE("src %p log=%d,%d %dx%d phys=%d,%d %dx%d vis=%s  dst %p log=%d,%d %dx%d phys=%d,%d %dx%d vis=%s  blend=%02x/%02x/%02x/%02x\n",
@@ -977,8 +977,8 @@ BOOL WINAPI NtGdiAlphaBlend( HDC hdcDst, int xDst, int yDst, int widthDst, int h
         if (src.x < 0 || src.y < 0 || src.width < 0 || src.height < 0 ||
             src.log_width < 0 || src.log_height < 0 ||
             (!is_rect_empty( &dcSrc->device_rect ) &&
-             (src.width > dcSrc->device_rect.right - dcSrc->attr->vis_rect.left - src.x ||
-              src.height > dcSrc->device_rect.bottom - dcSrc->attr->vis_rect.top - src.y)))
+             (src.width > dcSrc->device_rect.right - dcSrc->vis_rect.left - src.x ||
+              src.height > dcSrc->device_rect.bottom - dcSrc->vis_rect.top - src.y)))
         {
             WARN( "Invalid src coords: (%d,%d), size %dx%d\n", src.x, src.y, src.width, src.height );
             SetLastError( ERROR_INVALID_PARAMETER );

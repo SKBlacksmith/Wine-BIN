@@ -120,8 +120,8 @@
  *			- Corrected syntax problems with an old yacc (;)
  *			- Added extra comment about grammar
  */
-
 #include "config.h"
+#include "wine/port.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,12 +130,11 @@
 #include <ctype.h>
 #include <string.h>
 
-#include "../tools.h"
 #include "wrc.h"
 #include "utils.h"
 #include "newstruc.h"
 #include "dumpres.h"
-#include "wpp_private.h"
+#include "wine/wpp.h"
 #include "parser.h"
 #include "windef.h"
 #include "winbase.h"
@@ -554,7 +553,7 @@ resource_definition
 		{
 			$$ = rsc = new_resource(res_anicur, $1->u.ani, $1->u.ani->memopt, $1->u.ani->data->lvc.language);
 		}
-		else /* res_curg */
+		else if($1->type == res_curg)
 		{
 			cursor_t *cur;
 			$$ = rsc = new_resource(res_curg, $1->u.curg, $1->u.curg->memopt, $1->u.curg->lvc.language);
@@ -568,6 +567,8 @@ resource_definition
 				rsc->name->name.i_name = cur->id;
 			}
 		}
+		else
+			internal_error(__FILE__, __LINE__, "Invalid top-level type %d in cursor resource\n", $1->type);
 		free($1);
 		}
 	| dialog	{ $$ = new_resource(res_dlg, $1, $1->memopt, $1->lvc.language); }
@@ -586,7 +587,7 @@ resource_definition
 		{
 			$$ = rsc = new_resource(res_aniico, $1->u.ani, $1->u.ani->memopt, $1->u.ani->data->lvc.language);
 		}
-		else /* res_icog */
+		else if($1->type == res_icog)
 		{
 			icon_t *ico;
 			$$ = rsc = new_resource(res_icog, $1->u.icog, $1->u.icog->memopt, $1->u.icog->lvc.language);
@@ -600,6 +601,8 @@ resource_definition
 				rsc->name->name.i_name = ico->id;
 			}
 		}
+		else
+			internal_error(__FILE__, __LINE__, "Invalid top-level type %d in icon resource\n", $1->type);
 		free($1);
 		}
 	| menu		{ $$ = new_resource(res_men, $1, $1->memopt, $1->lvc.language); }
@@ -2255,13 +2258,10 @@ static raw_data_t *str2raw_data(string_t *str)
 	rd = new_raw_data();
 	rd->size = str->size * (str->type == str_char ? 1 : 2);
 	rd->data = xmalloc(rd->size);
-	switch (str->type)
-	{
-	case str_char:
+	if(str->type == str_char)
 		memcpy(rd->data, str->str.cstr, rd->size);
-		break;
-	case str_unicode:
-            {
+	else if(str->type == str_unicode)
+	{
 		int i;
 		switch(byteorder)
 		{
@@ -2286,8 +2286,9 @@ static raw_data_t *str2raw_data(string_t *str)
 			}
 			break;
 		}
-            }
 	}
+	else
+		internal_error(__FILE__, __LINE__, "Invalid stringtype\n");
 	return rd;
 }
 
@@ -2719,7 +2720,7 @@ static resource_t *build_fontdirs(resource_t *tail)
 		if((byteorder == WRC_BO_BIG && !isswapped) || (byteorder != WRC_BO_BIG && isswapped))
 #endif
 		{
-			error("User supplied FONTDIR needs byteswapping\n");
+			internal_error(__FILE__, __LINE__, "User supplied FONTDIR needs byteswapping\n");
 		}
 	}
 

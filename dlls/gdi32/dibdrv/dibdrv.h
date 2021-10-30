@@ -141,6 +141,8 @@ extern BOOL     CDECL dibdrv_Pie( PHYSDEV dev, INT left, INT top, INT right, INT
 extern BOOL     CDECL dibdrv_PolyPolygon( PHYSDEV dev, const POINT *pt, const INT *counts, DWORD polygons ) DECLSPEC_HIDDEN;
 extern BOOL     CDECL dibdrv_PolyPolyline( PHYSDEV dev, const POINT* pt, const DWORD* counts,
                                            DWORD polylines ) DECLSPEC_HIDDEN;
+extern BOOL     CDECL dibdrv_Polygon( PHYSDEV dev, const POINT *pt, INT count ) DECLSPEC_HIDDEN;
+extern BOOL     CDECL dibdrv_Polyline( PHYSDEV dev, const POINT* pt, INT count ) DECLSPEC_HIDDEN;
 extern DWORD    CDECL dibdrv_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
                                        const struct gdi_image_bits *bits, struct bitblt_coords *src,
                                        struct bitblt_coords *dst, DWORD rop ) DECLSPEC_HIDDEN;
@@ -187,8 +189,8 @@ typedef struct primitive_funcs
                                     const dib_info *brush, const rop_mask_bits *bits);
     void              (* copy_rect)(const dib_info *dst, const RECT *rc, const dib_info *src,
                                     const POINT *origin, int rop2, int overlap);
-    void            (* blend_rects)(const dib_info *dst, int num, const RECT *rc, const dib_info *src,
-                                    const POINT *offset, BLENDFUNCTION blend);
+    void             (* blend_rect)(const dib_info *dst, const RECT *rc, const dib_info *src,
+                                    const POINT *origin, BLENDFUNCTION blend);
     BOOL          (* gradient_rect)(const dib_info *dib, const RECT *rc, const TRIVERTEX *v, int mode);
     void              (* mask_rect)(const dib_info *dst, const RECT *rc, const dib_info *src,
                                     const POINT *origin, int rop2);
@@ -209,8 +211,6 @@ typedef struct primitive_funcs
     void             (* shrink_row)(const dib_info *dst_dib, const POINT *dst_start,
                                     const dib_info *src_dib, const POINT *src_start,
                                     const struct stretch_params *params, int mode, BOOL keep_dst);
-    void               (* halftone)(const dib_info *dst_dib, const struct bitblt_coords *dst,
-                                    const dib_info *src_dib, const struct bitblt_coords *src);
 } primitive_funcs;
 
 extern const primitive_funcs funcs_8888 DECLSPEC_HIDDEN;

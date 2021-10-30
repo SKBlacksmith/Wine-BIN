@@ -17,6 +17,7 @@
  */
 
 #include <stdarg.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -301,10 +302,8 @@ static HRESULT WINAPI HTMLElementCollection_toString(IHTMLElementCollection *ifa
                                                      BSTR *String)
 {
     HTMLElementCollection *This = impl_from_IHTMLElementCollection(iface);
-
-    TRACE("(%p)->(%p)\n", This, String);
-
-    return dispex_to_string(&This->dispex, String);
+    FIXME("(%p)->(%p)\n", This, String);
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI HTMLElementCollection_put_length(IHTMLElementCollection *iface,
@@ -620,7 +619,6 @@ static const tid_t HTMLElementCollection_iface_tids[] = {
 };
 
 static dispex_static_data_t HTMLElementCollection_dispex = {
-    L"HTMLCollection",
     &HTMLElementColection_dispex_vtbl,
     DispHTMLElementCollection_tid,
     HTMLElementCollection_iface_tids
@@ -835,8 +833,8 @@ static IHTMLElementCollection *HTMLElementCollection_Create(HTMLElement **elems,
     ret->elems = elems;
     ret->len = len;
 
-    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLElementCollection_iface,
-                  &HTMLElementCollection_dispex, compat_mode);
+    init_dispex_with_compat_mode(&ret->dispex, (IUnknown*)&ret->IHTMLElementCollection_iface,
+                                 &HTMLElementCollection_dispex, compat_mode);
 
     TRACE("ret=%p len=%d\n", ret, len);
 

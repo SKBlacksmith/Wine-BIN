@@ -555,7 +555,6 @@ static HRESULT WINAPI OleObject_SetClientSite(IOleObject *iface, LPOLECLIENTSITE
 
     on_offlineconnected_change(This);
     on_silent_change(This);
-    SetQueryNetSessionCount(SESSION_INCREMENT);
 
     return S_OK;
 }
