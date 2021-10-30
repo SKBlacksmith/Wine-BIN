@@ -73,7 +73,6 @@
 #include "wine/debug.h"
 #include "unix_private.h"
 #include "esync.h"
-#include "fsync.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(sync);
 
@@ -291,7 +290,6 @@ NTSTATUS alloc_object_attributes( const OBJECT_ATTRIBUTES *attr, struct object_a
 
     if (attr->ObjectName)
     {
-        if ((ULONG_PTR)attr->ObjectName->Buffer & (sizeof(WCHAR) - 1)) return STATUS_DATATYPE_MISALIGNMENT;
         if (attr->ObjectName->Length & (sizeof(WCHAR) - 1)) return STATUS_OBJECT_NAME_INVALID;
         len += attr->ObjectName->Length;
     }
@@ -344,7 +342,6 @@ static NTSTATUS validate_open_object_attributes( const OBJECT_ATTRIBUTES *attr )
 
     if (attr->ObjectName)
     {
-        if ((ULONG_PTR)attr->ObjectName->Buffer & (sizeof(WCHAR) - 1)) return STATUS_DATATYPE_MISALIGNMENT;
         if (attr->ObjectName->Length & (sizeof(WCHAR) - 1)) return STATUS_OBJECT_NAME_INVALID;
     }
     else if (attr->RootDirectory) return STATUS_OBJECT_NAME_INVALID;
@@ -363,12 +360,8 @@ NTSTATUS WINAPI NtCreateSemaphore( HANDLE *handle, ACCESS_MASK access, const OBJ
     data_size_t len;
     struct object_attributes *objattr;
 
-    *handle = 0;
     if (max <= 0 || initial < 0 || initial > max) return STATUS_INVALID_PARAMETER;
     if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
-
-    if (do_fsync())
-        return fsync_create_semaphore( handle, access, attr, initial, max );
 
     if (do_esync())
         return esync_create_semaphore( handle, access, attr, initial, max );
@@ -395,11 +388,6 @@ NTSTATUS WINAPI NtCreateSemaphore( HANDLE *handle, ACCESS_MASK access, const OBJ
 NTSTATUS WINAPI NtOpenSemaphore( HANDLE *handle, ACCESS_MASK access, const OBJECT_ATTRIBUTES *attr )
 {
     NTSTATUS ret;
-
-    *handle = 0;
-
-    if (do_fsync())
-        return fsync_open_semaphore( handle, access, attr );
 
     if (do_esync())
         return esync_open_semaphore( handle, access, attr );
@@ -440,9 +428,6 @@ NTSTATUS WINAPI NtQuerySemaphore( HANDLE handle, SEMAPHORE_INFORMATION_CLASS cla
 
     if (len != sizeof(SEMAPHORE_BASIC_INFORMATION)) return STATUS_INFO_LENGTH_MISMATCH;
 
-    if (do_fsync())
-        return fsync_query_semaphore( handle, info, ret_len );
-
     if (do_esync())
         return esync_query_semaphore( handle, info, ret_len );
 
@@ -467,9 +452,6 @@ NTSTATUS WINAPI NtQuerySemaphore( HANDLE handle, SEMAPHORE_INFORMATION_CLASS cla
 NTSTATUS WINAPI NtReleaseSemaphore( HANDLE handle, ULONG count, ULONG *previous )
 {
     NTSTATUS ret;
-
-    if (do_fsync())
-        return fsync_release_semaphore( handle, count, previous );
 
     if (do_esync())
         return esync_release_semaphore( handle, count, previous );
@@ -497,12 +479,6 @@ NTSTATUS WINAPI NtCreateEvent( HANDLE *handle, ACCESS_MASK access, const OBJECT_
     NTSTATUS ret;
     data_size_t len;
     struct object_attributes *objattr;
-
-    *handle = 0;
-    if (type != NotificationEvent && type != SynchronizationEvent) return STATUS_INVALID_PARAMETER;
-
-    if (do_fsync())
-        return fsync_create_event( handle, access, attr, type, state );
 
     if (do_esync())
         return esync_create_event( handle, access, attr, type, state );
@@ -532,11 +508,7 @@ NTSTATUS WINAPI NtOpenEvent( HANDLE *handle, ACCESS_MASK access, const OBJECT_AT
 {
     NTSTATUS ret;
 
-    *handle = 0;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
-
-    if (do_fsync())
-        return fsync_open_event( handle, access, attr );
 
     if (do_esync())
         return esync_open_event( handle, access, attr );
@@ -561,11 +533,7 @@ NTSTATUS WINAPI NtOpenEvent( HANDLE *handle, ACCESS_MASK access, const OBJECT_AT
  */
 NTSTATUS WINAPI NtSetEvent( HANDLE handle, LONG *prev_state )
 {
-    /* This comment is a dummy to make sure this patch applies in the right place. */
     NTSTATUS ret;
-
-    if (do_fsync())
-        return fsync_set_event( handle, prev_state );
 
     if (do_esync())
         return esync_set_event( handle );
@@ -587,11 +555,7 @@ NTSTATUS WINAPI NtSetEvent( HANDLE handle, LONG *prev_state )
  */
 NTSTATUS WINAPI NtResetEvent( HANDLE handle, LONG *prev_state )
 {
-    /* This comment is a dummy to make sure this patch applies in the right place. */
     NTSTATUS ret;
-
-    if (do_fsync())
-        return fsync_reset_event( handle, prev_state );
 
     if (do_esync())
         return esync_reset_event( handle );
@@ -624,9 +588,6 @@ NTSTATUS WINAPI NtClearEvent( HANDLE handle )
 NTSTATUS WINAPI NtPulseEvent( HANDLE handle, LONG *prev_state )
 {
     NTSTATUS ret;
-
-    if (do_fsync())
-        return fsync_pulse_event( handle, prev_state );
 
     if (do_esync())
         return esync_pulse_event( handle );
@@ -663,9 +624,6 @@ NTSTATUS WINAPI NtQueryEvent( HANDLE handle, EVENT_INFORMATION_CLASS class,
 
     if (len != sizeof(EVENT_BASIC_INFORMATION)) return STATUS_INFO_LENGTH_MISMATCH;
 
-    if (do_fsync())
-        return fsync_query_event( handle, info, ret_len );
-
     if (do_esync())
         return esync_query_event( handle, info, ret_len );
 
@@ -694,11 +652,6 @@ NTSTATUS WINAPI NtCreateMutant( HANDLE *handle, ACCESS_MASK access, const OBJECT
     data_size_t len;
     struct object_attributes *objattr;
 
-    *handle = 0;
-
-    if (do_fsync())
-        return fsync_create_mutex( handle, access, attr, owned );
-
     if (do_esync())
         return esync_create_mutex( handle, access, attr, owned );
 
@@ -726,11 +679,7 @@ NTSTATUS WINAPI NtOpenMutant( HANDLE *handle, ACCESS_MASK access, const OBJECT_A
 {
     NTSTATUS ret;
 
-    *handle = 0;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
-
-    if (do_fsync())
-        return fsync_open_mutex( handle, access, attr );
 
     if (do_esync())
         return esync_open_mutex( handle, access, attr );
@@ -756,9 +705,6 @@ NTSTATUS WINAPI NtOpenMutant( HANDLE *handle, ACCESS_MASK access, const OBJECT_A
 NTSTATUS WINAPI NtReleaseMutant( HANDLE handle, LONG *prev_count )
 {
     NTSTATUS ret;
-
-    if (do_fsync())
-        return fsync_release_mutex( handle, prev_count );
 
     if (do_esync())
         return esync_release_mutex( handle, prev_count );
@@ -793,9 +739,6 @@ NTSTATUS WINAPI NtQueryMutant( HANDLE handle, MUTANT_INFORMATION_CLASS class,
 
     if (len != sizeof(MUTANT_BASIC_INFORMATION)) return STATUS_INFO_LENGTH_MISMATCH;
 
-    if (do_fsync())
-        return fsync_query_mutex( handle, info, ret_len );
-
     if (do_esync())
         return esync_query_mutex( handle, info, ret_len );
 
@@ -824,7 +767,6 @@ NTSTATUS WINAPI NtCreateJobObject( HANDLE *handle, ACCESS_MASK access, const OBJ
     data_size_t len;
     struct object_attributes *objattr;
 
-    *handle = 0;
     if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
 
     SERVER_START_REQ( create_job )
@@ -847,7 +789,6 @@ NTSTATUS WINAPI NtOpenJobObject( HANDLE *handle, ACCESS_MASK access, const OBJEC
 {
     NTSTATUS ret;
 
-    *handle = 0;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
 
     SERVER_START_REQ( open_job )
@@ -1047,166 +988,6 @@ NTSTATUS WINAPI NtAssignProcessToJobObject( HANDLE job, HANDLE process )
 }
 
 
-/**********************************************************************
- *           NtCreateDebugObject  (NTDLL.@)
- */
-NTSTATUS WINAPI NtCreateDebugObject( HANDLE *handle, ACCESS_MASK access,
-                                     OBJECT_ATTRIBUTES *attr, ULONG flags )
-{
-    NTSTATUS ret;
-    data_size_t len;
-    struct object_attributes *objattr;
-
-    *handle = 0;
-    if (flags & ~DEBUG_KILL_ON_CLOSE) return STATUS_INVALID_PARAMETER;
-    if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
-
-    SERVER_START_REQ( create_debug_obj )
-    {
-        req->access = access;
-        req->flags  = flags;
-        wine_server_add_data( req, objattr, len );
-        ret = wine_server_call( req );
-        *handle = wine_server_ptr_handle( reply->handle );
-    }
-    SERVER_END_REQ;
-    free( objattr );
-    return ret;
-}
-
-
-/**********************************************************************
- *           NtSetInformationDebugObject  (NTDLL.@)
- */
-NTSTATUS WINAPI NtSetInformationDebugObject( HANDLE handle, DEBUGOBJECTINFOCLASS class,
-                                             void *info, ULONG len, ULONG *ret_len )
-{
-    NTSTATUS ret;
-    ULONG flags;
-
-    if (class != DebugObjectKillProcessOnExitInformation) return STATUS_INVALID_PARAMETER;
-    if (len != sizeof(ULONG))
-    {
-        if (ret_len) *ret_len = sizeof(ULONG);
-        return STATUS_INFO_LENGTH_MISMATCH;
-    }
-    flags = *(ULONG *)info;
-    if (flags & ~DEBUG_KILL_ON_CLOSE) return STATUS_INVALID_PARAMETER;
-
-    SERVER_START_REQ( set_debug_obj_info )
-    {
-        req->debug = wine_server_obj_handle( handle );
-        req->flags = flags;
-        ret = wine_server_call( req );
-    }
-    SERVER_END_REQ;
-    if (!ret && ret_len) *ret_len = 0;
-    return ret;
-}
-
-
-/* convert the server event data to an NT state change; helper for NtWaitForDebugEvent */
-static NTSTATUS event_data_to_state_change( const debug_event_t *data, DBGUI_WAIT_STATE_CHANGE *state )
-{
-    int i;
-
-    switch (data->code)
-    {
-    case DbgIdle:
-    case DbgReplyPending:
-        return STATUS_PENDING;
-    case DbgCreateThreadStateChange:
-    {
-        DBGUI_CREATE_THREAD *info = &state->StateInfo.CreateThread;
-        info->HandleToThread         = wine_server_ptr_handle( data->create_thread.handle );
-        info->NewThread.StartAddress = wine_server_get_ptr( data->create_thread.start );
-        return STATUS_SUCCESS;
-    }
-    case DbgCreateProcessStateChange:
-    {
-        DBGUI_CREATE_PROCESS *info = &state->StateInfo.CreateProcessInfo;
-        info->HandleToProcess                       = wine_server_ptr_handle( data->create_process.process );
-        info->HandleToThread                        = wine_server_ptr_handle( data->create_process.thread );
-        info->NewProcess.FileHandle                 = wine_server_ptr_handle( data->create_process.file );
-        info->NewProcess.BaseOfImage                = wine_server_get_ptr( data->create_process.base );
-        info->NewProcess.DebugInfoFileOffset        = data->create_process.dbg_offset;
-        info->NewProcess.DebugInfoSize              = data->create_process.dbg_size;
-        info->NewProcess.InitialThread.StartAddress = wine_server_get_ptr( data->create_process.start );
-        return STATUS_SUCCESS;
-    }
-    case DbgExitThreadStateChange:
-        state->StateInfo.ExitThread.ExitStatus = data->exit.exit_code;
-        return STATUS_SUCCESS;
-    case DbgExitProcessStateChange:
-        state->StateInfo.ExitProcess.ExitStatus = data->exit.exit_code;
-        return STATUS_SUCCESS;
-    case DbgExceptionStateChange:
-    case DbgBreakpointStateChange:
-    case DbgSingleStepStateChange:
-    {
-        DBGKM_EXCEPTION *info = &state->StateInfo.Exception;
-        info->FirstChance = data->exception.first;
-        info->ExceptionRecord.ExceptionCode    = data->exception.exc_code;
-        info->ExceptionRecord.ExceptionFlags   = data->exception.flags;
-        info->ExceptionRecord.ExceptionRecord  = wine_server_get_ptr( data->exception.record );
-        info->ExceptionRecord.ExceptionAddress = wine_server_get_ptr( data->exception.address );
-        info->ExceptionRecord.NumberParameters = data->exception.nb_params;
-        for (i = 0; i < data->exception.nb_params; i++)
-            info->ExceptionRecord.ExceptionInformation[i] = data->exception.params[i];
-        return STATUS_SUCCESS;
-    }
-    case DbgLoadDllStateChange:
-    {
-        DBGKM_LOAD_DLL *info = &state->StateInfo.LoadDll;
-        info->FileHandle          = wine_server_ptr_handle( data->load_dll.handle );
-        info->BaseOfDll           = wine_server_get_ptr( data->load_dll.base );
-        info->DebugInfoFileOffset = data->load_dll.dbg_offset;
-        info->DebugInfoSize       = data->load_dll.dbg_size;
-        info->NamePointer         = wine_server_get_ptr( data->load_dll.name );
-        return STATUS_SUCCESS;
-    }
-    case DbgUnloadDllStateChange:
-        state->StateInfo.UnloadDll.BaseAddress = wine_server_get_ptr( data->unload_dll.base );
-        return STATUS_SUCCESS;
-    }
-    return STATUS_INTERNAL_ERROR;
-}
-
-/**********************************************************************
- *           NtWaitForDebugEvent  (NTDLL.@)
- */
-NTSTATUS WINAPI NtWaitForDebugEvent( HANDLE handle, BOOLEAN alertable, LARGE_INTEGER *timeout,
-                                     DBGUI_WAIT_STATE_CHANGE *state )
-{
-    debug_event_t data;
-    NTSTATUS ret;
-    BOOL wait = TRUE;
-
-    for (;;)
-    {
-        SERVER_START_REQ( wait_debug_event )
-        {
-            req->debug = wine_server_obj_handle( handle );
-            wine_server_set_reply( req, &data, sizeof(data) );
-            ret = wine_server_call( req );
-            if (!ret && !(ret = event_data_to_state_change( &data, state )))
-            {
-                state->NewState = data.code;
-                state->AppClientId.UniqueProcess = ULongToHandle( reply->pid );
-                state->AppClientId.UniqueThread  = ULongToHandle( reply->tid );
-            }
-        }
-        SERVER_END_REQ;
-
-        if (ret != STATUS_PENDING) return ret;
-        if (!wait) return STATUS_TIMEOUT;
-        wait = FALSE;
-        ret = NtWaitForSingleObject( handle, alertable, timeout );
-        if (ret != STATUS_WAIT_0) return ret;
-    }
-}
-
-
 /**************************************************************************
  *           NtCreateDirectoryObject   (NTDLL.@)
  */
@@ -1216,7 +997,8 @@ NTSTATUS WINAPI NtCreateDirectoryObject( HANDLE *handle, ACCESS_MASK access, OBJ
     data_size_t len;
     struct object_attributes *objattr;
 
-    *handle = 0;
+    if (!handle) return STATUS_ACCESS_VIOLATION;
+
     if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
 
     SERVER_START_REQ( create_directory )
@@ -1239,7 +1021,7 @@ NTSTATUS WINAPI NtOpenDirectoryObject( HANDLE *handle, ACCESS_MASK access, const
 {
     NTSTATUS ret;
 
-    *handle = 0;
+    if (!handle) return STATUS_ACCESS_VIOLATION;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
 
     SERVER_START_REQ( open_directory )
@@ -1316,9 +1098,9 @@ NTSTATUS WINAPI NtCreateSymbolicLinkObject( HANDLE *handle, ACCESS_MASK access,
     data_size_t len;
     struct object_attributes *objattr;
 
-    *handle = 0;
-    if (!target->MaximumLength) return STATUS_INVALID_PARAMETER;
-    if (!target->Buffer) return STATUS_ACCESS_VIOLATION;
+    if (!handle || !attr || !target) return STATUS_ACCESS_VIOLATION;
+    if (!target->Buffer) return STATUS_INVALID_PARAMETER;
+
     if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
 
     SERVER_START_REQ( create_symlink )
@@ -1343,7 +1125,7 @@ NTSTATUS WINAPI NtOpenSymbolicLinkObject( HANDLE *handle, ACCESS_MASK access,
 {
     NTSTATUS ret;
 
-    *handle = 0;
+    if (!handle) return STATUS_ACCESS_VIOLATION;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
 
     SERVER_START_REQ( open_symlink )
@@ -1417,8 +1199,8 @@ NTSTATUS WINAPI NtCreateTimer( HANDLE *handle, ACCESS_MASK access, const OBJECT_
     data_size_t len;
     struct object_attributes *objattr;
 
-    *handle = 0;
     if (type != NotificationTimer && type != SynchronizationTimer) return STATUS_INVALID_PARAMETER;
+
     if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
 
     SERVER_START_REQ( create_timer )
@@ -1444,7 +1226,6 @@ NTSTATUS WINAPI NtOpenTimer( HANDLE *handle, ACCESS_MASK access, const OBJECT_AT
 {
     NTSTATUS ret;
 
-    *handle = 0;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
 
     SERVER_START_REQ( open_timer )
@@ -1568,13 +1349,6 @@ NTSTATUS WINAPI NtWaitForMultipleObjects( DWORD count, const HANDLE *handles, BO
 
     if (!count || count > MAXIMUM_WAIT_OBJECTS) return STATUS_INVALID_PARAMETER_1;
 
-    if (do_fsync())
-    {
-        NTSTATUS ret = fsync_wait_objects( count, handles, wait_any, alertable, timeout );
-        if (ret != STATUS_NOT_IMPLEMENTED)
-            return ret;
-    }
-
     if (do_esync())
     {
         NTSTATUS ret = esync_wait_objects( count, handles, wait_any, alertable, timeout );
@@ -1606,9 +1380,6 @@ NTSTATUS WINAPI NtSignalAndWaitForSingleObject( HANDLE signal, HANDLE wait,
 {
     select_op_t select_op;
     UINT flags = SELECT_INTERRUPTIBLE;
-
-    if (do_fsync())
-        return fsync_signal_and_wait( signal, wait, alertable, timeout );
 
     if (do_esync())
         return esync_signal_and_wait( signal, wait, alertable, timeout );
@@ -1643,24 +1414,7 @@ NTSTATUS WINAPI NtYieldExecution(void)
 NTSTATUS WINAPI NtDelayExecution( BOOLEAN alertable, const LARGE_INTEGER *timeout )
 {
     /* if alertable, we need to query the server */
-    if (alertable)
-    {
-        if (do_fsync())
-        {
-            NTSTATUS ret = fsync_wait_objects( 0, NULL, TRUE, TRUE, timeout );
-            if (ret != STATUS_NOT_IMPLEMENTED)
-                return ret;
-        }
-
-        if (do_esync())
-        {
-            NTSTATUS ret = esync_wait_objects( 0, NULL, TRUE, TRUE, timeout );
-            if (ret != STATUS_NOT_IMPLEMENTED)
-                return ret;
-        }
-
-        return server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout );
-    }
+    if (alertable) return server_wait( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, timeout );
 
     if (!timeout || timeout->QuadPart == TIMEOUT_INFINITE)  /* sleep forever */
     {
@@ -1767,10 +1521,8 @@ NTSTATUS WINAPI NtSetSystemTime( const LARGE_INTEGER *new, LARGE_INTEGER *old )
  */
 NTSTATUS WINAPI NtQueryTimerResolution( ULONG *min_res, ULONG *max_res, ULONG *current_res )
 {
-    TRACE( "(%p,%p,%p)\n", min_res, max_res, current_res );
-    *max_res = *current_res = 10000; /* See NtSetTimerResolution() */
-    *min_res = 156250;
-    return STATUS_SUCCESS;
+    FIXME( "(%p,%p,%p), stub!\n", min_res, max_res, current_res );
+    return STATUS_NOT_IMPLEMENTED;
 }
 
 
@@ -1779,26 +1531,8 @@ NTSTATUS WINAPI NtQueryTimerResolution( ULONG *min_res, ULONG *max_res, ULONG *c
  */
 NTSTATUS WINAPI NtSetTimerResolution( ULONG res, BOOLEAN set, ULONG *current_res )
 {
-    static BOOL has_request = FALSE;
-
-    TRACE( "(%u,%u,%p), semi-stub!\n", res, set, current_res );
-
-    /* Wine has no support for anything other that 1 ms and does not keep of
-     * track resolution requests anyway.
-     * Fortunately NtSetTimerResolution() should ignore requests to lower the
-     * timer resolution. So by claiming that 'some other process' requested the
-     * max resolution already, there no need to actually change it.
-     */
-    *current_res = 10000;
-
-    /* Just keep track of whether this process requested a specific timer
-     * resolution.
-     */
-    if (!has_request && !set)
-        return STATUS_TIMER_RESOLUTION_NOT_SET;
-    has_request = set;
-
-    return STATUS_SUCCESS;
+    FIXME( "(%u,%u,%p), stub!\n", res, set, current_res );
+    return STATUS_NOT_IMPLEMENTED;
 }
 
 
@@ -1849,7 +1583,6 @@ NTSTATUS WINAPI NtCreateKeyedEvent( HANDLE *handle, ACCESS_MASK access,
     data_size_t len;
     struct object_attributes *objattr;
 
-    *handle = 0;
     if ((ret = alloc_object_attributes( attr, &objattr, &len ))) return ret;
 
     SERVER_START_REQ( create_keyed_event )
@@ -1873,7 +1606,6 @@ NTSTATUS WINAPI NtOpenKeyedEvent( HANDLE *handle, ACCESS_MASK access, const OBJE
 {
     NTSTATUS ret;
 
-    *handle = 0;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
 
     SERVER_START_REQ( open_keyed_event )
@@ -1940,7 +1672,7 @@ NTSTATUS WINAPI NtCreateIoCompletion( HANDLE *handle, ACCESS_MASK access, OBJECT
 
     TRACE( "(%p, %x, %p, %d)\n", handle, access, attr, threads );
 
-    *handle = 0;
+    if (!handle) return STATUS_INVALID_PARAMETER;
     if ((status = alloc_object_attributes( attr, &objattr, &len ))) return status;
 
     SERVER_START_REQ( create_completion )
@@ -1964,7 +1696,7 @@ NTSTATUS WINAPI NtOpenIoCompletion( HANDLE *handle, ACCESS_MASK access, const OB
 {
     NTSTATUS status;
 
-    *handle = 0;
+    if (!handle) return STATUS_INVALID_PARAMETER;
     if ((status = validate_open_object_attributes( attr ))) return status;
 
     SERVER_START_REQ( open_completion )
@@ -2129,8 +1861,6 @@ NTSTATUS WINAPI NtCreateSection( HANDLE *handle, ACCESS_MASK access, const OBJEC
     data_size_t len;
     struct object_attributes *objattr;
 
-    *handle = 0;
-
     switch (protect & 0xff)
     {
     case PAGE_READONLY:
@@ -2179,7 +1909,6 @@ NTSTATUS WINAPI NtOpenSection( HANDLE *handle, ACCESS_MASK access, const OBJECT_
 {
     NTSTATUS ret;
 
-    *handle = 0;
     if ((ret = validate_open_object_attributes( attr ))) return ret;
 
     SERVER_START_REQ( open_mapping )
@@ -2360,6 +2089,7 @@ NTSTATUS WINAPI NtAddAtom( const WCHAR *name, ULONG length, RTL_ATOM *atom )
         SERVER_START_REQ( add_atom )
         {
             wine_server_add_data( req, name, length );
+            req->table = 0;
             status = wine_server_call( req );
             *atom = reply->atom;
         }
@@ -2380,6 +2110,7 @@ NTSTATUS WINAPI NtDeleteAtom( RTL_ATOM atom )
     SERVER_START_REQ( delete_atom )
     {
         req->atom = atom;
+        req->table = 0;
         status = wine_server_call( req );
     }
     SERVER_END_REQ;
@@ -2399,6 +2130,7 @@ NTSTATUS WINAPI NtFindAtom( const WCHAR *name, ULONG length, RTL_ATOM *atom )
         SERVER_START_REQ( find_atom )
         {
             wine_server_add_data( req, name, length );
+            req->table = 0;
             status = wine_server_call( req );
             *atom = reply->atom;
         }

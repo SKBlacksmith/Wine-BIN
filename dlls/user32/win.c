@@ -22,7 +22,6 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
-#include <limits.h>
 
 #include "windef.h"
 #include "winbase.h"
@@ -45,6 +44,15 @@ WINE_DEFAULT_DEBUG_CHANNEL(win);
 static DWORD process_layout = ~0u;
 
 static struct list window_surfaces = LIST_INIT( window_surfaces );
+
+static CRITICAL_SECTION desktop_section;
+static CRITICAL_SECTION_DEBUG desktop_critsect_debug =
+{
+    0, 0, &desktop_section,
+    { &desktop_critsect_debug.ProcessLocksList, &desktop_critsect_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": desktop_section") }
+};
+static CRITICAL_SECTION desktop_section = { &desktop_critsect_debug, -1, 0, 0, 0, 0 };
 
 static CRITICAL_SECTION surfaces_section;
 static CRITICAL_SECTION_DEBUG critsect_debug =
@@ -591,136 +599,6 @@ static const struct window_surface_funcs dummy_surface_funcs =
 
 struct window_surface dummy_surface = { &dummy_surface_funcs, { NULL, NULL }, 1, { 0, 0, 1, 1 } };
 
-/*******************************************************************
- * Off-screen window surface.
- */
-
-struct offscreen_window_surface
-{
-    struct window_surface header;
-    CRITICAL_SECTION cs;
-    RECT bounds;
-    char *bits;
-    BITMAPINFO info;
-};
-
-static const struct window_surface_funcs offscreen_window_surface_funcs;
-
-static inline void reset_bounds( RECT *bounds )
-{
-    bounds->left = bounds->top = INT_MAX;
-    bounds->right = bounds->bottom = INT_MIN;
-}
-
-static struct offscreen_window_surface *impl_from_window_surface( struct window_surface *base )
-{
-    if (!base || base->funcs != &offscreen_window_surface_funcs) return NULL;
-    return CONTAINING_RECORD( base, struct offscreen_window_surface, header );
-}
-
-static void CDECL offscreen_window_surface_lock( struct window_surface *base )
-{
-    struct offscreen_window_surface *impl = impl_from_window_surface( base );
-    EnterCriticalSection( &impl->cs );
-}
-
-static void CDECL offscreen_window_surface_unlock( struct window_surface *base )
-{
-    struct offscreen_window_surface *impl = impl_from_window_surface( base );
-    LeaveCriticalSection( &impl->cs );
-}
-
-static RECT *CDECL offscreen_window_surface_get_bounds( struct window_surface *base )
-{
-    struct offscreen_window_surface *impl = impl_from_window_surface( base );
-    return &impl->bounds;
-}
-
-static void *CDECL offscreen_window_surface_get_bitmap_info( struct window_surface *base, BITMAPINFO *info )
-{
-    struct offscreen_window_surface *impl = impl_from_window_surface( base );
-    memcpy( info, &impl->info, offsetof( BITMAPINFO, bmiColors[0] ) );
-    return impl->bits;
-}
-
-static void CDECL offscreen_window_surface_set_region( struct window_surface *base, HRGN region )
-{
-}
-
-static void CDECL offscreen_window_surface_flush( struct window_surface *base )
-{
-    struct offscreen_window_surface *impl = impl_from_window_surface( base );
-    base->funcs->lock( base );
-    reset_bounds( &impl->bounds );
-    base->funcs->unlock( base );
-}
-
-static void CDECL offscreen_window_surface_destroy( struct window_surface *base )
-{
-    struct offscreen_window_surface *impl = impl_from_window_surface( base );
-    impl->cs.DebugInfo->Spare[0] = 0;
-    DeleteCriticalSection( &impl->cs );
-    free( impl );
-}
-
-static const struct window_surface_funcs offscreen_window_surface_funcs =
-{
-    offscreen_window_surface_lock,
-    offscreen_window_surface_unlock,
-    offscreen_window_surface_get_bitmap_info,
-    offscreen_window_surface_get_bounds,
-    offscreen_window_surface_set_region,
-    offscreen_window_surface_flush,
-    offscreen_window_surface_destroy
-};
-
-void create_offscreen_window_surface( const RECT *visible_rect, struct window_surface **surface )
-{
-    struct offscreen_window_surface *impl;
-    SIZE_T size;
-    RECT surface_rect = *visible_rect;
-
-    TRACE( "visible_rect %s, surface %p.\n", wine_dbgstr_rect( visible_rect ), surface );
-
-    OffsetRect( &surface_rect, -surface_rect.left, -surface_rect.top );
-    surface_rect.right  = (surface_rect.right + 0x1f) & ~0x1f;
-    surface_rect.bottom = (surface_rect.bottom + 0x1f) & ~0x1f;
-
-    /* check that old surface is an offscreen_window_surface, or release it */
-    if ((impl = impl_from_window_surface( *surface )))
-    {
-        /* if the rect didn't change, keep the same surface */
-        if (EqualRect( &surface_rect, &impl->header.rect )) return;
-        window_surface_release( &impl->header );
-    }
-    else if (*surface) window_surface_release( *surface );
-
-    /* create a new window surface */
-    *surface = NULL;
-    size = surface_rect.right * surface_rect.bottom * 4;
-    if (!(impl = calloc(1, offsetof( struct offscreen_window_surface, info.bmiColors[0] ) + size))) return;
-
-    impl->header.funcs = &offscreen_window_surface_funcs;
-    impl->header.ref = 1;
-    impl->header.rect = surface_rect;
-
-    InitializeCriticalSection( &impl->cs );
-    impl->cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__ ": surface");
-    reset_bounds( &impl->bounds );
-
-    impl->bits = (char *)&impl->info.bmiColors[0];
-    impl->info.bmiHeader.biSize        = sizeof( impl->info );
-    impl->info.bmiHeader.biWidth       = surface_rect.right;
-    impl->info.bmiHeader.biHeight      = surface_rect.bottom;
-    impl->info.bmiHeader.biPlanes      = 1;
-    impl->info.bmiHeader.biBitCount    = 32;
-    impl->info.bmiHeader.biCompression = BI_RGB;
-    impl->info.bmiHeader.biSizeImage   = size;
-
-    TRACE( "created window surface %p\n", &impl->header );
-
-    *surface = &impl->header;
-}
 
 /*******************************************************************
  *           register_window_surface
@@ -986,7 +864,8 @@ BOOL WIN_GetRectangles( HWND hwnd, enum coords_relative relative, RECT *rectWind
         }
         else
         {
-            rect = get_primary_monitor_rect();
+            rect.right  = GetSystemMetrics(SM_CXSCREEN);
+            rect.bottom = GetSystemMetrics(SM_CYSCREEN);
         }
         if (rectWindow) *rectWindow = rect;
         if (rectClient) *rectClient = rect;
@@ -2218,6 +2097,7 @@ HWND WINAPI GetDesktopWindow(void)
         WCHAR app[MAX_PATH + ARRAY_SIZE( L"\\explorer.exe" )];
         WCHAR cmdline[MAX_PATH + ARRAY_SIZE( L"\\explorer.exe /desktop" )];
         WCHAR desktop[MAX_PATH];
+        char *ld_preload;
         void *redir;
 
         SERVER_START_REQ( set_user_object_info )
@@ -2250,6 +2130,49 @@ HWND WINAPI GetDesktopWindow(void)
         lstrcpyW( cmdline, app );
         lstrcatW( cmdline, L" /desktop" );
 
+        /* HACK: Unset LD_PRELOAD before executing explorer.exe to disable buggy gameoverlayrenderer.so
+        * It's not going to work through the CreateProcessW env parameter, as it will not be used for the loader execv.
+        */
+        if (have_libpng())
+        {
+            EnterCriticalSection( &desktop_section);
+
+            if ((ld_preload = getenv("LD_PRELOAD")))
+            {
+                static char const gorso[] = "gameoverlayrenderer.so";
+                static unsigned int gorso_len = ARRAY_SIZE(gorso) - 1;
+                char *env, *next, *tmp;
+
+                env = HeapAlloc(GetProcessHeap(), 0, strlen(ld_preload) + 1);
+                strcpy(env, ld_preload);
+
+                tmp = env;
+                do
+                {
+                    if (!(next = strchr(tmp, ':')))
+                        next = tmp + strlen(tmp);
+
+                    if (next - tmp >= gorso_len &&
+                        strncmp(next - gorso_len, gorso, gorso_len) == 0)
+                    {
+                        if (*next)
+                            memmove(tmp, next + 1, strlen(next));
+                        else
+                            *tmp = 0;
+                        next = tmp;
+                    }
+                    else
+                    {
+                        tmp = next + 1;
+                    }
+                }
+                while (*next);
+
+                png_funcs->hack_unix_setenv("LD_PRELOAD", env, 1);
+                HeapFree(GetProcessHeap(), 0, env);
+            }
+        }
+
         Wow64DisableWow64FsRedirection( &redir );
         if (CreateProcessW( app, cmdline, NULL, NULL, FALSE, DETACHED_PROCESS,
                             NULL, windir, &si, &pi ))
@@ -2261,6 +2184,14 @@ HWND WINAPI GetDesktopWindow(void)
         }
         else WARN( "failed to start explorer, err %d\n", GetLastError() );
         Wow64RevertWow64FsRedirection( redir );
+
+        /* HACK: Restore the previous value, just in case */
+        if (have_libpng())
+        {
+            if (ld_preload) png_funcs->hack_unix_setenv("LD_PRELOAD", ld_preload, 1);
+
+            LeaveCriticalSection( &desktop_section );
+        }
 
         SERVER_START_REQ( get_desktop_window )
         {
@@ -4368,51 +4299,4 @@ BOOL WINAPI SetWindowCompositionAttribute(HWND hwnd, void *data)
     FIXME("(%p, %p): stub\n", hwnd, data);
     SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
     return FALSE;
-}
-
-/***********************************************************************
- *              InternalGetWindowIcon   (USER32.@)
- */
-HICON WINAPI InternalGetWindowIcon( HWND hwnd, UINT type )
-{
-    WND *win = WIN_GetPtr( hwnd );
-    HICON ret;
-
-    TRACE( "hwnd %p, type %#x\n", hwnd, type );
-
-    if (!win)
-    {
-        SetLastError( ERROR_INVALID_WINDOW_HANDLE );
-        return 0;
-    }
-    if (win == WND_OTHER_PROCESS || win == WND_DESKTOP)
-    {
-        if (IsWindow( hwnd )) FIXME( "not supported on other process window %p\n", hwnd );
-        return 0;
-    }
-
-    switch (type)
-    {
-        case ICON_BIG:
-            ret = win->hIcon;
-            if (!ret) ret = (HICON)GetClassLongPtrW( hwnd, GCLP_HICON );
-            break;
-
-        case ICON_SMALL:
-        case ICON_SMALL2:
-            ret = win->hIconSmall ? win->hIconSmall : win->hIconSmall2;
-            if (!ret) ret = (HICON)GetClassLongPtrW( hwnd, GCLP_HICONSM );
-            if (!ret) ret = (HICON)GetClassLongPtrW( hwnd, GCLP_HICON );
-            break;
-
-        default:
-            SetLastError( ERROR_INVALID_PARAMETER );
-            WIN_ReleasePtr( win );
-            return 0;
-    }
-
-    if (!ret) ret = LoadIconW( 0, (const WCHAR *)IDI_APPLICATION );
-
-    WIN_ReleasePtr( win );
-    return CopyIcon( ret );
 }

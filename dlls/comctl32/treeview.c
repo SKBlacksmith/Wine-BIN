@@ -2901,7 +2901,6 @@ TREEVIEW_Refresh(TREEVIEW_INFO *infoPtr, HDC hdc, const RECT *rc)
     HWND hwnd = infoPtr->hwnd;
     RECT rect = *rc;
     TREEVIEW_ITEM *item;
-    HTHEME theme;
 
     if (infoPtr->clientHeight == 0 || infoPtr->clientWidth == 0)
     {
@@ -2916,12 +2915,6 @@ TREEVIEW_Refresh(TREEVIEW_INFO *infoPtr, HDC hdc, const RECT *rc)
     {
 	ReleaseDC(hwnd, hdc);
 	return;
-    }
-
-    if (infoPtr->dwStyle & TVS_HASBUTTONS && (theme = GetWindowTheme(infoPtr->hwnd)))
-    {
-        if (IsThemeBackgroundPartiallyTransparent(theme, TVP_GLYPH, 0))
-            DrawThemeParentBackground(infoPtr->hwnd, hdc, NULL);
     }
 
     for (item = infoPtr->root->firstChild;
@@ -5466,6 +5459,7 @@ static BOOL TREEVIEW_NCPaint (const TREEVIEW_INFO *infoPtr, HRGN region, LPARAM 
     OffsetRect(&r, -r.left, -r.top);
 
     dc = GetDCEx(infoPtr->hwnd, region, DCX_WINDOW|DCX_INTERSECTRGN);
+    OffsetRect(&r, -r.left, -r.top);
 
     if (IsThemeBackgroundPartiallyTransparent (theme, 0, 0))
         DrawThemeParentBackground(infoPtr->hwnd, dc, &r);
@@ -5474,7 +5468,6 @@ static BOOL TREEVIEW_NCPaint (const TREEVIEW_INFO *infoPtr, HRGN region, LPARAM 
 
     /* Call default proc to get the scrollbars etc. painted */
     DefWindowProcW (infoPtr->hwnd, WM_NCPAINT, (WPARAM)cliprgn, 0);
-    DeleteObject(cliprgn);
 
     return TRUE;
 }
@@ -5640,7 +5633,6 @@ static LRESULT TREEVIEW_ThemeChanged(const TREEVIEW_INFO *infoPtr)
     HTHEME theme = GetWindowTheme (infoPtr->hwnd);
     CloseThemeData (theme);
     OpenThemeData (infoPtr->hwnd, themeClass);
-    InvalidateRect (infoPtr->hwnd, NULL, TRUE);
     return 0;
 }
 

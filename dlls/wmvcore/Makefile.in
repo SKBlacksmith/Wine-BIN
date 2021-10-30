@@ -2,11 +2,10 @@ MODULE    = wmvcore.dll
 IMPORTLIB = wmvcore
 IMPORTS   = kernel32
 
-EXTRADLLFLAGS = -mno-cygwin -Wb,--prefer-native
+EXTRADLLFLAGS = -mno-cygwin
 
 C_SRCS = \
 	reader.c \
-	syncreader.c \
 	wmvcore_main.c \
 	writer.c
 

@@ -3035,7 +3035,7 @@ static HRESULT STDMETHODCALLTYPE debugcontrol_IsPointer64Bit(IDebugControl2 *ifa
     switch (target->cpu_type)
     {
         case IMAGE_FILE_MACHINE_I386:
-        case IMAGE_FILE_MACHINE_ARMNT:
+        case IMAGE_FILE_MACHINE_ARM:
             hr = S_FALSE;
             break;
         case IMAGE_FILE_MACHINE_IA64:

@@ -110,8 +110,7 @@ DWORD WINAPI DECLSPEC_HOTPATCH GetTickCount(void)
 BOOL WINAPI RegisterWaitForSingleObject( HANDLE *wait, HANDLE object, WAITORTIMERCALLBACK callback,
                                          void *context, ULONG timeout, ULONG flags )
 {
-    if (!set_ntstatus( RtlRegisterWait( wait, object, callback, context, timeout, flags ))) return FALSE;
-    return TRUE;
+    return (*wait = RegisterWaitForSingleObjectEx( object, callback, context, timeout, flags)) != NULL;
 }
 
 /***********************************************************************

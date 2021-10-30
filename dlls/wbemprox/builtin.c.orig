@@ -177,7 +177,6 @@ static const struct column col_ip4routetable[] =
 };
 static const struct column col_logicaldisk[] =
 {
-    { L"Caption",            CIM_STRING|COL_FLAG_DYNAMIC },
     { L"DeviceId",           CIM_STRING|COL_FLAG_DYNAMIC|COL_FLAG_KEY },
     { L"DriveType",          CIM_UINT32 },
     { L"FileSystem",         CIM_STRING|COL_FLAG_DYNAMIC },
@@ -312,7 +311,6 @@ static const struct column col_process[] =
     { L"ThreadCount",     CIM_UINT32 },
     { L"WorkingSetSize",  CIM_UINT64 },
     /* methods */
-    { L"Create",          CIM_FLAG_ARRAY|COL_FLAG_METHOD },
     { L"GetOwner",        CIM_FLAG_ARRAY|COL_FLAG_METHOD },
 };
 static const struct column col_processor[] =
@@ -395,9 +393,6 @@ static const struct column col_stdregprov[] =
     { L"EnumKey",        CIM_FLAG_ARRAY|COL_FLAG_METHOD },
     { L"EnumValues",     CIM_FLAG_ARRAY|COL_FLAG_METHOD },
     { L"GetStringValue", CIM_FLAG_ARRAY|COL_FLAG_METHOD },
-    { L"SetStringValue", CIM_FLAG_ARRAY|COL_FLAG_METHOD },
-    { L"SetDWORDValue",  CIM_FLAG_ARRAY|COL_FLAG_METHOD },
-    { L"DeleteKey",      CIM_FLAG_ARRAY|COL_FLAG_METHOD },
 };
 static const struct column col_systemenclosure[] =
 {
@@ -591,7 +586,6 @@ struct record_ip4routetable
 };
 struct record_logicaldisk
 {
-    const WCHAR *caption;
     const WCHAR *device_id;
     UINT32       drivetype;
     const WCHAR *filesystem;
@@ -726,7 +720,6 @@ struct record_process
     UINT32       thread_count;
     UINT64       workingsetsize;
     /* methods */
-    class_method *create;
     class_method *get_owner;
 };
 struct record_processor
@@ -809,9 +802,6 @@ struct record_stdregprov
     class_method *enumkey;
     class_method *enumvalues;
     class_method *getstringvalue;
-    class_method *setstringvalue;
-    class_method *setdwordvalue;
-    class_method *deletekey;
 };
 struct record_sysrestore
 {
@@ -894,9 +884,6 @@ static const struct record_param data_param[] =
     { L"StdRegProv", L"CreateKey", 1, L"hDefKey", CIM_SINT32, 0x80000002 },
     { L"StdRegProv", L"CreateKey", 1, L"sSubKeyName", CIM_STRING },
     { L"StdRegProv", L"CreateKey", -1, L"ReturnValue", CIM_UINT32 },
-    { L"StdRegProv", L"DeleteKey", 1, L"hDefKey", CIM_SINT32, 0x80000002 },
-    { L"StdRegProv", L"DeleteKey", 1, L"sSubKeyName", CIM_STRING },
-    { L"StdRegProv", L"DeleteKey", -1, L"ReturnValue", CIM_UINT32 },
     { L"StdRegProv", L"EnumKey", 1, L"hDefKey", CIM_SINT32, 0x80000002 },
     { L"StdRegProv", L"EnumKey", 1, L"sSubKeyName", CIM_STRING },
     { L"StdRegProv", L"EnumKey", -1, L"ReturnValue", CIM_UINT32 },
@@ -911,24 +898,10 @@ static const struct record_param data_param[] =
     { L"StdRegProv", L"GetStringValue", 1, L"sValueName", CIM_STRING },
     { L"StdRegProv", L"GetStringValue", -1, L"ReturnValue", CIM_UINT32 },
     { L"StdRegProv", L"GetStringValue", -1, L"sValue", CIM_STRING },
-    { L"StdRegProv", L"SetStringValue", 1, L"hDefKey", CIM_SINT32, 0x80000002 },
-    { L"StdRegProv", L"SetStringValue", 1, L"sSubKeyName", CIM_STRING },
-    { L"StdRegProv", L"SetStringValue", 1, L"sValueName", CIM_STRING },
-    { L"StdRegProv", L"SetStringValue", 1, L"sValue", CIM_STRING },
-    { L"StdRegProv", L"SetStringValue", -1, L"ReturnValue", CIM_UINT32 },
-    { L"StdRegProv", L"SetDWORDValue", 1, L"hDefKey", CIM_SINT32, 0x80000002 },
-    { L"StdRegProv", L"SetDWORDValue", 1, L"sSubKeyName", CIM_STRING },
-    { L"StdRegProv", L"SetDWORDValue", 1, L"sValueName", CIM_STRING },
-    { L"StdRegProv", L"SetDWORDValue", 1, L"uValue", CIM_UINT32 },
-    { L"StdRegProv", L"SetDWORDValue", -1, L"ReturnValue", CIM_UINT32 },
     { L"SystemRestore", L"Disable", 1, L"Drive", CIM_STRING },
     { L"SystemRestore", L"Disable", -1, L"ReturnValue", CIM_UINT32 },
     { L"SystemRestore", L"Enable", 1, L"Drive", CIM_STRING },
     { L"SystemRestore", L"Enable", -1, L"ReturnValue", CIM_UINT32 },
-    { L"Win32_Process", L"Create", 1, L"CommandLine", CIM_STRING },
-    { L"Win32_Process", L"Create", 1, L"CurrentDirectory", CIM_STRING },
-    { L"Win32_Process", L"Create", -1, L"ProcessId", CIM_UINT32 },
-    { L"Win32_Process", L"Create", -1, L"ReturnValue", CIM_UINT32 },
     { L"Win32_Process", L"GetOwner", -1, L"ReturnValue", CIM_UINT32 },
     { L"Win32_Process", L"GetOwner", -1, L"User", CIM_STRING },
     { L"Win32_Process", L"GetOwner", -1, L"Domain", CIM_STRING },
@@ -957,21 +930,12 @@ static const struct record_quickfixengineering data_quickfixengineering[] =
 
 static const struct record_stdregprov data_stdregprov[] =
 {
-    {
-        reg_create_key,
-        reg_enum_key,
-        reg_enum_values,
-        reg_get_stringvalue,
-        reg_set_stringvalue,
-        reg_set_dwordvalue,
-        reg_delete_key,
-    }
+    { reg_create_key, reg_enum_key, reg_enum_values, reg_get_stringvalue }
 };
 
 static const struct record_sysrestore data_sysrestore[] =
 {
-    { NULL, NULL, 0, 0, 0, sysrestore_create, sysrestore_disable, sysrestore_enable, sysrestore_get_last_status,
-      sysrestore_restore }
+    { NULL, NULL, 0, 0, 0, create_restore_point, disable_restore, enable_restore, get_last_restore_status, restore }
 };
 
 static UINT16 systemenclosure_chassistypes[] =
@@ -2539,7 +2503,6 @@ static enum fill_status fill_logicaldisk( struct table *table, const struct expr
 
             rec = (struct record_logicaldisk *)(table->data + offset);
             swprintf( device_id, ARRAY_SIZE( device_id ), L"%c:", 'A' + i );
-            rec->caption            = heap_strdupW( device_id );
             rec->device_id          = heap_strdupW( device_id );
             rec->drivetype          = type;
             rec->filesystem         = get_filesystem( root );
@@ -3168,8 +3131,6 @@ static enum fill_status fill_process( struct table *table, const struct expr *co
         rec->pprocess_id    = entry.th32ParentProcessID;
         rec->thread_count   = entry.cntThreads;
         rec->workingsetsize = 0;
-        /* methods */
-        rec->create         = process_create;
         rec->get_owner      = process_get_owner;
         if (!match_row( table, row, cond, &status ))
         {

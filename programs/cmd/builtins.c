@@ -1533,6 +1533,8 @@ static void WCMD_part_execute(CMD_LIST **cmdList, const WCHAR *firstcmd,
     BOOL processThese = executecmds;
 
     while (*cmdList) {
+      static const WCHAR ifElse[] = {'e','l','s','e'};
+
       /* execute all appropriate commands */
       curPosition = *cmdList;
 
@@ -1564,13 +1566,13 @@ static void WCMD_part_execute(CMD_LIST **cmdList, const WCHAR *firstcmd,
 
       /* End of the command - does 'ELSE ' follow as the next command? */
       } else {
-        if (isIF && WCMD_keyword_ws_found(L"else", (*cmdList)->command)) {
+        if (isIF && WCMD_keyword_ws_found(ifElse, ARRAY_SIZE(ifElse), (*cmdList)->command)) {
           /* Swap between if and else processing */
           processThese = !executecmds;
 
           /* Process the ELSE part */
           if (processThese) {
-            const int keyw_len = lstrlenW(L"else") + 1;
+            const int keyw_len = ARRAY_SIZE(ifElse) + 1;
             WCHAR *cmd = ((*cmdList)->command) + keyw_len;
 
             /* Skip leading whitespace between condition and the command */
@@ -1597,7 +1599,8 @@ static void WCMD_part_execute(CMD_LIST **cmdList, const WCHAR *firstcmd,
            the same bracket depth as the IF, then the IF statement is over. This is required
            to handle nested ifs properly                                                     */
         } else if (isIF && (*cmdList)->bracketDepth == myDepth) {
-          if (WCMD_keyword_ws_found(L"do", (*cmdList)->command)) {
+          static const WCHAR doW[] = {'d','o'};
+          if (WCMD_keyword_ws_found(doW, ARRAY_SIZE(doW), (*cmdList)->command)) {
               WINE_TRACE("Still inside FOR-loop, not an end of IF statement\n");
               *cmdList = (*cmdList)->nextcommand;
           } else {
@@ -1639,11 +1642,11 @@ static BOOL WCMD_parse_forf_options(WCHAR *options, WCHAR *eol, int *skip,
 
   WCHAR *pos = options;
   int    len = lstrlenW(pos);
-  const int eol_len = lstrlenW(L"eol=");
-  const int skip_len = lstrlenW(L"skip=");
-  const int tokens_len = lstrlenW(L"tokens=");
-  const int delims_len = lstrlenW(L"delims=");
-  const int usebackq_len = lstrlenW(L"usebackq");
+  static const WCHAR eolW[] = {'e','o','l','='};
+  static const WCHAR skipW[] = {'s','k','i','p','='};
+  static const WCHAR tokensW[] = {'t','o','k','e','n','s','='};
+  static const WCHAR delimsW[] = {'d','e','l','i','m','s','='};
+  static const WCHAR usebackqW[] = {'u','s','e','b','a','c','k','q'};
 
   /* Initialize to defaults */
   lstrcpyW(delims, L" \t");
@@ -1665,35 +1668,35 @@ static BOOL WCMD_parse_forf_options(WCHAR *options, WCHAR *eol, int *skip,
 
     /* Save End of line character (Ignore line if first token (based on delims) starts with it) */
     } else if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE | SORT_STRINGSORT,
-                       pos, eol_len, L"eol=", eol_len) == CSTR_EQUAL) {
-      *eol = *(pos + eol_len);
-      pos = pos + eol_len + 1;
+                       pos, ARRAY_SIZE(eolW), eolW, ARRAY_SIZE(eolW)) == CSTR_EQUAL) {
+      *eol = *(pos + ARRAY_SIZE(eolW));
+      pos = pos + ARRAY_SIZE(eolW) + 1;
       WINE_TRACE("Found eol as %c(%x)\n", *eol, *eol);
 
     /* Save number of lines to skip (Can be in base 10, hex (0x...) or octal (0xx) */
     } else if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE | SORT_STRINGSORT,
-                       pos, skip_len, L"skip=", skip_len) == CSTR_EQUAL) {
+                       pos, ARRAY_SIZE(skipW), skipW, ARRAY_SIZE(skipW)) == CSTR_EQUAL) {
       WCHAR *nextchar = NULL;
-      pos = pos + skip_len;
+      pos = pos + ARRAY_SIZE(skipW);
       *skip = wcstoul(pos, &nextchar, 0);
       WINE_TRACE("Found skip as %d lines\n", *skip);
       pos = nextchar;
 
     /* Save if usebackq semantics are in effect */
     } else if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE | SORT_STRINGSORT, pos,
-                       usebackq_len, L"usebackq", usebackq_len) == CSTR_EQUAL) {
+                       ARRAY_SIZE(usebackqW), usebackqW, ARRAY_SIZE(usebackqW)) == CSTR_EQUAL) {
       *usebackq = TRUE;
-      pos = pos + usebackq_len;
+      pos = pos + ARRAY_SIZE(usebackqW);
       WINE_TRACE("Found usebackq\n");
 
     /* Save the supplied delims. Slightly odd as space can be a delimiter but only
        if you finish the optionsroot string with delims= otherwise the space is
        just a token delimiter!                                                     */
     } else if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE | SORT_STRINGSORT,
-                       pos, delims_len, L"delims=", delims_len) == CSTR_EQUAL) {
+                       pos, ARRAY_SIZE(delimsW), delimsW, ARRAY_SIZE(delimsW)) == CSTR_EQUAL) {
       int i=0;
 
-      pos = pos + delims_len;
+      pos = pos + ARRAY_SIZE(delimsW);
       while (*pos && *pos != ' ') {
         delims[i++] = *pos;
         pos++;
@@ -1704,10 +1707,10 @@ static BOOL WCMD_parse_forf_options(WCHAR *options, WCHAR *eol, int *skip,
 
     /* Save the tokens being requested */
     } else if (CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE | SORT_STRINGSORT,
-                       pos, tokens_len, L"tokens=", tokens_len) == CSTR_EQUAL) {
+                       pos, ARRAY_SIZE(tokensW), tokensW, ARRAY_SIZE(tokensW)) == CSTR_EQUAL) {
       int i=0;
 
-      pos = pos + tokens_len;
+      pos = pos + ARRAY_SIZE(tokensW);
       while (*pos && *pos != ' ') {
         tokens[i++] = *pos;
         pos++;
@@ -2106,7 +2109,8 @@ void WCMD_for (WCHAR *p, CMD_LIST **cmdList) {
   WIN32_FIND_DATAW fd;
   HANDLE hff;
   int i;
-  const int in_len = lstrlenW(L"in");
+  static const WCHAR inW[] = {'i','n'};
+  static const WCHAR doW[] = {'d','o'};
   CMD_LIST *setStart, *thisSet, *cmdStart, *cmdEnd;
   WCHAR variable[4];
   int   varidx = -1;
@@ -2206,7 +2210,7 @@ void WCMD_for (WCHAR *p, CMD_LIST **cmdList) {
   thisArg = WCMD_parameter(p, parameterNo++, NULL, FALSE, FALSE);
   if (!thisArg
        || !(CompareStringW(LOCALE_USER_DEFAULT, NORM_IGNORECASE | SORT_STRINGSORT,
-                           thisArg, in_len, L"in", in_len) == CSTR_EQUAL)) {
+                           thisArg, ARRAY_SIZE(inW), inW, ARRAY_SIZE(inW)) == CSTR_EQUAL)) {
       WCMD_output_stderr (WCMD_LoadMessage(WCMD_SYNTAXERR));
       return;
   }
@@ -2231,7 +2235,7 @@ void WCMD_for (WCHAR *p, CMD_LIST **cmdList) {
   /* Syntax error if missing close bracket, or nothing following it
      and once we have the complete set, we expect a DO              */
   WINE_TRACE("Looking for 'do ' in %p\n", *cmdList);
-  if ((*cmdList == NULL) || !WCMD_keyword_ws_found(L"do", (*cmdList)->command)) {
+  if ((*cmdList == NULL) || !WCMD_keyword_ws_found(doW, ARRAY_SIZE(doW), (*cmdList)->command)) {
       WCMD_output_stderr (WCMD_LoadMessage(WCMD_SYNTAXERR));
       return;
   }
@@ -4218,7 +4222,7 @@ void WCMD_setshow_env (WCHAR *s) {
     if ((!status) & (gle == ERROR_ENVVAR_NOT_FOUND)) {
       errorlevel = 1;
     } else if (!status) WCMD_print_error();
-    else if (!interactive) errorlevel = 0;
+    else errorlevel = 0;
   }
 }
 

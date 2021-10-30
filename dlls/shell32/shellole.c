@@ -68,7 +68,6 @@ static const struct {
 
 	{&CLSID_ApplicationAssociationRegistration, ApplicationAssociationRegistration_Constructor},
 	{&CLSID_ApplicationDestinations, ApplicationDestinations_Constructor},
-	{&CLSID_ApplicationDocumentLists, ApplicationDocumentLists_Constructor},
 	{&CLSID_AutoComplete,   IAutoComplete_Constructor},
 	{&CLSID_ControlPanel,	IControlPanel_Constructor},
 	{&CLSID_DragDropHelper, IDropTargetHelper_Constructor},
@@ -90,7 +89,6 @@ static const struct {
 	{&CLSID_Shell,          IShellDispatch_Constructor},
 	{&CLSID_DestinationList, CustomDestinationList_Constructor},
 	{&CLSID_ShellImageDataFactory, ShellImageDataFactory_Constructor},
-	{&CLSID_FileOperation, IFileOperation_Constructor},
 	{NULL, NULL}
 };
 
@@ -719,7 +717,7 @@ HRESULT WINAPI SHPropStgCreate(IPropertySetStorage *psstg, REFFMTID fmtid,
             if(FAILED(hres) || ret.vt!=VT_I2)
                 *puCodePage = 0;
             else
-                *puCodePage = ret.iVal;
+                *puCodePage = ret.u.iVal;
         }
     }
 
@@ -752,7 +750,7 @@ HRESULT WINAPI SHPropStgReadMultiple(IPropertyStorage *pps, UINT uCodePage,
         if(FAILED(hres) || ret.vt!=VT_I2)
             return S_OK;
 
-        uCodePage = ret.iVal;
+        uCodePage = ret.u.iVal;
     }
 
     hres = IPropertyStorage_Stat(pps, &stat);
@@ -790,10 +788,10 @@ HRESULT WINAPI SHPropStgWriteMultiple(IPropertyStorage *pps, UINT *uCodePage,
         hres = IPropertyStorage_ReadMultiple(pps, 1, &prop, &ret);
         if(FAILED(hres))
             return hres;
-        if(ret.vt!=VT_I2 || !ret.iVal)
+        if(ret.vt!=VT_I2 || !ret.u.iVal)
             return E_FAIL;
 
-        codepage = ret.iVal;
+        codepage = ret.u.iVal;
         if(uCodePage)
             *uCodePage = codepage;
     }

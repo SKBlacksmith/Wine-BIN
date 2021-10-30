@@ -603,7 +603,7 @@
 @ stdcall -import QueryServiceObjectSecurity(long long ptr long ptr)
 @ stdcall -import QueryServiceStatus(long ptr)
 @ stdcall -import QueryServiceStatusEx (long long ptr long ptr)
-@ stdcall QueryTraceA(int64 str ptr)
+# @ stub QueryTraceA
 @ stdcall QueryTraceW(int64 wstr ptr)
 # @ stub QueryUserServiceName
 # @ stub QueryUsersOnEncryptedFile

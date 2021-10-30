@@ -30,7 +30,7 @@
 #include "winspool.h"
 #include "winerror.h"
 #include "wine/debug.h"
-#include "ntgdi_private.h"
+#include "gdi_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(print);
 

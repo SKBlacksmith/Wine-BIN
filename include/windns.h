@@ -152,12 +152,7 @@ typedef enum _DNS_CONFIG_TYPE
     DnsConfigHostName_UTF8,
     DnsConfigFullHostName_W,
     DnsConfigFullHostName_A,
-    DnsConfigFullHostName_UTF8,
-
-    /* These are undocumented and return a DNS_ADDR_ARRAY */
-    DnsConfigDnsServersUnspec = 4144,
-    DnsConfigDnsServersIpv4,
-    DnsConfigDnsServersIpv6
+    DnsConfigFullHostName_UTF8
 } DNS_CONFIG_TYPE;
 
 typedef enum _DnsSection

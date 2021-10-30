@@ -893,7 +893,11 @@ struct symt_ht* symt_find_nearest(struct module* module, DWORD_PTR addr)
     high = module->num_sorttab;
 
     symt_get_address(&module->addr_sorttab[0]->symt, &ref_addr);
-    if (addr < ref_addr) return NULL;
+    if (addr <= ref_addr)
+    {
+        low = symt_get_best_at(module, 0);
+        return module->addr_sorttab[low];
+    }
 
     if (high)
     {
@@ -1811,8 +1815,25 @@ BOOL WINAPI SymUnDName64(PIMAGEHLP_SYMBOL64 sym, PSTR UnDecName, DWORD UnDecName
                                 UNDNAME_COMPLETE) != 0;
 }
 
-extern char * CDECL __unDName(char *buffer, const char *mangled, int len,
-        void * (CDECL *pfn_alloc)(size_t), void (CDECL *pfn_free)(void *), unsigned short flags);
+static void * CDECL und_alloc(size_t len) { return HeapAlloc(GetProcessHeap(), 0, len); }
+static void   CDECL und_free (void* ptr)  { HeapFree(GetProcessHeap(), 0, ptr); }
+
+static char *und_name(char *buffer, const char *mangled, int buflen, unsigned short flags)
+{
+    /* undocumented from msvcrt */
+    static HANDLE hMsvcrt;
+    static char* (CDECL *p_undname)(char*, const char*, int, void* (CDECL*)(size_t), void (CDECL*)(void*), unsigned short);
+    static const WCHAR szMsvcrt[] = {'m','s','v','c','r','t','.','d','l','l',0};
+
+    if (!p_undname)
+    {
+        if (!hMsvcrt) hMsvcrt = LoadLibraryW(szMsvcrt);
+        if (hMsvcrt) p_undname = (void*)GetProcAddress(hMsvcrt, "__unDName");
+        if (!p_undname) return NULL;
+    }
+
+    return p_undname(buffer, mangled, buflen, und_alloc, und_free, flags);
+}
 
 /***********************************************************************
  *		UnDecorateSymbolName (DBGHELP.@)
@@ -1825,7 +1846,7 @@ DWORD WINAPI UnDecorateSymbolName(const char *decorated_name, char *undecorated_
 
     if (!undecorated_name || !undecorated_length)
         return 0;
-    if (!__unDName(undecorated_name, decorated_name, undecorated_length, malloc, free, flags))
+    if (!und_name(undecorated_name, decorated_name, undecorated_length, flags))
         return 0;
     return strlen(undecorated_name);
 }
@@ -1849,12 +1870,12 @@ DWORD WINAPI UnDecorateSymbolNameW(const WCHAR *decorated_name, WCHAR *undecorat
     if ((buf = HeapAlloc(GetProcessHeap(), 0, len)))
     {
         WideCharToMultiByte(CP_ACP, 0, decorated_name, -1, buf, len, NULL, NULL);
-        if ((ptr = __unDName(NULL, buf, 0, malloc, free, flags)))
+        if ((ptr = und_name(NULL, buf, 0, flags)))
         {
             MultiByteToWideChar(CP_ACP, 0, ptr, -1, undecorated_name, undecorated_length);
             undecorated_name[undecorated_length - 1] = 0;
             ret = lstrlenW(undecorated_name);
-            free(ptr);
+            und_free(ptr);
         }
         HeapFree(GetProcessHeap(), 0, buf);
     }

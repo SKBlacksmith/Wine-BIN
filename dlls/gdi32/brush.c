@@ -24,7 +24,7 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "ntgdi_private.h"
+#include "gdi_private.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(gdi);
@@ -32,18 +32,20 @@ WINE_DEFAULT_DEBUG_CHANNEL(gdi);
 /* GDI logical brush object */
 typedef struct
 {
-    struct gdi_obj_header obj;
     LOGBRUSH              logbrush;
     struct brush_pattern  pattern;
 } BRUSHOBJ;
 
 #define NB_HATCH_STYLES  6
 
+static HGDIOBJ BRUSH_SelectObject( HGDIOBJ handle, HDC hdc );
 static INT BRUSH_GetObject( HGDIOBJ handle, INT count, LPVOID buffer );
 static BOOL BRUSH_DeleteObject( HGDIOBJ handle );
 
 static const struct gdi_obj_funcs brush_funcs =
 {
+    BRUSH_SelectObject,  /* pSelectObject */
+    BRUSH_GetObject,     /* pGetObjectA */
     BRUSH_GetObject,     /* pGetObjectW */
     NULL,                /* pUnrealizeObject */
     BRUSH_DeleteObject   /* pDeleteObject */
@@ -56,7 +58,7 @@ static BOOL copy_bitmap( struct brush_pattern *brush, HBITMAP bitmap )
     BITMAPINFO *info = (BITMAPINFO *)buffer;
     struct gdi_image_bits bits;
     struct bitblt_coords src;
-    BITMAPOBJ *bmp = GDI_GetObjPtr( bitmap, NTGDI_OBJ_BITMAP );
+    BITMAPOBJ *bmp = GDI_GetObjPtr( bitmap, OBJ_BITMAP );
 
     if (!bmp) return FALSE;
 
@@ -151,7 +153,7 @@ BOOL get_brush_bitmap_info( HBRUSH handle, BITMAPINFO *info, void **bits, UINT *
     BRUSHOBJ *brush;
     BOOL ret = FALSE;
 
-    if (!(brush = GDI_GetObjPtr( handle, NTGDI_OBJ_BRUSH ))) return FALSE;
+    if (!(brush = GDI_GetObjPtr( handle, OBJ_BRUSH ))) return FALSE;
 
     if (brush->pattern.info)
     {
@@ -167,7 +169,26 @@ BOOL get_brush_bitmap_info( HBRUSH handle, BITMAPINFO *info, void **bits, UINT *
 }
 
 
-HBRUSH create_brush( const LOGBRUSH *brush )
+/***********************************************************************
+ *           CreateBrushIndirect    (GDI32.@)
+ *
+ * Create a logical brush with a given style, color or pattern.
+ *
+ * PARAMS
+ *  brush [I] Pointer to a LOGBRUSH structure describing the desired brush.
+ *
+ * RETURNS
+ *  A handle to the created brush, or a NULL handle if the brush cannot be 
+ *  created.
+ *
+ * NOTES
+ * - The brush returned should be freed by the caller using DeleteObject()
+ *   when it is no longer required.
+ * - Windows 95 and earlier cannot create brushes from bitmaps or DIBs larger
+ *   than 8x8 pixels. If a larger bitmap is given, only a portion of the bitmap
+ *   is used.
+ */
+HBRUSH WINAPI CreateBrushIndirect( const LOGBRUSH * brush )
 {
     BRUSHOBJ * ptr;
     HBRUSH hbrush;
@@ -177,7 +198,7 @@ HBRUSH create_brush( const LOGBRUSH *brush )
     ptr->logbrush = *brush;
 
     if (store_brush_pattern( &ptr->logbrush, &ptr->pattern ) &&
-        (hbrush = alloc_gdi_handle( &ptr->obj, NTGDI_OBJ_BRUSH, &brush_funcs )))
+        (hbrush = alloc_gdi_handle( ptr, OBJ_BRUSH, &brush_funcs )))
     {
         TRACE("%p\n", hbrush);
         return hbrush;
@@ -190,71 +211,154 @@ HBRUSH create_brush( const LOGBRUSH *brush )
 
 
 /***********************************************************************
- *           NtGdiCreateHatchBrush    (win32u.@)
+ *           CreateHatchBrush    (GDI32.@)
  *
  * Create a logical brush with a hatched pattern.
+ *
+ * PARAMS
+ *  style [I] Direction of lines for the hatch pattern (HS_* values from "wingdi.h")
+ *  color [I] Colour of the hatched pattern
+ *
+ * RETURNS
+ *  A handle to the created brush, or a NULL handle if the brush cannot
+ *  be created.
+ *
+ * NOTES
+ * - This function uses CreateBrushIndirect() to create the brush.
+ * - The brush returned should be freed by the caller using DeleteObject()
+ *   when it is no longer required.
  */
-HBRUSH WINAPI NtGdiCreateHatchBrush( INT style, COLORREF color, BOOL pen )
+HBRUSH WINAPI CreateHatchBrush( INT style, COLORREF color )
 {
     LOGBRUSH logbrush;
 
-    TRACE( "%d %06x\n", style, color );
+    TRACE("%d %06x\n", style, color );
 
     logbrush.lbStyle = BS_HATCHED;
     logbrush.lbColor = color;
     logbrush.lbHatch = style;
 
-    return create_brush( &logbrush );
+    return CreateBrushIndirect( &logbrush );
 }
 
 
 /***********************************************************************
- *           NtGdiCreatePatternBrushInternal    (win32u.@)
+ *           CreatePatternBrush    (GDI32.@)
  *
  * Create a logical brush with a pattern from a bitmap.
+ *
+ * PARAMS
+ *  hbitmap  [I] Bitmap containing pattern for the brush
+ *
+ * RETURNS
+ *  A handle to the created brush, or a NULL handle if the brush cannot 
+ *  be created.
+ *
+ * NOTES
+ * - This function uses CreateBrushIndirect() to create the brush.
+ * - The brush returned should be freed by the caller using DeleteObject()
+ *   when it is no longer required.
  */
-HBRUSH WINAPI NtGdiCreatePatternBrushInternal( HBITMAP bitmap, BOOL pen, BOOL is_8x8 )
+HBRUSH WINAPI CreatePatternBrush( HBITMAP hbitmap )
 {
     LOGBRUSH logbrush = { BS_PATTERN, 0, 0 };
+    TRACE("%p\n", hbitmap );
 
-    TRACE( "%p\n", bitmap );
-
-    logbrush.lbHatch = (ULONG_PTR)bitmap;
-    return create_brush( &logbrush );
+    logbrush.lbHatch = (ULONG_PTR)hbitmap;
+    return CreateBrushIndirect( &logbrush );
 }
 
 
 /***********************************************************************
- *           NtGdiCreateDIBBrush    (win32u.@)
+ *           CreateDIBPatternBrush    (GDI32.@)
  *
  * Create a logical brush with a pattern from a DIB.
+ *
+ * PARAMS
+ *  hbitmap  [I] Global object containing BITMAPINFO structure for the pattern
+ *  coloruse [I] Specifies color format, if provided
+ *
+ * RETURNS
+ *  A handle to the created brush, or a NULL handle if the brush cannot 
+ *  be created.
+ *
+ * NOTES
+ * - This function uses CreateBrushIndirect() to create the brush.
+ * - The brush returned should be freed by the caller using DeleteObject()
+ *   when it is no longer required.
+ * - This function is for compatibility only. CreateDIBPatternBrushPt() should 
+ *   be used instead.
  */
-HBRUSH WINAPI NtGdiCreateDIBBrush( const void *data, UINT coloruse, UINT size,
-                                   BOOL is_8x8, BOOL pen, const void *client )
+HBRUSH WINAPI CreateDIBPatternBrush( HGLOBAL hbitmap, UINT coloruse )
 {
-    const BITMAPINFO *info = data;
+    LOGBRUSH logbrush;
+
+    TRACE("%p\n", hbitmap );
+
+    logbrush.lbStyle = BS_DIBPATTERN;
+    logbrush.lbColor = coloruse;
+
+    logbrush.lbHatch = (ULONG_PTR)hbitmap;
+
+    return CreateBrushIndirect( &logbrush );
+}
+
+
+/***********************************************************************
+ *           CreateDIBPatternBrushPt    (GDI32.@)
+ *
+ * Create a logical brush with a pattern from a DIB.
+ *
+ * PARAMS
+ *  data     [I] Pointer to a BITMAPINFO structure and image data  for the pattern
+ *  coloruse [I] Specifies color format, if provided
+ *
+ * RETURNS
+ *  A handle to the created brush, or a NULL handle if the brush cannot
+ *  be created.
+ *
+ * NOTES
+ * - This function uses CreateBrushIndirect() to create the brush.
+ * - The brush returned should be freed by the caller using DeleteObject()
+ *   when it is no longer required.
+ */
+HBRUSH WINAPI CreateDIBPatternBrushPt( const void* data, UINT coloruse )
+{
+    const BITMAPINFO *info=data;
     LOGBRUSH logbrush;
 
     if (!data)
         return NULL;
 
-    TRACE( "%p %dx%d %dbpp\n", info, info->bmiHeader.biWidth,
-           info->bmiHeader.biHeight,  info->bmiHeader.biBitCount );
+    TRACE("%p %dx%d %dbpp\n", info, info->bmiHeader.biWidth,
+	  info->bmiHeader.biHeight,  info->bmiHeader.biBitCount);
 
     logbrush.lbStyle = BS_DIBPATTERNPT;
     logbrush.lbColor = coloruse;
     logbrush.lbHatch = (ULONG_PTR)data;
 
-    return create_brush( &logbrush );
+    return CreateBrushIndirect( &logbrush );
 }
 
 
 /***********************************************************************
- *           NtGdiCreateSolidBrush    (win32u.@)
+ *           CreateSolidBrush    (GDI32.@)
  *
  * Create a logical brush consisting of a single colour.
+ *
+ * PARAMS
+ *  color [I] Colour to make the solid brush
+ *
+ * RETURNS
+ *  A handle to the newly created brush, or a NULL handle if the brush cannot
+ *  be created.
+ *
+ * NOTES
+ * - This function uses CreateBrushIndirect() to create the brush.
+ * - The brush returned should be freed by the caller using DeleteObject()
+ *   when it is no longer required.
  */
-HBRUSH WINAPI NtGdiCreateSolidBrush( COLORREF color, HBRUSH brush )
+HBRUSH WINAPI CreateSolidBrush( COLORREF color )
 {
     LOGBRUSH logbrush;
 
@@ -264,22 +368,69 @@ HBRUSH WINAPI NtGdiCreateSolidBrush( COLORREF color, HBRUSH brush )
     logbrush.lbColor = color;
     logbrush.lbHatch = 0;
 
-    return create_brush( &logbrush );
+    return CreateBrushIndirect( &logbrush );
 }
 
 
 /***********************************************************************
- *           NtGdiSelectBrush (win32u.@)
+ *           SetBrushOrgEx    (GDI32.@)
+ *
+ * Set the brush origin for a device context.
+ *
+ * PARAMS
+ *  hdc    [I] Device context to set the brush origin for
+ *  x      [I] New x origin
+ *  y      [I] New y origin
+ *  oldorg [O] If non NULL, destination for previously set brush origin.
+ *
+ * RETURNS
+ *  Success: TRUE. The origin is set to (x,y), and oldorg is updated if given.
  */
-HGDIOBJ WINAPI NtGdiSelectBrush( HDC hdc, HGDIOBJ handle )
+BOOL WINAPI SetBrushOrgEx( HDC hdc, INT x, INT y, LPPOINT oldorg )
+{
+    DC *dc = get_dc_ptr( hdc );
+
+    if (!dc) return FALSE;
+    if (oldorg)
+        *oldorg = dc->brush_org;
+
+    dc->brush_org.x = x;
+    dc->brush_org.y = y;
+    release_dc_ptr( dc );
+    return TRUE;
+}
+
+/***********************************************************************
+ *           FixBrushOrgEx    (GDI32.@)
+ *
+ * See SetBrushOrgEx.
+ *
+ * NOTES
+ *  This function is no longer documented by MSDN, but in Win95 GDI32 it
+ *  is the same as SetBrushOrgEx().
+ */
+BOOL WINAPI FixBrushOrgEx( HDC hdc, INT x, INT y, LPPOINT oldorg )
+{
+    return SetBrushOrgEx(hdc,x,y,oldorg);
+}
+
+
+/***********************************************************************
+ *           BRUSH_SelectObject
+ */
+static HGDIOBJ BRUSH_SelectObject( HGDIOBJ handle, HDC hdc )
 {
     BRUSHOBJ *brush;
     HGDIOBJ ret = 0;
-    DC *dc;
+    DC *dc = get_dc_ptr( hdc );
 
-    if (!(dc = get_dc_ptr( hdc ))) return 0;
+    if (!dc)
+    {
+        SetLastError( ERROR_INVALID_HANDLE );
+        return 0;
+    }
 
-    if ((brush = GDI_GetObjPtr( handle, NTGDI_OBJ_BRUSH )))
+    if ((brush = GDI_GetObjPtr( handle, OBJ_BRUSH )))
     {
         PHYSDEV physdev = GET_DC_PHYSDEV( dc, pSelectBrush );
         struct brush_pattern *pattern = &brush->pattern;
@@ -324,7 +475,7 @@ static BOOL BRUSH_DeleteObject( HGDIOBJ handle )
  */
 static INT BRUSH_GetObject( HGDIOBJ handle, INT count, LPVOID buffer )
 {
-    BRUSHOBJ *brush = GDI_GetObjPtr( handle, NTGDI_OBJ_BRUSH );
+    BRUSHOBJ *brush = GDI_GetObjPtr( handle, OBJ_BRUSH );
 
     if (!brush) return 0;
     if (buffer)

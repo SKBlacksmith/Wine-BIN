@@ -101,16 +101,19 @@ SOFTWARE.
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "ntgdi_private.h"
+#include "gdi_private.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(region);
 
 
+static HGDIOBJ REGION_SelectObject( HGDIOBJ handle, HDC hdc );
 static BOOL REGION_DeleteObject( HGDIOBJ handle );
 
 static const struct gdi_obj_funcs region_funcs =
 {
+    REGION_SelectObject,  /* pSelectObject */
+    NULL,                 /* pGetObjectA */
     NULL,                 /* pGetObjectW */
     NULL,                 /* pUnrealizeObject */
     REGION_DeleteObject   /* pDeleteObject */
@@ -485,6 +488,14 @@ static BOOL REGION_DeleteObject( HGDIOBJ handle )
     return TRUE;
 }
 
+/***********************************************************************
+ *           REGION_SelectObject
+ */
+static HGDIOBJ REGION_SelectObject( HGDIOBJ handle, HDC hdc )
+{
+    return ULongToHandle(SelectClipRgn( hdc, handle ));
+}
+
 
 /***********************************************************************
  *           REGION_OffsetRegion
@@ -518,7 +529,7 @@ static BOOL REGION_OffsetRegion( WINEREGION *rgn, WINEREGION *srcrgn, INT x, INT
 }
 
 /***********************************************************************
- *           NtGdiOffsetRgn   (win32u.@)
+ *           OffsetRgn   (GDI32.@)
  *
  * Moves a region by the specified X- and Y-axis offsets.
  *
@@ -535,9 +546,9 @@ static BOOL REGION_OffsetRegion( WINEREGION *rgn, WINEREGION *srcrgn, INT x, INT
  *                     one rectangle.
  *   Failure: ERROR
  */
-INT WINAPI NtGdiOffsetRgn( HRGN hrgn, INT x, INT y )
+INT WINAPI OffsetRgn( HRGN hrgn, INT x, INT y )
 {
-    WINEREGION *obj = GDI_GetObjPtr( hrgn, NTGDI_OBJ_REGION );
+    WINEREGION *obj = GDI_GetObjPtr( hrgn, OBJ_REGION );
     INT ret;
 
     TRACE("%p %d,%d\n", hrgn, x, y);
@@ -554,7 +565,7 @@ INT WINAPI NtGdiOffsetRgn( HRGN hrgn, INT x, INT y )
 
 
 /***********************************************************************
- *           NtGdiGetRgnBox    (win32u.@)
+ *           GetRgnBox    (GDI32.@)
  *
  * Retrieves the bounding rectangle of the region. The bounding rectangle
  * is the smallest rectangle that contains the entire region.
@@ -570,9 +581,9 @@ INT WINAPI NtGdiOffsetRgn( HRGN hrgn, INT x, INT y )
  *     COMPLEXREGION - The new region can only be represented by more than
  *                     one rectangle.
  */
-INT WINAPI NtGdiGetRgnBox( HRGN hrgn, RECT *rect )
+INT WINAPI GetRgnBox( HRGN hrgn, LPRECT rect )
 {
-    WINEREGION *obj = GDI_GetObjPtr( hrgn, NTGDI_OBJ_REGION );
+    WINEREGION *obj = GDI_GetObjPtr( hrgn, OBJ_REGION );
     if (obj)
     {
 	INT ret;
@@ -590,7 +601,7 @@ INT WINAPI NtGdiGetRgnBox( HRGN hrgn, RECT *rect )
 
 
 /***********************************************************************
- *           NtGdiCreateRectRgn   (win32u.@)
+ *           CreateRectRgn   (GDI32.@)
  *
  * Creates a simple rectangular region.
  *
@@ -604,26 +615,44 @@ INT WINAPI NtGdiGetRgnBox( HRGN hrgn, RECT *rect )
  *   Success: Handle to region.
  *   Failure: NULL.
  */
-HRGN WINAPI NtGdiCreateRectRgn( INT left, INT top, INT right, INT bottom )
+HRGN WINAPI CreateRectRgn(INT left, INT top, INT right, INT bottom)
 {
     HRGN hrgn;
     WINEREGION *obj;
 
     if (!(obj = alloc_region( RGN_DEFAULT_RECTS ))) return 0;
 
-    if (!(hrgn = alloc_gdi_handle( &obj->obj, NTGDI_OBJ_REGION, &region_funcs )))
+    if (!(hrgn = alloc_gdi_handle( obj, OBJ_REGION, &region_funcs )))
     {
         free_region( obj );
         return 0;
     }
     TRACE( "%d,%d-%d,%d returning %p\n", left, top, right, bottom, hrgn );
-    NtGdiSetRectRgn( hrgn, left, top, right, bottom );
+    SetRectRgn(hrgn, left, top, right, bottom);
     return hrgn;
 }
 
 
 /***********************************************************************
- *           NtGdiSetRectRgn    (win32u.@)
+ *           CreateRectRgnIndirect    (GDI32.@)
+ *
+ * Creates a simple rectangular region.
+ *
+ * PARAMS
+ *   rect [I] Coordinates of rectangular region.
+ *
+ * RETURNS
+ *   Success: Handle to region.
+ *   Failure: NULL.
+ */
+HRGN WINAPI CreateRectRgnIndirect( const RECT* rect )
+{
+    return CreateRectRgn( rect->left, rect->top, rect->right, rect->bottom );
+}
+
+
+/***********************************************************************
+ *           SetRectRgn    (GDI32.@)
  *
  * Sets a region to a simple rectangular region.
  *
@@ -641,13 +670,14 @@ HRGN WINAPI NtGdiCreateRectRgn( INT left, INT top, INT right, INT bottom )
  * NOTES
  *   Allows either or both left and top to be greater than right or bottom.
  */
-BOOL WINAPI NtGdiSetRectRgn( HRGN hrgn, INT left, INT top, INT right, INT bottom )
+BOOL WINAPI SetRectRgn( HRGN hrgn, INT left, INT top,
+			  INT right, INT bottom )
 {
     WINEREGION *obj;
 
     TRACE("%p %d,%d-%d,%d\n", hrgn, left, top, right, bottom );
 
-    if (!(obj = GDI_GetObjPtr( hrgn, NTGDI_OBJ_REGION ))) return FALSE;
+    if (!(obj = GDI_GetObjPtr( hrgn, OBJ_REGION ))) return FALSE;
 
     if (left > right) { INT tmp = left; left = right; right = tmp; }
     if (top > bottom) { INT tmp = top; top = bottom; bottom = tmp; }
@@ -669,7 +699,7 @@ BOOL WINAPI NtGdiSetRectRgn( HRGN hrgn, INT left, INT top, INT right, INT bottom
 
 
 /***********************************************************************
- *           NtGdiCreateRoundRectRgn    (win32u.@)
+ *           CreateRoundRectRgn    (GDI32.@)
  *
  * Creates a rectangular region with rounded corners.
  *
@@ -689,8 +719,9 @@ BOOL WINAPI NtGdiSetRectRgn( HRGN hrgn, INT left, INT top, INT right, INT bottom
  *   If ellipse_width or ellipse_height is less than 2 logical units then
  *   it is treated as though CreateRectRgn() was called instead.
  */
-HRGN WINAPI NtGdiCreateRoundRectRgn( INT left, INT top, INT right, INT bottom,
-                                     INT ellipse_width, INT ellipse_height )
+HRGN WINAPI CreateRoundRectRgn( INT left, INT top,
+				    INT right, INT bottom,
+				    INT ellipse_width, INT ellipse_height )
 {
     WINEREGION *obj;
     HRGN hrgn = 0;
@@ -712,7 +743,7 @@ HRGN WINAPI NtGdiCreateRoundRectRgn( INT left, INT top, INT right, INT bottom,
       /* Check if we can do a normal rectangle instead */
 
     if ((ellipse_width < 2) || (ellipse_height < 2))
-        return NtGdiCreateRectRgn( left, top, right, bottom );
+        return CreateRectRgn( left, top, right, bottom );
 
     if (!(obj = alloc_region( ellipse_height ))) return 0;
     obj->numRects = ellipse_height;
@@ -768,7 +799,7 @@ HRGN WINAPI NtGdiCreateRoundRectRgn( INT left, INT top, INT right, INT bottom,
     }
     rects[ellipse_height / 2].top = top + ellipse_height / 2;  /* extend to top of rectangle */
 
-    hrgn = alloc_gdi_handle( &obj->obj, NTGDI_OBJ_REGION, &region_funcs );
+    hrgn = alloc_gdi_handle( obj, OBJ_REGION, &region_funcs );
 
     TRACE("(%d,%d-%d,%d %dx%d): ret=%p\n",
 	  left, top, right, bottom, ellipse_width, ellipse_height, hrgn );
@@ -778,7 +809,7 @@ HRGN WINAPI NtGdiCreateRoundRectRgn( INT left, INT top, INT right, INT bottom,
 
 
 /***********************************************************************
- *           NtGdiCreateEllipticRgn    (win32u.@)
+ *           CreateEllipticRgn    (GDI32.@)
  *
  * Creates an elliptical region.
  *
@@ -797,15 +828,40 @@ HRGN WINAPI NtGdiCreateRoundRectRgn( INT left, INT top, INT right, INT bottom,
  *   ellipse at each corner is equal to the width the rectangle and
  *   the same for the height.
  */
-HRGN WINAPI NtGdiCreateEllipticRgn( INT left, INT top, INT right, INT bottom )
+HRGN WINAPI CreateEllipticRgn( INT left, INT top,
+				   INT right, INT bottom )
 {
-    return NtGdiCreateRoundRectRgn( left, top, right, bottom,
-                                    right - left, bottom - top );
+    return CreateRoundRectRgn( left, top, right, bottom,
+				 right-left, bottom-top );
 }
 
 
 /***********************************************************************
- *           NtGdiGetRegionData   (win32u.@)
+ *           CreateEllipticRgnIndirect    (GDI32.@)
+ *
+ * Creates an elliptical region.
+ *
+ * PARAMS
+ *   rect [I] Pointer to bounding rectangle of the ellipse.
+ *
+ * RETURNS
+ *   Success: Handle to region.
+ *   Failure: NULL.
+ *
+ * NOTES
+ *   This is a special case of CreateRoundRectRgn() where the width of the
+ *   ellipse at each corner is equal to the width the rectangle and
+ *   the same for the height.
+ */
+HRGN WINAPI CreateEllipticRgnIndirect( const RECT *rect )
+{
+    return CreateRoundRectRgn( rect->left, rect->top, rect->right,
+				 rect->bottom, rect->right - rect->left,
+				 rect->bottom - rect->top );
+}
+
+/***********************************************************************
+ *           GetRegionData   (GDI32.@)
  *
  * Retrieves the data that specifies the region.
  *
@@ -826,10 +882,10 @@ HRGN WINAPI NtGdiCreateEllipticRgn( INT left, INT top, INT right, INT bottom )
  *   is the array of RECT's that specify the region. The length of the array
  *   is specified by the nCount member of the region data header.
  */
-DWORD WINAPI NtGdiGetRegionData( HRGN hrgn, DWORD count, RGNDATA *rgndata )
+DWORD WINAPI GetRegionData(HRGN hrgn, DWORD count, LPRGNDATA rgndata)
 {
     DWORD size;
-    WINEREGION *obj = GDI_GetObjPtr( hrgn, NTGDI_OBJ_REGION );
+    WINEREGION *obj = GDI_GetObjPtr( hrgn, OBJ_REGION );
 
     TRACE(" %p count = %d, rgndata = %p\n", hrgn, count, rgndata);
 
@@ -875,7 +931,7 @@ static void translate( POINT *pt, UINT count, const XFORM *xform )
 
 
 /***********************************************************************
- *           NtGdiExtCreateRegion   (win32u.@)
+ *           ExtCreateRegion   (GDI32.@)
  *
  * Creates a region as specified by the transformation data and region data.
  *
@@ -891,24 +947,30 @@ static void translate( POINT *pt, UINT count, const XFORM *xform )
  * NOTES
  *   See GetRegionData().
  */
-HRGN WINAPI NtGdiExtCreateRegion( const XFORM *xform, DWORD count, const RGNDATA *rgndata )
+HRGN WINAPI ExtCreateRegion( const XFORM* lpXform, DWORD dwCount, const RGNDATA* rgndata)
 {
     HRGN hrgn = 0;
     WINEREGION *obj;
     const RECT *pCurRect, *pEndRect;
 
-    if (!rgndata || rgndata->rdh.dwSize < sizeof(RGNDATAHEADER))
+    if (!rgndata)
+    {
+        SetLastError( ERROR_INVALID_PARAMETER );
+        return 0;
+    }
+
+    if (rgndata->rdh.dwSize < sizeof(RGNDATAHEADER))
         return 0;
 
     /* XP doesn't care about the type */
     if( rgndata->rdh.iType != RDH_RECTANGLES )
         WARN("(Unsupported region data type: %u)\n", rgndata->rdh.iType);
 
-    if (xform)
+    if (lpXform)
     {
         const RECT *pCurRect, *pEndRect;
 
-        hrgn = NtGdiCreateRectRgn( 0, 0, 0, 0 );
+        hrgn = CreateRectRgn( 0, 0, 0, 0 );
 
         pEndRect = (const RECT *)rgndata->Buffer + rgndata->rdh.nCount;
         for (pCurRect = (const RECT *)rgndata->Buffer; pCurRect < pEndRect; pCurRect++)
@@ -926,9 +988,9 @@ HRGN WINAPI NtGdiExtCreateRegion( const XFORM *xform, DWORD count, const RGNDATA
             pt[3].x = pCurRect->left;
             pt[3].y = pCurRect->bottom;
 
-            translate( pt, 4, xform );
+            translate( pt, 4, lpXform );
             poly_hrgn = CreatePolyPolygonRgn( pt, &count, 1, WINDING );
-            NtGdiCombineRgn( hrgn, hrgn, poly_hrgn, RGN_OR );
+            CombineRgn( hrgn, hrgn, poly_hrgn, RGN_OR );
             DeleteObject( poly_hrgn );
         }
         return hrgn;
@@ -944,18 +1006,18 @@ HRGN WINAPI NtGdiExtCreateRegion( const XFORM *xform, DWORD count, const RGNDATA
             if (!REGION_UnionRectWithRegion( pCurRect, obj )) goto done;
         }
     }
-    hrgn = alloc_gdi_handle( &obj->obj, NTGDI_OBJ_REGION, &region_funcs );
+    hrgn = alloc_gdi_handle( obj, OBJ_REGION, &region_funcs );
 
 done:
     if (!hrgn) free_region( obj );
 
-    TRACE("%p %d %p returning %p\n", xform, count, rgndata, hrgn );
+    TRACE("%p %d %p returning %p\n", lpXform, dwCount, rgndata, hrgn );
     return hrgn;
 }
 
 
 /***********************************************************************
- *           NtGdiPtInRegion    (win32u.@)
+ *           PtInRegion    (GDI32.@)
  *
  * Tests whether the specified point is inside a region.
  *
@@ -967,12 +1029,12 @@ done:
  * RETURNS
  *   Non-zero if the point is inside the region or zero otherwise.
  */
-BOOL WINAPI NtGdiPtInRegion( HRGN hrgn, INT x, INT y )
+BOOL WINAPI PtInRegion( HRGN hrgn, INT x, INT y )
 {
     WINEREGION *obj;
     BOOL ret = FALSE;
 
-    if ((obj = GDI_GetObjPtr( hrgn, NTGDI_OBJ_REGION )))
+    if ((obj = GDI_GetObjPtr( hrgn, OBJ_REGION )))
     {
         if (obj->numRects > 0 && is_in_rect( &obj->extents, x, y ))
             region_find_pt( obj, x, y, &ret );
@@ -983,7 +1045,7 @@ BOOL WINAPI NtGdiPtInRegion( HRGN hrgn, INT x, INT y )
 
 
 /***********************************************************************
- *           NtGdiRectInRegion    (win32u.@)
+ *           RectInRegion    (GDI32.@)
  *
  * Tests if a rectangle is at least partly inside the specified region.
  *
@@ -995,7 +1057,7 @@ BOOL WINAPI NtGdiPtInRegion( HRGN hrgn, INT x, INT y )
  *   Non-zero if the rectangle is partially inside the region or
  *   zero otherwise.
  */
-BOOL WINAPI NtGdiRectInRegion( HRGN hrgn, const RECT *rect )
+BOOL WINAPI RectInRegion( HRGN hrgn, const RECT *rect )
 {
     WINEREGION *obj;
     BOOL ret = FALSE;
@@ -1007,7 +1069,7 @@ BOOL WINAPI NtGdiRectInRegion( HRGN hrgn, const RECT *rect )
     rc = *rect;
     order_rect( &rc );
 
-    if ((obj = GDI_GetObjPtr( hrgn, NTGDI_OBJ_REGION )))
+    if ((obj = GDI_GetObjPtr( hrgn, OBJ_REGION )))
     {
 	if ((obj->numRects > 0) && overlapping(&obj->extents, &rc))
 	{
@@ -1034,7 +1096,7 @@ BOOL WINAPI NtGdiRectInRegion( HRGN hrgn, const RECT *rect )
 }
 
 /***********************************************************************
- *           NtGdiEqualRgn    (win32u.@)
+ *           EqualRgn    (GDI32.@)
  *
  * Tests whether one region is identical to another.
  *
@@ -1045,14 +1107,14 @@ BOOL WINAPI NtGdiRectInRegion( HRGN hrgn, const RECT *rect )
  * RETURNS
  *   Non-zero if both regions are identical or zero otherwise.
  */
-BOOL WINAPI NtGdiEqualRgn( HRGN hrgn1, HRGN hrgn2 )
+BOOL WINAPI EqualRgn( HRGN hrgn1, HRGN hrgn2 )
 {
     WINEREGION *obj1, *obj2;
     BOOL ret = FALSE;
 
-    if ((obj1 = GDI_GetObjPtr( hrgn1, NTGDI_OBJ_REGION )))
+    if ((obj1 = GDI_GetObjPtr( hrgn1, OBJ_REGION )))
     {
-        if ((obj2 = GDI_GetObjPtr( hrgn2, NTGDI_OBJ_REGION )))
+        if ((obj2 = GDI_GetObjPtr( hrgn2, OBJ_REGION )))
 	{
 	    int i;
 
@@ -1100,7 +1162,7 @@ static BOOL REGION_UnionRectWithRegion(const RECT *rect, WINEREGION *rgn)
 
 BOOL add_rect_to_region( HRGN rgn, const RECT *rect )
 {
-    WINEREGION *obj = GDI_GetObjPtr( rgn, NTGDI_OBJ_REGION );
+    WINEREGION *obj = GDI_GetObjPtr( rgn, OBJ_REGION );
     BOOL ret;
 
     if (!obj) return FALSE;
@@ -1122,13 +1184,13 @@ BOOL REGION_FrameRgn( HRGN hDest, HRGN hSrc, INT x, INT y )
     WINEREGION tmprgn;
     BOOL bRet = FALSE;
     WINEREGION* destObj = NULL;
-    WINEREGION *srcObj = GDI_GetObjPtr( hSrc, NTGDI_OBJ_REGION );
+    WINEREGION *srcObj = GDI_GetObjPtr( hSrc, OBJ_REGION );
 
     tmprgn.rects = NULL;
     if (!srcObj) return FALSE;
     if (srcObj->numRects != 0)
     {
-        if (!(destObj = GDI_GetObjPtr( hDest, NTGDI_OBJ_REGION ))) goto done;
+        if (!(destObj = GDI_GetObjPtr( hDest, OBJ_REGION ))) goto done;
         if (!init_region( &tmprgn, srcObj->numRects )) goto done;
 
         if (!REGION_OffsetRegion( destObj, srcObj, -x, 0)) goto done;
@@ -1150,7 +1212,7 @@ done:
 
 
 /***********************************************************************
- *           NtGdiCombineRgn   (win32u.@)
+ *           CombineRgn   (GDI32.@)
  *
  * Combines two regions with the specified operation and stores the result
  * in the specified destination region.
@@ -1177,15 +1239,15 @@ done:
  *|  RGN_XOR - Unions of the regions minus any intersection.
  *|  RGN_DIFF - Difference (subtraction) of the regions.
  */
-INT WINAPI NtGdiCombineRgn( HRGN hDest, HRGN hSrc1, HRGN hSrc2, INT mode )
+INT WINAPI CombineRgn(HRGN hDest, HRGN hSrc1, HRGN hSrc2, INT mode)
 {
-    WINEREGION *destObj = GDI_GetObjPtr( hDest, NTGDI_OBJ_REGION );
+    WINEREGION *destObj = GDI_GetObjPtr( hDest, OBJ_REGION );
     INT result = ERROR;
 
     TRACE(" %p,%p -> %p mode=%x\n", hSrc1, hSrc2, hDest, mode );
     if (destObj)
     {
-        WINEREGION *src1Obj = GDI_GetObjPtr( hSrc1, NTGDI_OBJ_REGION );
+        WINEREGION *src1Obj = GDI_GetObjPtr( hSrc1, OBJ_REGION );
 
 	if (src1Obj)
 	{
@@ -1199,7 +1261,7 @@ INT WINAPI NtGdiCombineRgn( HRGN hDest, HRGN hSrc1, HRGN hSrc2, INT mode )
 	    }
 	    else
 	    {
-                WINEREGION *src2Obj = GDI_GetObjPtr( hSrc2, NTGDI_OBJ_REGION );
+                WINEREGION *src2Obj = GDI_GetObjPtr( hSrc2, OBJ_REGION );
 
 		if (src2Obj)
 		{
@@ -1360,8 +1422,8 @@ INT mirror_region( HRGN dst, HRGN src, INT width )
     WINEREGION *src_rgn, *dst_rgn;
     INT ret = ERROR;
 
-    if (!(src_rgn = GDI_GetObjPtr( src, NTGDI_OBJ_REGION ))) return ERROR;
-    if ((dst_rgn = GDI_GetObjPtr( dst, NTGDI_OBJ_REGION )))
+    if (!(src_rgn = GDI_GetObjPtr( src, OBJ_REGION ))) return ERROR;
+    if ((dst_rgn = GDI_GetObjPtr( dst, OBJ_REGION )))
     {
         if (REGION_MirrorRegion( dst_rgn, src_rgn, width )) ret = get_region_type( dst_rgn );
         GDI_ReleaseObj( dst_rgn );
@@ -2551,15 +2613,12 @@ static void scan_convert( WINEREGION *obj, EdgeTable *ET, INT mode, const RECT *
                     {
                         obj->rects[obj->numRects].left = active->bres.minor_axis;
                         obj->rects[obj->numRects].top = y;
-                        obj->rects[obj->numRects].bottom = y + 1;
                     }
                     else if (obj->rects[obj->numRects].left != active->bres.minor_axis)
                     {
-                        /* create new rect only if we can't merge with the previous one */
-                        if (!obj->numRects || obj->rects[obj->numRects-1].top != y ||
-                            obj->rects[obj->numRects-1].right < obj->rects[obj->numRects].left)
-                            obj->numRects++;
-                        obj->rects[obj->numRects-1].right = active->bres.minor_axis;
+                        obj->rects[obj->numRects].right = active->bres.minor_axis;
+                        obj->rects[obj->numRects].bottom = y + 1;
+                        obj->numRects++;
                     }
                     first = !first;
                 }
@@ -2671,8 +2730,8 @@ HRGN create_polypolygon_region( const POINT *Pts, const INT *Count, INT nbpolygo
 	  (Pts[1].y == Pts[2].y) &&
 	  (Pts[2].x == Pts[3].x) &&
 	  (Pts[3].y == Pts[0].y))))
-        return NtGdiCreateRectRgn( min(Pts[0].x, Pts[2].x), min(Pts[0].y, Pts[2].y),
-                                   max(Pts[0].x, Pts[2].x), max(Pts[0].y, Pts[2].y) );
+        return CreateRectRgn( min(Pts[0].x, Pts[2].x), min(Pts[0].y, Pts[2].y),
+                              max(Pts[0].x, Pts[2].x), max(Pts[0].y, Pts[2].y) );
 
     for(poly = total = 0; poly < nbpolygons; poly++)
         total += Count[poly];
@@ -2684,11 +2743,29 @@ HRGN create_polypolygon_region( const POINT *Pts, const INT *Count, INT nbpolygo
     {
         if (nb_points) scan_convert( obj, &ET, mode, clip_rect );
 
-        if (!(hrgn = alloc_gdi_handle( &obj->obj, NTGDI_OBJ_REGION, &region_funcs )))
+        if (!(hrgn = alloc_gdi_handle( obj, OBJ_REGION, &region_funcs )))
             free_region( obj );
     }
 
     REGION_FreeStorage(SLLBlock.next);
     HeapFree( GetProcessHeap(), 0, pETEs );
     return hrgn;
+}
+
+
+/***********************************************************************
+ *           CreatePolyPolygonRgn    (GDI32.@)
+ */
+HRGN WINAPI CreatePolyPolygonRgn( const POINT *pts, const INT *count, INT nbpolygons, INT mode )
+{
+    return create_polypolygon_region( pts, count, nbpolygons, mode, NULL );
+}
+
+
+/***********************************************************************
+ *           CreatePolygonRgn    (GDI32.@)
+ */
+HRGN WINAPI CreatePolygonRgn( const POINT *points, INT count, INT mode )
+{
+    return create_polypolygon_region( points, &count, 1, mode, NULL );
 }

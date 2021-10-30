@@ -5125,8 +5125,6 @@ static DWORD HTTP_HttpSendRequestW(http_request_t *request, LPCWSTR lpszHeaders,
                             loop_next = TRUE;
                             break;
                         }
-
-                        dwBufferSize = 2048;
                     }
                     heap_free( host );
 
@@ -5155,8 +5153,6 @@ static DWORD HTTP_HttpSendRequestW(http_request_t *request, LPCWSTR lpszHeaders,
                             loop_next = TRUE;
                             break;
                         }
-
-                        dwBufferSize = 2048;
                     }
 
                     if(!loop_next) {
@@ -6314,10 +6310,13 @@ static BOOL HTTP_DeleteCustomHeader(http_request_t *request, DWORD index)
 
 
 /***********************************************************************
- *          IsHostInProxyBypassList (WININET.@)
+ *          IsHostInProxyBypassList (@)
+ *
+ * Undocumented
+ *
  */
-BOOL WINAPI IsHostInProxyBypassList(INTERNET_SCHEME scheme, LPCSTR szHost, DWORD length)
+BOOL WINAPI IsHostInProxyBypassList(DWORD flags, LPCSTR szHost, DWORD length)
 {
-    FIXME("STUB: scheme=%d host=%s length=%d\n", scheme, szHost, length);
-    return FALSE;
+   FIXME("STUB: flags=%d host=%s length=%d\n",flags,szHost,length);
+   return FALSE;
 }

@@ -32,7 +32,7 @@
 @ stdcall CloseMetaFile(long)
 @ stub ColorCorrectPalette
 @ stub ColorMatchToTarget
-@ stdcall CombineRgn(long long long long) NtGdiCombineRgn
+@ stdcall CombineRgn(long long long long)
 @ stdcall CombineTransform(ptr ptr ptr)
 @ stdcall CopyEnhMetaFileA(long str)
 @ stdcall CopyEnhMetaFileW(long wstr)
@@ -44,7 +44,7 @@
 @ stdcall CreateColorSpaceA(ptr)
 @ stdcall CreateColorSpaceW(ptr)
 @ stdcall CreateCompatibleBitmap(long long long)
-@ stdcall CreateCompatibleDC(long) NtGdiCreateCompatibleDC
+@ stdcall CreateCompatibleDC(long)
 @ stdcall CreateDCA(str str str ptr)
 @ stdcall CreateDCW(wstr wstr wstr ptr)
 @ stdcall CreateDIBPatternBrush(long long)
@@ -52,7 +52,7 @@
 @ stdcall CreateDIBSection(long ptr long ptr long long)
 @ stdcall CreateDIBitmap(long ptr long ptr ptr long)
 @ stdcall CreateDiscardableBitmap(long long long)
-@ stdcall CreateEllipticRgn(long long long long) NtGdiCreateEllipticRgn
+@ stdcall CreateEllipticRgn(long long long long)
 @ stdcall CreateEllipticRgnIndirect(ptr)
 @ stdcall CreateEnhMetaFileA(long str ptr str)
 @ stdcall CreateEnhMetaFileW(long wstr ptr wstr)
@@ -62,7 +62,7 @@
 @ stdcall CreateFontIndirectExW(ptr)
 @ stdcall CreateFontIndirectW(ptr)
 @ stdcall CreateFontW(long long long long long long long long long long long long long wstr)
-@ stdcall CreateHalftonePalette(long) NtGdiCreateHalftonePalette
+@ stdcall CreateHalftonePalette(long)
 @ stdcall CreateHatchBrush(long long)
 @ stdcall CreateICA(str str str ptr)
 @ stdcall CreateICW(wstr wstr wstr ptr)
@@ -74,25 +74,24 @@
 @ stdcall CreatePenIndirect(ptr)
 @ stdcall CreatePolyPolygonRgn(ptr ptr long long)
 @ stdcall CreatePolygonRgn(ptr long long)
-@ stdcall CreateRectRgn(long long long long) NtGdiCreateRectRgn
+@ stdcall CreateRectRgn(long long long long)
 @ stdcall CreateRectRgnIndirect(ptr)
-@ stdcall CreateRoundRectRgn(long long long long long long) NtGdiCreateRoundRectRgn
+@ stdcall CreateRoundRectRgn(long long long long long long)
 @ stdcall CreateScalableFontResourceA(long str str str)
 @ stdcall CreateScalableFontResourceW(long wstr wstr wstr)
 @ stdcall CreateSolidBrush(long)
-@ stdcall D3DKMTCheckVidPnExclusiveOwnership(ptr) NtGdiDdDDICheckVidPnExclusiveOwnership
-@ stdcall D3DKMTCloseAdapter(ptr) NtGdiDdDDICloseAdapter
-@ stdcall D3DKMTCreateDCFromMemory(ptr) NtGdiDdDDICreateDCFromMemory
-@ stdcall D3DKMTCreateDevice(ptr) NtGdiDdDDICreateDevice
-@ stdcall D3DKMTDestroyDCFromMemory(ptr) NtGdiDdDDIDestroyDCFromMemory
-@ stdcall D3DKMTDestroyDevice(ptr) NtGdiDdDDIDestroyDevice
-@ stdcall D3DKMTEscape(ptr) NtGdiDdDDIEscape
-@ stdcall D3DKMTOpenAdapterFromDeviceName(ptr)
+@ stdcall D3DKMTCheckVidPnExclusiveOwnership(ptr)
+@ stdcall D3DKMTCloseAdapter(ptr)
+@ stdcall D3DKMTCreateDCFromMemory(ptr)
+@ stdcall D3DKMTCreateDevice(ptr)
+@ stdcall D3DKMTDestroyDCFromMemory(ptr)
+@ stdcall D3DKMTDestroyDevice(ptr)
+@ stdcall D3DKMTEscape(ptr)
 @ stdcall D3DKMTOpenAdapterFromGdiDisplayName(ptr)
-@ stdcall D3DKMTOpenAdapterFromHdc(ptr) NtGdiDdDDIOpenAdapterFromHdc
-@ stdcall D3DKMTQueryStatistics(ptr) NtGdiDdDDIQueryStatistics
-@ stdcall D3DKMTSetQueuedLimit(ptr) NtGdiDdDDISetQueuedLimit
-@ stdcall D3DKMTSetVidPnSourceOwner(ptr) NtGdiDdDDISetVidPnSourceOwner
+@ stdcall D3DKMTOpenAdapterFromHdc(ptr)
+@ stdcall D3DKMTQueryStatistics(ptr)
+@ stdcall D3DKMTSetQueuedLimit(ptr)
+@ stdcall D3DKMTSetVidPnSourceOwner(ptr)
 @ stdcall DPtoLP(long ptr long)
 @ stdcall DeleteColorSpace(long)
 @ stdcall DeleteDC(long)
@@ -121,7 +120,7 @@
 @ stdcall EnumICMProfilesW(long ptr long)
 @ stdcall EnumMetaFile(long long ptr ptr)
 @ stdcall EnumObjects(long long ptr long)
-@ stdcall EqualRgn(long long) NtGdiEqualRgn
+@ stdcall EqualRgn(long long)
 @ stdcall Escape(long long long ptr ptr)
 # @ stub EudcLoadLinkW
 # @ stub EudcUnloadLinkW
@@ -182,9 +181,9 @@
 @ stub GdiDeleteLocalDC
 @ stub GdiDeleteLocalObject
 # @ stub GdiDeleteSpoolFileHandle
-@ stdcall GdiDescribePixelFormat(long long long ptr) NtGdiDescribePixelFormat
+@ stdcall GdiDescribePixelFormat(long long long ptr)
 @ stdcall GdiDllInitialize(ptr long ptr)
-@ stdcall GdiDrawStream(long long ptr) NtGdiDrawStream
+@ stdcall GdiDrawStream(long long ptr)
 # @ stub GdiEndDocEMF
 # @ stub GdiEndPageEMF
 @ stdcall GdiEntry13()
@@ -231,7 +230,7 @@
 @ stub GdiSetServerAttr
 # @ stub GdiStartDocEMF
 # @ stub GdiStartPageEMF
-@ stdcall GdiSwapBuffers(long) NtGdiSwapBuffers
+@ stdcall GdiSwapBuffers(long)
 @ stdcall GdiTransparentBlt(long long long long long long long long long long long)
 # @ stub GdiValidateHandle
 @ stub GdiWinWatchClose
@@ -241,11 +240,11 @@
 @ stdcall GetArcDirection(long)
 @ stdcall GetAspectRatioFilterEx(long ptr)
 # @ stub GetBitmapAttributes
-@ stdcall GetBitmapBits(long long ptr) NtGdiGetBitmapBits
-@ stdcall GetBitmapDimensionEx(long ptr) NtGdiGetBitmapDimension
+@ stdcall GetBitmapBits(long long ptr)
+@ stdcall GetBitmapDimensionEx(long ptr)
 @ stdcall GetBkColor(long)
 @ stdcall GetBkMode(long)
-@ stdcall GetBoundsRect(long ptr long) NtGdiGetBoundsRect
+@ stdcall GetBoundsRect(long ptr long)
 # @ stub GetBrushAttributes
 @ stdcall GetBrushOrgEx(long ptr)
 @ stdcall GetCharABCWidthsA(long long long ptr)
@@ -276,7 +275,7 @@
 @ stdcall GetDIBColorTable(long long long ptr)
 @ stdcall GetDIBits(long long long long ptr ptr long)
 @ stdcall GetDeviceCaps(long long)
-@ stdcall GetDeviceGammaRamp(long ptr) NtGdiGetDeviceGammaRamp
+@ stdcall GetDeviceGammaRamp(long ptr)
 @ stub GetETM
 # @ stub GetEUDCTimeStamp
 # @ stub GetEUDCTimeStampExW
@@ -289,7 +288,7 @@
 # @ stub GetEnhMetaFilePixelFormat
 @ stdcall GetEnhMetaFileW(wstr)
 # @ stub GetFontAssocStatus
-@ stdcall GetFontData(long long long ptr long) NtGdiGetFontData
+@ stdcall GetFontData(long long long ptr long)
 @ stdcall GetFontFileData(long long int64 ptr long)
 @ stdcall GetFontFileInfo(long long ptr long ptr)
 @ stdcall GetFontLanguageInfo(long)
@@ -309,7 +308,7 @@
 @ stdcall GetICMProfileW(long ptr ptr)
 @ stdcall GetKerningPairs(long long ptr) GetKerningPairsA
 @ stdcall GetKerningPairsA(long long ptr)
-@ stdcall GetKerningPairsW(long long ptr) NtGdiGetKerningPairsW
+@ stdcall GetKerningPairsW(long long ptr)
 @ stdcall GetLayout(long)
 @ stdcall GetLogColorSpaceA(long ptr long)
 @ stdcall GetLogColorSpaceW(long ptr long)
@@ -319,34 +318,34 @@
 @ stdcall GetMetaFileW(wstr)
 @ stdcall GetMetaRgn(long long)
 @ stdcall GetMiterLimit(long ptr)
-@ stdcall GetNearestColor(long long) NtGdiGetNearestColor
-@ stdcall GetNearestPaletteIndex(long long) NtGdiGetNearestPaletteIndex
+@ stdcall GetNearestColor(long long)
+@ stdcall GetNearestPaletteIndex(long long)
 @ stdcall GetObjectA(long long ptr)
 @ stdcall GetObjectType(long)
 @ stdcall GetObjectW(long long ptr)
 @ stdcall GetOutlineTextMetricsA(long long ptr)
 @ stdcall GetOutlineTextMetricsW(long long ptr)
 @ stdcall GetPaletteEntries(long long long ptr)
-@ stdcall GetPath(long ptr ptr long) NtGdiGetPath
-@ stdcall GetPixel(long long long) NtGdiGetPixel
+@ stdcall GetPath(long ptr ptr long)
+@ stdcall GetPixel(long long long)
 @ stdcall GetPixelFormat(long)
 @ stdcall GetPolyFillMode(long)
 @ stdcall GetROP2(long)
 @ stdcall GetRandomRgn(long long long)
 @ stdcall GetRasterizerCaps(ptr long)
-@ stdcall GetRegionData(long long ptr) NtGdiGetRegionData
+@ stdcall GetRegionData(long long ptr)
 @ stdcall GetRelAbs(long long)
-@ stdcall GetRgnBox(long ptr) NtGdiGetRgnBox
+@ stdcall GetRgnBox(long ptr)
 @ stdcall GetStockObject(long)
 @ stdcall GetStretchBltMode(long)
 # @ stub GetStringBitmapA
 # @ stub GetStringBitmapW
 @ stdcall GetSystemPaletteEntries(long long long ptr)
-@ stdcall GetSystemPaletteUse(long) NtGdiGetSystemPaletteUse
+@ stdcall GetSystemPaletteUse(long)
 @ stdcall GetTextAlign(long)
 @ stdcall GetTextCharacterExtra(long)
 @ stdcall GetTextCharset(long)
-@ stdcall GetTextCharsetInfo(long ptr long) NtGdiGetTextCharsetInfo
+@ stdcall GetTextCharsetInfo(long ptr long)
 @ stdcall GetTextColor(long)
 @ stdcall GetTextExtentExPointA(long str long long ptr ptr ptr)
 @ stdcall GetTextExtentExPointI(long ptr long long ptr ptr ptr)
@@ -362,7 +361,7 @@
 @ stdcall GetTextFaceW(long long ptr)
 @ stdcall GetTextMetricsA(long ptr)
 @ stdcall GetTextMetricsW(long ptr)
-@ stdcall GetTransform(long long ptr) NtGdiGetTransform
+@ stdcall GetTransform(long long ptr)
 @ stdcall GetViewportExtEx(long ptr)
 @ stdcall GetViewportOrgEx(long ptr)
 @ stdcall GetWinMetaFileBits(long long ptr long long)
@@ -384,12 +383,12 @@
 @ stdcall MoveToEx(long long long ptr)
 @ stdcall NamedEscape(long wstr long long ptr long ptr)
 @ stdcall OffsetClipRgn(long long long)
-@ stdcall OffsetRgn(long long long) NtGdiOffsetRgn
+@ stdcall OffsetRgn(long long long)
 @ stdcall OffsetViewportOrgEx(long long long ptr)
 @ stdcall OffsetWindowOrgEx(long long long ptr)
 @ stdcall PaintRgn(long long)
 @ stdcall PatBlt(long long long long long long)
-@ stdcall PathToRegion(long) NtGdiPathToRegion
+@ stdcall PathToRegion(long)
 @ stdcall Pie(long long long long long long long long long)
 @ stdcall PlayEnhMetaFile(long long ptr)
 @ stdcall PlayEnhMetaFileRecord(long ptr ptr long)
@@ -407,12 +406,12 @@
 @ stdcall Polygon(long ptr long)
 @ stdcall Polyline(long ptr long)
 @ stdcall PolylineTo(long ptr long)
-@ stdcall PtInRegion(long long long) NtGdiPtInRegion
-@ stdcall PtVisible(long long long) NtGdiPtVisible
+@ stdcall PtInRegion(long long long)
+@ stdcall PtVisible(long long long)
 # @ stub QueryFontAssocStatus
 @ stdcall RealizePalette(long)
-@ stdcall RectInRegion(long ptr) NtGdiRectInRegion
-@ stdcall RectVisible(long ptr) NtGdiRectVisible
+@ stdcall RectInRegion(long ptr)
+@ stdcall RectVisible(long ptr)
 @ stdcall Rectangle(long long long long long)
 @ stdcall RemoveFontMemResourceEx(ptr)
 @ stdcall RemoveFontResourceA(str)
@@ -422,7 +421,7 @@
 @ stdcall RemoveFontResourceW(wstr)
 @ stdcall ResetDCA(long ptr)
 @ stdcall ResetDCW(long ptr)
-@ stdcall ResizePalette(long long) NtGdiResizePalette
+@ stdcall ResizePalette(long long)
 @ stdcall RestoreDC(long long)
 @ stdcall RoundRect(long long long long long long long)
 @ stdcall SaveDC(long)
@@ -475,11 +474,11 @@
 @ stdcall SetAbortProc(long ptr)
 @ stdcall SetArcDirection(long long)
 # @ stub SetBitmapAttributes
-@ stdcall SetBitmapBits(long long ptr) NtGdiSetBitmapBits
-@ stdcall SetBitmapDimensionEx(long long long ptr) NtGdiSetBitmapDimension
+@ stdcall SetBitmapBits(long long ptr)
+@ stdcall SetBitmapDimensionEx(long long long ptr)
 @ stdcall SetBkColor(long long)
 @ stdcall SetBkMode(long long)
-@ stdcall SetBoundsRect(long ptr long) NtGdiSetBoundsRect
+@ stdcall SetBoundsRect(long ptr long)
 # @ stub SetBrushAttributes
 @ stdcall SetBrushOrgEx(long long long ptr)
 @ stdcall SetColorAdjustment(long ptr)
@@ -489,7 +488,7 @@
 @ stdcall SetDIBColorTable(long long long ptr)
 @ stdcall SetDIBits(long long long long ptr ptr long)
 @ stdcall SetDIBitsToDevice(long long long long long long long long long ptr ptr long)
-@ stdcall SetDeviceGammaRamp(long ptr) NtGdiSetDeviceGammaRamp
+@ stdcall SetDeviceGammaRamp(long ptr)
 @ stdcall SetEnhMetaFileBits(long ptr)
 @ stub SetFontEnumeration
 @ stdcall SetGraphicsMode(long long)
@@ -498,7 +497,7 @@
 @ stdcall SetICMProfileW(long wstr)
 @ stdcall SetLayout(long long)
 # @ stub SetLayoutWidth
-@ stdcall SetMagicColors(ptr long long) NtGdiSetMagicColors
+@ stdcall SetMagicColors(ptr long long)
 @ stdcall SetMapMode(long long)
 @ stdcall SetMapperFlags(long long)
 @ stdcall SetMetaFileBitsEx(long ptr)
@@ -511,17 +510,17 @@
 @ stdcall SetPixelV(long long long long)
 @ stdcall SetPolyFillMode(long long)
 @ stdcall SetROP2(long long)
-@ stdcall SetRectRgn(long long long long long) NtGdiSetRectRgn
+@ stdcall SetRectRgn(long long long long long)
 @ stdcall SetRelAbs(long long)
 @ stdcall SetStretchBltMode(long long)
-@ stdcall SetSystemPaletteUse(long long) NtGdiSetSystemPaletteUse
+@ stdcall SetSystemPaletteUse(long long)
 @ stdcall SetTextAlign(long long)
 @ stdcall SetTextCharacterExtra(long long)
 @ stdcall SetTextColor(long long)
 @ stdcall SetTextJustification(long long long)
 @ stdcall SetViewportExtEx(long long long ptr)
 @ stdcall SetViewportOrgEx(long long long ptr)
-@ stdcall SetVirtualResolution(long long long long long) NtGdiSetVirtualResolution
+@ stdcall SetVirtualResolution(long long long long long)
 @ stdcall SetWinMetaFileBits(long ptr long ptr)
 @ stdcall SetWindowExtEx(long long long ptr)
 @ stdcall SetWindowOrgEx(long long long ptr)
@@ -540,7 +539,7 @@
 @ stdcall TranslateCharsetInfo(ptr ptr long)
 @ stub UnloadNetworkFonts
 @ stdcall UnrealizeObject(long)
-@ stdcall UpdateColors(long) NtGdiUpdateColors
+@ stdcall UpdateColors(long)
 @ stdcall UpdateICMRegKey(long str str long) UpdateICMRegKeyA
 @ stdcall UpdateICMRegKeyA(long str str long)
 @ stdcall UpdateICMRegKeyW(long wstr wstr long)

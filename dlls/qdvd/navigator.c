@@ -21,7 +21,7 @@
 #include "qdvd_private.h"
 #include "wine/strmbase.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+WINE_DEFAULT_DEBUG_CHANNEL(qdvd);
 
 struct navigator
 {

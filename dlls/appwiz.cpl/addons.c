@@ -33,7 +33,6 @@
 #include "commctrl.h"
 #include "advpub.h"
 #include "wininet.h"
-#include "pathcch.h"
 #include "shellapi.h"
 #include "urlmon.h"
 #include "msi.h"
@@ -58,10 +57,10 @@ WINE_DEFAULT_DEBUG_CHANNEL(appwizcpl);
 #define GECKO_SHA "???"
 #endif
 
-#define MONO_VERSION "6.3.0"
+#define MONO_VERSION "5.1.1"
 #if defined(__i386__) || defined(__x86_64__)
 #define MONO_ARCH "x86"
-#define MONO_SHA "a5f02d32a0283692a4a625f541cfbbb451883128474c5c80362385317cd099f0"
+#define MONO_SHA "74541265b9385842bc22bba2bb4b90bf1d3fd8b4788b6676140700bebacb9227"
 #else
 #define MONO_ARCH ""
 #define MONO_SHA "???"
@@ -198,11 +197,10 @@ static enum install_res install_file(const WCHAR *file_name)
 
 static enum install_res install_from_dos_file(const WCHAR *dir, const WCHAR *subdir, const WCHAR *file_name)
 {
-    WCHAR *path, *canonical_path;
+    WCHAR *path;
     enum install_res ret;
     int len = lstrlenW( dir );
     int size = len + 1;
-    HRESULT hr;
 
     size += lstrlenW( subdir ) + lstrlenW( file_name ) + 2;
     if (!(path = heap_alloc( size * sizeof(WCHAR) ))) return INSTALL_FAILED;
@@ -215,25 +213,16 @@ static enum install_res install_from_dos_file(const WCHAR *dir, const WCHAR *sub
     lstrcatW( path, L"\\" );
     lstrcatW( path, file_name );
 
-    hr = PathAllocCanonicalize( path, PATHCCH_ALLOW_LONG_PATHS, &canonical_path );
-    if (FAILED( hr ))
+    if (GetFileAttributesW( path ) == INVALID_FILE_ATTRIBUTES)
     {
-        ERR( "Failed to canonicalize %s, hr %#x\n", debugstr_w(path), hr );
+        TRACE( "%s not found\n", debugstr_w(path) );
         heap_free( path );
         return INSTALL_NEXT;
     }
+
+    ret = install_file( path );
+
     heap_free( path );
-
-    if (GetFileAttributesW( canonical_path ) == INVALID_FILE_ATTRIBUTES)
-    {
-        TRACE( "%s not found\n", debugstr_w(canonical_path) );
-        LocalFree( canonical_path );
-        return INSTALL_NEXT;
-    }
-
-    ret = install_file( canonical_path );
-
-    LocalFree( canonical_path );
     return ret;
 }
 

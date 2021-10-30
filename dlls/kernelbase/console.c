@@ -470,6 +470,20 @@ DWORD WINAPI CtrlRoutine( void *arg )
 }
 
 
+static LONG WINAPI handle_ctrl_c( EXCEPTION_POINTERS *eptr )
+{
+    if (eptr->ExceptionRecord->ExceptionCode != CONTROL_C_EXIT) return EXCEPTION_CONTINUE_SEARCH;
+    if (!RtlGetCurrentPeb()->ProcessParameters->ConsoleHandle)  return EXCEPTION_CONTINUE_SEARCH;
+
+    if (!(NtCurrentTeb()->Peb->ProcessParameters->ConsoleFlags & 1))
+    {
+        HANDLE thread = CreateThread( NULL, 0, CtrlRoutine, (void*)CTRL_C_EVENT, 0, NULL );
+        if (thread) CloseHandle( thread );
+    }
+    return EXCEPTION_CONTINUE_EXECUTION;
+}
+
+
 /******************************************************************************
  *	FillConsoleOutputAttribute   (kernelbase.@)
  */
@@ -1830,6 +1844,7 @@ void init_console( void )
         if (params->ConsoleHandle && create_console_connection( params->ConsoleHandle ))
         {
             init_console_std_handles( FALSE );
+            console_flags = 0;
         }
     }
     else if (params->ConsoleHandle == CONSOLE_HANDLE_ALLOC)
@@ -1840,4 +1855,6 @@ void init_console( void )
             AllocConsole();
     }
     else if (params->ConsoleHandle) create_console_connection( params->ConsoleHandle );
+
+    RtlAddVectoredExceptionHandler( FALSE, handle_ctrl_c );
 }

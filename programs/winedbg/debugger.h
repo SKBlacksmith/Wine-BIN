@@ -39,7 +39,7 @@
 #include "oaidl.h"
 #include <wine/list.h>
 
-#define ADDRSIZE        (dbg_curr_process ? dbg_curr_process->be_cpu->pointer_size : (int)sizeof(void*))
+#define ADDRSIZE        (dbg_curr_process->be_cpu->pointer_size)
 #define ADDRWIDTH       (ADDRSIZE * 2)
 
 /* the debugger uses these exceptions for its internal use */
@@ -145,6 +145,21 @@ struct dbg_breakpoint
     } w;
     struct expr*        condition;
 };
+
+/* used for C++ exceptions in msvcrt
+ * parameters:
+ * [0] CXX_FRAME_MAGIC
+ * [1] pointer to exception object
+ * [2] pointer to type
+ */
+#define CXX_EXCEPTION                       0xe06d7363
+#define CXX_FRAME_MAGIC                     0x19930520
+
+/* Wine extension; Windows doesn't have a name for this code.  This is an
+   undocumented exception understood by MS VC debugger, allowing the program
+   to name a particular thread.  Search google.com or deja.com for "0x406d1388"
+   for more info. */
+#define EXCEPTION_NAME_THREAD               0x406D1388
 
 /* Helper structure */
 typedef struct tagTHREADNAME_INFO
@@ -419,7 +434,6 @@ extern enum dbg_start   dbg_active_auto(int argc, char* argv[]);
 extern enum dbg_start   dbg_active_minidump(int argc, char* argv[]);
 extern void             dbg_active_wait_for_first_exception(void);
 extern BOOL             dbg_attach_debuggee(DWORD pid);
-extern void             fetch_module_name(void* name_addr, void* mod_addr, WCHAR* buffer, size_t bufsz);
 
   /* tgt_minidump.c */
 extern void             minidump_write(const char*, const EXCEPTION_RECORD*);
@@ -464,6 +478,7 @@ extern struct dbg_thread* dbg_get_thread(struct dbg_process* p, DWORD tid);
 extern void             dbg_del_thread(struct dbg_thread* t);
 extern BOOL             dbg_init(HANDLE hProc, const WCHAR* in, BOOL invade);
 extern BOOL             dbg_load_module(HANDLE hProc, HANDLE hFile, const WCHAR* name, DWORD_PTR base, DWORD size);
+extern BOOL             dbg_get_debuggee_info(HANDLE hProcess, IMAGEHLP_MODULE64* imh_mod);
 extern void             dbg_set_option(const char*, const char*);
 extern void             dbg_start_interactive(HANDLE hFile);
 extern void             dbg_init_console(void);

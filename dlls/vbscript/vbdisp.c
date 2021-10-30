@@ -1344,21 +1344,13 @@ static HRESULT WINAPI ScriptDisp_GetIDsOfNames(IDispatchEx *iface, REFIID riid,
     TRACE("(%p)->(%s %p %u %u %p)\n", This, debugstr_guid(riid), rgszNames, cNames,
           lcid, rgDispId);
 
-    if(cNames == 0)
-        return S_OK;
-
-    hres = IDispatchEx_GetDispID(&This->IDispatchEx_iface, rgszNames[0], 0, rgDispId);
-    if(FAILED(hres))
-        return hres;
-
-    /* DISPIDs for parameters don't seem to be supported */
-    if(cNames > 1) {
-        for(i = 1; i < cNames; i++)
-            rgDispId[i] = DISPID_UNKNOWN;
-        hres = DISP_E_UNKNOWNNAME;
+    for(i=0; i < cNames; i++) {
+        hres = IDispatchEx_GetDispID(&This->IDispatchEx_iface, rgszNames[i], 0, rgDispId+i);
+        if(FAILED(hres))
+            return hres;
     }
 
-    return hres;
+    return S_OK;
 }
 
 static HRESULT WINAPI ScriptDisp_Invoke(IDispatchEx *iface, DISPID dispIdMember, REFIID riid, LCID lcid,

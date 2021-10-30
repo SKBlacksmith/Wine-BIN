@@ -103,3 +103,19 @@ EFaultRepRetVal WINAPI ReportFault(LPEXCEPTION_POINTERS pep, DWORD dwOpt)
     FIXME("%p 0x%x stub\n", pep, dwOpt);
     return frrvOk;
 }
+
+/***********************************************************************
+ * DllMain.
+ */
+BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, LPVOID reserved)
+{
+    switch(reason)
+    {
+    case DLL_WINE_PREATTACH:
+        return FALSE;
+    case DLL_PROCESS_ATTACH:
+        DisableThreadLibraryCalls(inst);
+        break;
+    }
+    return TRUE;
+}

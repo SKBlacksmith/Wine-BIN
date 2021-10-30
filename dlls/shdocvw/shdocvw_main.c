@@ -86,6 +86,24 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
     return SHDOCVW_GetShellInstanceObjectClassObject(rclsid, riid, ppv);
 }
 
+/***********************************************************************
+ *          DllRegisterServer (shdocvw.@)
+ */
+HRESULT WINAPI DllRegisterServer(void)
+{
+    TRACE("\n");
+    return S_OK;
+}
+
+/***********************************************************************
+ *          DllUnregisterServer (shdocvw.@)
+ */
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    TRACE("\n");
+    return S_OK;
+}
+
 /******************************************************************
  *             IEWinMain            (SHDOCVW.101)
  *

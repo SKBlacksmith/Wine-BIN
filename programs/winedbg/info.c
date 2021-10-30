@@ -769,13 +769,13 @@ void info_win32_virtual(DWORD pid)
             }
             memset(prot, ' ' , sizeof(prot) - 1);
             prot[sizeof(prot) - 1] = '\0';
-            if (mbi.AllocationProtect & (PAGE_READONLY|PAGE_READWRITE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_WRITECOPY|PAGE_EXECUTE_WRITECOPY))
+            if (mbi.AllocationProtect & (PAGE_READONLY|PAGE_READWRITE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE))
                 prot[0] = 'R';
             if (mbi.AllocationProtect & (PAGE_READWRITE|PAGE_EXECUTE_READWRITE))
                 prot[1] = 'W';
             if (mbi.AllocationProtect & (PAGE_WRITECOPY|PAGE_EXECUTE_WRITECOPY))
                 prot[1] = 'C';
-            if (mbi.AllocationProtect & (PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY))
+            if (mbi.AllocationProtect & (PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE))
                 prot[2] = 'X';
         }
         else
@@ -951,11 +951,11 @@ void info_win32_exception(void)
     case EXCEPTION_FLT_STACK_CHECK:
         dbg_printf("floating point stack check");
         break;
-    case EXCEPTION_WINE_CXX_EXCEPTION:
-        if(rec->NumberParameters == 3 && rec->ExceptionInformation[0] == EXCEPTION_WINE_CXX_FRAME_MAGIC)
+    case CXX_EXCEPTION:
+        if(rec->NumberParameters == 3 && rec->ExceptionInformation[0] == CXX_FRAME_MAGIC)
             dbg_printf("C++ exception(object = 0x%08lx, type = 0x%08lx)",
                        rec->ExceptionInformation[1], rec->ExceptionInformation[2]);
-        else if(rec->NumberParameters == 4 && rec->ExceptionInformation[0] == EXCEPTION_WINE_CXX_FRAME_MAGIC)
+        else if(rec->NumberParameters == 4 && rec->ExceptionInformation[0] == CXX_FRAME_MAGIC)
             dbg_printf("C++ exception(object = %p, type = %p, base = %p)",
                        (void*)rec->ExceptionInformation[1], (void*)rec->ExceptionInformation[2],
                        (void*)rec->ExceptionInformation[3]);

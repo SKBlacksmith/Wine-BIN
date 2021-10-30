@@ -37,7 +37,6 @@
 #include "ntdll_misc.h"
 #include "in6addr.h"
 #include "ddk/ntddk.h"
-#include "ddk/ntifs.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
 WINE_DECLARE_DEBUG_CHANNEL(debugstr);
@@ -2141,14 +2140,6 @@ void WINAPI RtlGetCurrentProcessorNumberEx(PROCESSOR_NUMBER *processor)
 }
 
 /***********************************************************************
- *           RtlIsProcessorFeaturePresent [NTDLL.@]
- */
-BOOLEAN WINAPI RtlIsProcessorFeaturePresent( UINT feature )
-{
-    return feature < PROCESSOR_FEATURE_MAX && user_shared_data->ProcessorFeatures[feature];
-}
-
-/***********************************************************************
  *           RtlInitializeGenericTableAvl  (NTDLL.@)
  */
 void WINAPI RtlInitializeGenericTableAvl(PRTL_AVL_TABLE table, PRTL_AVL_COMPARE_ROUTINE compare,
@@ -2173,13 +2164,4 @@ NTSTATUS WINAPI RtlQueryPackageIdentity(HANDLE token, WCHAR *fullname, SIZE_T *f
 {
     FIXME("(%p, %p, %p, %p, %p, %p): stub\n", token, fullname, fullname_size, appid, appid_size, packaged);
     return STATUS_NOT_FOUND;
-}
-
-/*********************************************************************
- *           RtlQueryProcessPlaceholderCompatibilityMode [NTDLL.@]
- */
-char WINAPI RtlQueryProcessPlaceholderCompatibilityMode(void)
-{
-    FIXME("stub\n");
-    return PHCM_APPLICATION_DEFAULT;
 }

@@ -97,8 +97,6 @@ static const char version_string[] = "Wine IDL Compiler version " PACKAGE_VERSIO
 enum target_cpu target_cpu = CPU_x86;
 #elif defined(__x86_64__)
 enum target_cpu target_cpu = CPU_x86_64;
-#elif defined(__powerpc64__)
-enum target_cpu target_cpu = CPU_POWERPC64;
 #elif defined(__powerpc__)
 enum target_cpu target_cpu = CPU_POWERPC;
 #elif defined(__arm__)
@@ -211,31 +209,6 @@ static const struct option long_options[] = {
     { NULL, 0, NULL, 0 }
 };
 
-static const struct
-{
-    const char     *name;
-    enum target_cpu cpu;
-} cpu_names[] =
-{
-    { "i386",           CPU_x86 },
-    { "i486",           CPU_x86 },
-    { "i586",           CPU_x86 },
-    { "i686",           CPU_x86 },
-    { "i786",           CPU_x86 },
-    { "amd64",          CPU_x86_64 },
-    { "x86_64",         CPU_x86_64 },
-    { "powerpc",        CPU_POWERPC },
-    { "powerpc64",      CPU_POWERPC64 },
-    { "powerpc64le",    CPU_POWERPC64 },
-    { "arm",            CPU_ARM },
-    { "armv5",          CPU_ARM },
-    { "armv6",          CPU_ARM },
-    { "armv7",          CPU_ARM },
-    { "armv7a",         CPU_ARM },
-    { "arm64",          CPU_ARM64 },
-    { "aarch64",        CPU_ARM64 },
-};
-
 static void rm_tempfile(void);
 
 enum stub_mode get_stub_mode(void)
@@ -299,54 +272,49 @@ static void add_widl_version_define(void)
     wpp_add_cmdline_define(version_str);
 }
 
-static void set_cpu( const char *cpu, int error_out )
-{
-    unsigned int i;
-    for (i = 0; i < ARRAY_SIZE( cpu_names ); i++)
-    {
-        if (!strcmp( cpu_names[i].name, cpu ))
-        {
-            target_cpu = cpu_names[i].cpu;
-            return;
-        }
-    }
-    if (error_out)
-        error( "Unrecognized CPU '%s'\n", cpu );
-}
-
-/* Set the target platform based on a potential prefix of the executable name.
- * If not found, or not matching a known CPU name, just proceed silently. */
-static void init_argv0_target( const char *argv0 )
-{
-    char *p, *name;
-
-    if ((p = strrchr(argv0, '/')) != NULL)
-        argv0 = p + 1;
-    if ((p = strrchr(argv0, '\\')) != NULL)
-        argv0 = p + 1;
-
-    name = xstrdup( argv0 );
-    if (!(p = strchr(name, '-')))
-    {
-        free( name );
-        return;
-    }
-    *p = 0;
-    set_cpu( name, 0 );
-    free( name );
-}
-
 /* set the target platform */
 static void set_target( const char *target )
 {
+    static const struct
+    {
+        const char     *name;
+        enum target_cpu cpu;
+    } cpu_names[] =
+    {
+        { "i386",    CPU_x86 },
+        { "i486",    CPU_x86 },
+        { "i586",    CPU_x86 },
+        { "i686",    CPU_x86 },
+        { "i786",    CPU_x86 },
+        { "amd64",   CPU_x86_64 },
+        { "x86_64",  CPU_x86_64 },
+        { "powerpc", CPU_POWERPC },
+        { "arm",     CPU_ARM },
+        { "armv5",   CPU_ARM },
+        { "armv6",   CPU_ARM },
+        { "armv7",   CPU_ARM },
+        { "armv7a",  CPU_ARM },
+        { "arm64",   CPU_ARM64 },
+        { "aarch64", CPU_ARM64 },
+    };
+
+    unsigned int i;
     char *p, *spec = xstrdup( target );
 
     /* target specification is in the form CPU-MANUFACTURER-OS or CPU-MANUFACTURER-KERNEL-OS */
 
     if (!(p = strchr( spec, '-' ))) error( "Invalid target specification '%s'\n", target );
     *p++ = 0;
-    set_cpu( spec, 1 );
-    free( spec );
+    for (i = 0; i < ARRAY_SIZE( cpu_names ); i++)
+    {
+        if (!strcmp( cpu_names[i].name, spec ))
+        {
+            target_cpu = cpu_names[i].cpu;
+            free( spec );
+            return;
+        }
+    }
+    error( "Unrecognized CPU '%s'\n", spec );
 }
 
 /* clean things up when aborting on a signal */
@@ -635,7 +603,6 @@ int main(int argc,char *argv[])
   signal( SIGHUP, exit_on_signal );
 #endif
   init_argv0_dir( argv[0] );
-  init_argv0_target( argv[0] );
 
   now = time(NULL);
 
@@ -825,15 +792,7 @@ int main(int argc,char *argv[])
       if (pointer_size == 4) target_cpu = CPU_x86;
       else pointer_size = 8;
       break;
-  case CPU_ARM:
-      if (pointer_size == 8) target_cpu = CPU_ARM64;
-      else pointer_size = 4;
-      break;
   case CPU_ARM64:
-      if (pointer_size == 4) target_cpu = CPU_ARM;
-      pointer_size = 8;
-      break;
-  case CPU_POWERPC64:
       if (pointer_size == 4) error( "Cannot build 32-bit code for this CPU\n" );
       pointer_size = 8;
       break;
@@ -864,17 +823,19 @@ int main(int argc,char *argv[])
     set_everything(TRUE);
   }
 
+  if (!output_name) output_name = dup_basename(input_name, ".idl");
+
   if (do_header + do_typelib + do_proxies + do_client +
-      do_server + do_regscript + do_idfile + do_dlldata == 1 && output_name)
+      do_server + do_regscript + do_idfile + do_dlldata == 1)
   {
-      if (do_header && !header_name) header_name = output_name;
-      else if (do_typelib && !typelib_name) typelib_name = output_name;
-      else if (do_proxies && !proxy_name) proxy_name = output_name;
-      else if (do_client && !client_name) client_name = output_name;
-      else if (do_server && !server_name) server_name = output_name;
-      else if (do_regscript && !regscript_name) regscript_name = output_name;
-      else if (do_idfile && !idfile_name) idfile_name = output_name;
-      else if (do_dlldata && !dlldata_name) dlldata_name = output_name;
+      if (do_header) header_name = output_name;
+      else if (do_typelib) typelib_name = output_name;
+      else if (do_proxies) proxy_name = output_name;
+      else if (do_client) client_name = output_name;
+      else if (do_server) server_name = output_name;
+      else if (do_regscript) regscript_name = output_name;
+      else if (do_idfile) idfile_name = output_name;
+      else if (do_dlldata) dlldata_name = output_name;
   }
 
   if (!dlldata_name && do_dlldata)

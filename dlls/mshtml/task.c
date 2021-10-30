@@ -18,6 +18,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -40,7 +41,6 @@ typedef struct {
     DWORD id;
     DWORD time;
     DWORD interval;
-    enum timer_type type;
     IDispatch *disp;
 
     struct list entry;
@@ -162,7 +162,7 @@ static BOOL queue_timer(thread_data_t *thread_data, task_timer_t *timer)
     return FALSE;
 }
 
-HRESULT set_task_timer(HTMLInnerWindow *window, LONG msec, enum timer_type timer_type, IDispatch *disp, LONG *id)
+HRESULT set_task_timer(HTMLInnerWindow *window, LONG msec, BOOL interval, IDispatch *disp, LONG *id)
 {
     thread_data_t *thread_data;
     task_timer_t *timer;
@@ -184,8 +184,7 @@ HRESULT set_task_timer(HTMLInnerWindow *window, LONG msec, enum timer_type timer
     timer->id = id_cnt++;
     timer->window = window;
     timer->time = tc + msec;
-    timer->interval = timer_type == TIMER_INTERVAL ? msec : 0;
-    timer->type = timer_type;
+    timer->interval = interval ? msec : 0;
     list_init(&timer->entry);
 
     IDispatch_AddRef(disp);
@@ -217,20 +216,9 @@ HRESULT clear_task_timer(HTMLInnerWindow *window, DWORD id)
     return S_OK;
 }
 
-static const char *debugstr_timer_type(enum timer_type type)
-{
-    switch(type) {
-    case TIMER_TIMEOUT:  return "timeout";
-    case TIMER_INTERVAL: return "interval";
-    case TIMER_ANIMATION_FRAME: return "animation-frame";
-    DEFAULT_UNREACHABLE;
-    }
-}
-
-static void call_timer_disp(IDispatch *disp, enum timer_type timer_type)
+static void call_timer_disp(IDispatch *disp)
 {
     DISPPARAMS dp = {NULL, NULL, 0, 0};
-    VARIANT timestamp;
     EXCEPINFO ei;
     VARIANT res;
     HRESULT hres;
@@ -238,19 +226,12 @@ static void call_timer_disp(IDispatch *disp, enum timer_type timer_type)
     V_VT(&res) = VT_EMPTY;
     memset(&ei, 0, sizeof(ei));
 
-    if(timer_type == TIMER_ANIMATION_FRAME) {
-        dp.cArgs = 1;
-        dp.rgvarg = &timestamp;
-        V_VT(&timestamp) = VT_R8;
-        V_R8(&timestamp) = get_time_stamp();
-    }
-
-    TRACE("%p %s >>>\n", disp, debugstr_timer_type(timer_type));
+    TRACE(">>>\n");
     hres = IDispatch_Invoke(disp, DISPID_VALUE, &IID_NULL, 0, DISPATCH_METHOD, &dp, &res, &ei, NULL);
     if(hres == S_OK)
-        TRACE("%p %s <<<\n", disp, debugstr_timer_type(timer_type));
+        TRACE("<<<\n");
     else
-        WARN("%p %s <<< %08x\n", disp, debugstr_timer_type(timer_type), hres);
+        WARN("<<< %08x\n", hres);
 
     VariantClear(&res);
 }
@@ -258,7 +239,6 @@ static void call_timer_disp(IDispatch *disp, enum timer_type timer_type)
 static LRESULT process_timer(void)
 {
     thread_data_t *thread_data;
-    enum timer_type timer_type;
     IDispatch *disp;
     DWORD tc;
     task_timer_t *timer=NULL, *last_timer;
@@ -291,7 +271,6 @@ static LRESULT process_timer(void)
 
         disp = timer->disp;
         IDispatch_AddRef(disp);
-        timer_type = timer->type;
 
         if(timer->interval) {
             timer->time += timer->interval;
@@ -300,7 +279,7 @@ static LRESULT process_timer(void)
             release_task_timer(thread_data->thread_hwnd, timer);
         }
 
-        call_timer_disp(disp, timer_type);
+        call_timer_disp(disp);
 
         IDispatch_Release(disp);
     }while(!list_empty(&thread_data->timer_list));
@@ -398,15 +377,4 @@ thread_data_t *get_thread_data(BOOL create)
     }
 
     return thread_data;
-}
-
-ULONGLONG get_time_stamp(void)
-{
-    FILETIME time;
-
-    /* 1601 to 1970 is 369 years plus 89 leap days */
-    const ULONGLONG time_epoch = (ULONGLONG)(369 * 365 + 89) * 86400 * 1000;
-
-    GetSystemTimeAsFileTime(&time);
-    return (((ULONGLONG)time.dwHighDateTime << 32) + time.dwLowDateTime) / 10000 - time_epoch;
 }

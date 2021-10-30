@@ -5587,22 +5587,6 @@ static ULONG WINAPI ITypeInfo_fnAddRef( ITypeInfo2 *iface)
     return ref;
 }
 
-static void typeinfo_release_funcdesc(TLBFuncDesc *func)
-{
-    unsigned int i;
-
-    for (i = 0; i < func->funcdesc.cParams; ++i)
-    {
-        ELEMDESC *elemdesc = &func->funcdesc.lprgelemdescParam[i];
-        if (elemdesc->u.paramdesc.wParamFlags & PARAMFLAG_FHASDEFAULT)
-            VariantClear(&elemdesc->u.paramdesc.pparamdescex->varDefaultValue);
-        TLB_FreeCustData(&func->pParamDesc[i].custdata_list);
-    }
-    heap_free(func->funcdesc.lprgelemdescParam);
-    heap_free(func->pParamDesc);
-    TLB_FreeCustData(&func->custdata_list);
-}
-
 static void ITypeInfoImpl_Destroy(ITypeInfoImpl *This)
 {
     UINT i;
@@ -5611,7 +5595,18 @@ static void ITypeInfoImpl_Destroy(ITypeInfoImpl *This)
 
     for (i = 0; i < This->typeattr.cFuncs; ++i)
     {
-        typeinfo_release_funcdesc(&This->funcdescs[i]);
+        int j;
+        TLBFuncDesc *pFInfo = &This->funcdescs[i];
+        for(j = 0; j < pFInfo->funcdesc.cParams; j++)
+        {
+            ELEMDESC *elemdesc = &pFInfo->funcdesc.lprgelemdescParam[j];
+            if (elemdesc->u.paramdesc.wParamFlags & PARAMFLAG_FHASDEFAULT)
+                VariantClear(&elemdesc->u.paramdesc.pparamdescex->varDefaultValue);
+            TLB_FreeCustData(&pFInfo->pParamDesc[j].custdata_list);
+        }
+        heap_free(pFInfo->funcdesc.lprgelemdescParam);
+        heap_free(pFInfo->pParamDesc);
+        TLB_FreeCustData(&pFInfo->custdata_list);
     }
     heap_free(This->funcdescs);
 
@@ -7216,7 +7211,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
     UINT  *pArgErr)
 {
     ITypeInfoImpl *This = impl_from_ITypeInfo2(iface);
-    int i, j;
+    int i;
     unsigned int var_index;
     TYPEKIND type_kind;
     HRESULT hres;
@@ -7323,13 +7318,15 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
 
                 src_arg = NULL;
 
-                for (j = 0; j < cNamedArgs; j++)
+                if (cNamedArgs)
                 {
-                    if (rgdispidNamedArgs[j] == i || (i == func_desc->cParams-1 && rgdispidNamedArgs[j] == DISPID_PROPERTYPUT))
-                    {
-                        src_arg = &pDispParams->rgvarg[j];
-                        break;
-                    }
+                    USHORT j;
+                    for (j = 0; j < cNamedArgs; j++)
+                        if (rgdispidNamedArgs[j] == i || (i == func_desc->cParams-1 && rgdispidNamedArgs[j] == DISPID_PROPERTYPUT))
+                        {
+                            src_arg = &pDispParams->rgvarg[j];
+                            break;
+                        }
                 }
 
                 if (!src_arg && vargs_converted + cNamedArgs < pDispParams->cArgs)
@@ -7398,7 +7395,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                         {
                             SAFEARRAYBOUND bound;
                             VARIANT *v;
-
+                            LONG j;
                             bound.lLbound = 0;
                             bound.cElements = pDispParams->cArgs-i;
                             if (!(a = SafeArrayCreate(VT_VARIANT, 1, &bound)))
@@ -7583,7 +7580,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                              i == func_desc->cParams-1)
                     {
                         SAFEARRAY *a = V_ARRAY(prgpvarg[i]);
-                        LONG ubound;
+                        LONG j, ubound;
                         VARIANT *v;
                         hres = SafeArrayGetUBound(a, 1, &ubound);
                         if (hres != S_OK)
@@ -11017,7 +11014,6 @@ static HRESULT WINAPI ICreateTypeInfo2_fnAddVarDesc(ICreateTypeInfo2 *iface,
 {
     ITypeInfoImpl *This = info_impl_from_ICreateTypeInfo2(iface);
     TLBVarDesc *var_desc;
-    HRESULT hr;
 
     TRACE("%p %u %p\n", This, index, varDesc);
 
@@ -11043,9 +11039,7 @@ static HRESULT WINAPI ICreateTypeInfo2_fnAddVarDesc(ICreateTypeInfo2 *iface,
         var_desc = This->vardescs = heap_alloc_zero(sizeof(TLBVarDesc));
 
     TLBVarDesc_Constructor(var_desc);
-    hr = TLB_AllocAndInitVarDesc(varDesc, &var_desc->vardesc_create);
-    if (FAILED(hr))
-        return hr;
+    TLB_AllocAndInitVarDesc(varDesc, &var_desc->vardesc_create);
     var_desc->vardesc = *var_desc->vardesc_create;
 
     ++This->typeattr.cVars;
@@ -11379,27 +11373,8 @@ static HRESULT WINAPI ICreateTypeInfo2_fnDeleteFuncDesc(ICreateTypeInfo2 *iface,
         UINT index)
 {
     ITypeInfoImpl *This = info_impl_from_ICreateTypeInfo2(iface);
-    unsigned int i;
-
-    TRACE("%p %u\n", This, index);
-
-    if (index >= This->typeattr.cFuncs)
-        return TYPE_E_ELEMENTNOTFOUND;
-
-    typeinfo_release_funcdesc(&This->funcdescs[index]);
-
-    --This->typeattr.cFuncs;
-    if (index != This->typeattr.cFuncs)
-    {
-        memmove(This->funcdescs + index, This->funcdescs + index + 1,
-                sizeof(*This->funcdescs) * (This->typeattr.cFuncs - index));
-        for (i = index; i < This->typeattr.cFuncs; ++i)
-            TLB_relink_custdata(&This->funcdescs[i].custdata_list);
-    }
-
-    This->needs_layout = TRUE;
-
-    return S_OK;
+    FIXME("%p %u - stub\n", This, index);
+    return E_NOTIMPL;
 }
 
 static HRESULT WINAPI ICreateTypeInfo2_fnDeleteFuncDescByMemId(ICreateTypeInfo2 *iface,

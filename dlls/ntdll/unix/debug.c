@@ -34,8 +34,6 @@
 # include <unistd.h>
 #endif
 
-#include "ntstatus.h"
-#define WIN32_NO_STATUS
 #include "windef.h"
 #include "winnt.h"
 #include "winternl.h"
@@ -44,17 +42,6 @@
 
 WINE_DECLARE_DEBUG_CHANNEL(pid);
 WINE_DECLARE_DEBUG_CHANNEL(timestamp);
-WINE_DEFAULT_DEBUG_CHANNEL(ntdll);
-
-struct debug_info
-{
-    unsigned int str_pos;       /* current position in strings buffer */
-    unsigned int out_pos;       /* current position in output buffer */
-    char         strings[1020]; /* buffer for temporary strings */
-    char         output[1020];  /* current output line */
-};
-
-C_ASSERT( sizeof(struct debug_info) == 0x800 );
 
 static BOOL init_done;
 static struct debug_info initial_info;  /* debug info for initial thread */
@@ -69,11 +56,7 @@ static const char * const debug_classes[] = { "fixme", "err", "warn", "trace" };
 static inline struct debug_info *get_info(void)
 {
     if (!init_done) return &initial_info;
-#ifdef _WIN64
-    return (struct debug_info *)((TEB32 *)((char *)NtCurrentTeb() + teb_offset) + 1);
-#else
-    return (struct debug_info *)(NtCurrentTeb() + 1);
-#endif
+    return ntdll_get_thread_data()->debug_info;
 }
 
 /* add a string to the output buffer */
@@ -253,14 +236,6 @@ const char * __cdecl __wine_dbg_strdup( const char *str )
 }
 
 /***********************************************************************
- *		__wine_dbg_write  (NTDLL.@)
- */
-int WINAPI __wine_dbg_write( const char *str, unsigned int len )
-{
-    return write( 2, str, len );
-}
-
-/***********************************************************************
  *		__wine_dbg_output  (NTDLL.@)
  */
 int __cdecl __wine_dbg_output( const char *str )
@@ -272,7 +247,7 @@ int __cdecl __wine_dbg_output( const char *str )
     if (end)
     {
         ret += append_output( info, str, end + 1 - str );
-        __wine_dbg_write( info->output, info->out_pos );
+        write( 2, info->output, info->out_pos );
         info->out_pos = 0;
         str = end + 1;
     }
@@ -288,7 +263,7 @@ int __cdecl __wine_dbg_header( enum __wine_debug_class cls, struct __wine_debug_
 {
     static const char * const classes[] = { "fixme", "err", "warn", "trace" };
     struct debug_info *info = get_info();
-    char *pos = info->output;
+    char buffer[200], *pos = buffer;
 
     if (!(__wine_dbg_get_channel_flags( channel ) & (1 << cls))) return -1;
 
@@ -306,10 +281,10 @@ int __cdecl __wine_dbg_header( enum __wine_debug_class cls, struct __wine_debug_
         pos += sprintf( pos, "%04x:", GetCurrentThreadId() );
     }
     if (function && cls < ARRAY_SIZE( classes ))
-        pos += snprintf( pos, sizeof(info->output) - (pos - info->output), "%s:%s:%s ",
-                         classes[cls], channel->name, function );
-    info->out_pos = pos - info->output;
-    return info->out_pos;
+        snprintf( pos, sizeof(buffer) - (pos - buffer), "%s:%s:%s ",
+                  classes[cls], channel->name, function );
+
+    return append_output( info, buffer, strlen( buffer ));
 }
 
 /***********************************************************************
@@ -317,29 +292,8 @@ int __cdecl __wine_dbg_header( enum __wine_debug_class cls, struct __wine_debug_
  */
 void dbg_init(void)
 {
-    struct __wine_debug_channel *options, default_option = { default_flags };
-
     setbuf( stdout, NULL );
     setbuf( stderr, NULL );
-
-    if (nb_debug_options == -1) init_options();
-
-    options = (struct __wine_debug_channel *)((char *)peb + (is_win64 ? 2 : 1) * page_size);
-    memcpy( options, debug_options, nb_debug_options * sizeof(*options) );
-    free( debug_options );
-    debug_options = options;
-    options[nb_debug_options] = default_option;
+    ntdll_get_thread_data()->debug_info = &initial_info;
     init_done = TRUE;
-}
-
-
-/***********************************************************************
- *              NtTraceControl  (NTDLL.@)
- */
-NTSTATUS WINAPI NtTraceControl( ULONG code, void *inbuf, ULONG inbuf_len,
-                                void *outbuf, ULONG outbuf_len, ULONG *size )
-{
-    FIXME( "code %u, inbuf %p, inbuf_len %u, outbuf %p, outbuf_len %u, size %p\n", code, inbuf, inbuf_len,
-           outbuf, outbuf_len, size );
-    return STATUS_SUCCESS;
 }

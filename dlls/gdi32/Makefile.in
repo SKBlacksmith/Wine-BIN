@@ -9,6 +9,7 @@ DELAYIMPORTS = setupapi
 EXTRADLLFLAGS = -mno-cygwin
 
 C_SRCS = \
+	bidi.c \
 	bitblt.c \
 	bitmap.c \
 	brush.c \
@@ -22,18 +23,24 @@ C_SRCS = \
 	dibdrv/opengl.c \
 	dibdrv/primitives.c \
 	driver.c \
-	emfdc.c \
-	emfdrv.c \
 	enhmetafile.c \
+	enhmfdrv/bitblt.c \
+	enhmfdrv/dc.c \
+	enhmfdrv/graphics.c \
+	enhmfdrv/init.c \
+	enhmfdrv/objects.c \
 	font.c \
 	freetype.c \
-	gdidc.c \
 	gdiobj.c \
 	icm.c \
 	mapping.c \
-	metadc.c \
 	metafile.c \
-	objects.c \
+	mfdrv/bitblt.c \
+	mfdrv/dc.c \
+	mfdrv/graphics.c \
+	mfdrv/init.c \
+	mfdrv/objects.c \
+	mfdrv/text.c \
 	opengl.c \
 	opentype.c \
 	painting.c \
@@ -42,7 +49,6 @@ C_SRCS = \
 	pen.c \
 	printdrv.c \
 	region.c \
-	text.c \
 	uniscribe/bidi.c \
 	uniscribe/bracket.c \
 	uniscribe/breaking.c \

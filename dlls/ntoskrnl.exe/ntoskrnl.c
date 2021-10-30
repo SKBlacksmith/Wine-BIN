@@ -21,19 +21,33 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
+#include <stdarg.h>
 #include <assert.h>
 
 #define NONAMELESSUNION
 #define NONAMELESSSTRUCT
 
-#include "ntoskrnl_private.h"
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
+#include "windef.h"
+#include "winsvc.h"
+#include "winternl.h"
 #include "excpt.h"
+#include "winioctl.h"
+#include "winbase.h"
 #include "winreg.h"
 #include "ntsecapi.h"
 #include "ddk/csq.h"
+#include "ddk/ntddk.h"
+#include "ddk/ntifs.h"
+#include "ddk/wdm.h"
 #include "wine/server.h"
+#include "wine/debug.h"
 #include "wine/heap.h"
+#include "wine/rbtree.h"
 #include "wine/svcctl.h"
+
+#include "ntoskrnl_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(ntoskrnl);
 WINE_DECLARE_DEBUG_CHANNEL(relay);
@@ -76,6 +90,14 @@ static void *ldr_notify_cookie;
 static PLOAD_IMAGE_NOTIFY_ROUTINE load_image_notify_routines[8];
 static unsigned int load_image_notify_routine_count;
 
+struct wine_driver
+{
+    DRIVER_OBJECT driver_obj;
+    DRIVER_EXTENSION driver_extension;
+    SERVICE_STATUS_HANDLE service_handle;
+    struct wine_rb_entry entry;
+};
+
 static int wine_drivers_rb_compare( const void *key, const struct wine_rb_entry *entry )
 {
     const struct wine_driver *driver = WINE_RB_ENTRY_VALUE( entry, const struct wine_driver, entry );
@@ -87,24 +109,6 @@ static int wine_drivers_rb_compare( const void *key, const struct wine_rb_entry 
 static struct wine_rb_tree wine_drivers = { wine_drivers_rb_compare };
 
 DECLARE_CRITICAL_SECTION(drivers_cs);
-
-struct wine_driver *get_driver( const WCHAR *name )
-{
-    static const WCHAR driverW[] = L"\\Driver\\";
-    struct wine_rb_entry *entry;
-    UNICODE_STRING drv_name;
-
-    drv_name.Length = (wcslen( driverW ) + wcslen( name )) * sizeof(WCHAR);
-    if (!(drv_name.Buffer = malloc( drv_name.Length + sizeof(WCHAR) )))
-        return NULL;
-    wcscpy( drv_name.Buffer, driverW );
-    wcscat( drv_name.Buffer, name );
-    entry = wine_rb_get( &wine_drivers, &drv_name );
-    free( drv_name.Buffer );
-
-    if (entry) return WINE_RB_ENTRY_VALUE( entry, struct wine_driver, entry );
-    return NULL;
-}
 
 static HANDLE get_device_manager(void)
 {
@@ -756,55 +760,6 @@ static NTSTATUS dispatch_ioctl( struct dispatch_context *context )
     return STATUS_SUCCESS;
 }
 
-/* process a volume information request for a given device */
-static NTSTATUS dispatch_volume( struct dispatch_context *context )
-{
-    IO_STACK_LOCATION *irpsp;
-    IRP *irp;
-    void *out_buff = NULL;
-    DEVICE_OBJECT *device;
-    FILE_OBJECT *file = wine_server_get_ptr( context->params.volume.file );
-    ULONG out_size = context->params.volume.out_size;
-
-    if (!file) return STATUS_INVALID_HANDLE;
-
-    device = IoGetAttachedDevice( file->DeviceObject );
-
-    TRACE( "class 0x%x device %p file %p in_size %u out_size %u\n",
-           context->params.volume.info_class, device, file, context->in_size, out_size );
-
-    if (!(out_buff = HeapAlloc( GetProcessHeap(), 0, out_size ))) return STATUS_NO_MEMORY;
-
-    irp = IoAllocateIrp( device->StackSize, FALSE );
-    if (!irp)
-    {
-        HeapFree( GetProcessHeap(), 0, out_buff );
-        return STATUS_NO_MEMORY;
-    }
-
-    irpsp = IoGetNextIrpStackLocation( irp );
-    irpsp->MajorFunction = IRP_MJ_QUERY_VOLUME_INFORMATION;
-    irpsp->Parameters.QueryVolume.FsInformationClass = context->params.volume.info_class;
-    irpsp->Parameters.QueryVolume.Length = out_size;
-    irpsp->DeviceObject = NULL;
-    irpsp->CompletionRoutine = NULL;
-    irpsp->FileObject = file;
-    irp->AssociatedIrp.SystemBuffer = out_buff;
-    irp->RequestorMode = KernelMode;
-    irp->UserBuffer = out_buff;
-    irp->UserIosb = NULL;
-    irp->UserEvent = NULL;
-    irp->Tail.Overlay.Thread = (PETHREAD)KeGetCurrentThread();
-    irp->Tail.Overlay.OriginalFileObject = file;
-    irp->RequestorMode = UserMode;
-    context->in_buff = NULL;
-
-    irp->Flags |= IRP_DEALLOCATE_BUFFER;  /* deallocate out_buff */
-    dispatch_irp( device, irp, context );
-
-    return STATUS_SUCCESS;
-}
-
 static NTSTATUS dispatch_free( struct dispatch_context *context )
 {
     void *obj = wine_server_get_ptr( context->params.free.obj );
@@ -836,7 +791,6 @@ static const dispatch_func dispatch_funcs[] =
     dispatch_write,    /* IRP_CALL_WRITE */
     dispatch_flush,    /* IRP_CALL_FLUSH */
     dispatch_ioctl,    /* IRP_CALL_IOCTL */
-    dispatch_volume,   /* IRP_CALL_VOLUME */
     dispatch_free,     /* IRP_CALL_FREE */
     dispatch_cancel    /* IRP_CALL_CANCEL */
 };
@@ -898,7 +852,6 @@ NTSTATUS CDECL wine_ntoskrnl_main_loop( HANDLE stop_event )
     HANDLE manager = get_device_manager();
     struct dispatch_context context;
     NTSTATUS status = STATUS_SUCCESS;
-    struct wine_driver *driver;
     HANDLE handles[2];
 
     context.handle  = NULL;
@@ -980,13 +933,9 @@ NTSTATUS CDECL wine_ntoskrnl_main_loop( HANDLE stop_event )
 
 done:
     /* Native PnP drivers expect that all of their devices will be removed when
-     * their unload routine is called. Moreover, we cannot unload a module
-     * until we have removed devices for all lower drivers, so we have to stop
-     * all devices first, and then unload all drivers. */
-    WINE_RB_FOR_EACH_ENTRY( driver, &wine_drivers, struct wine_driver, entry )
-        pnp_manager_stop_driver( driver );
-    wine_rb_destroy( &wine_drivers, unload_driver, NULL );
+     * their unload routine is called, so we must stop the PnP manager first. */
     pnp_manager_stop();
+    wine_rb_destroy( &wine_drivers, unload_driver, NULL );
     return status;
 }
 
@@ -1487,7 +1436,6 @@ NTSTATUS WINAPI IoCreateDriver( UNICODE_STRING *name, PDRIVER_INITIALIZE init )
     build_driver_keypath( driver->driver_obj.DriverName.Buffer, &driver->driver_extension.ServiceKeyName );
     for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++)
         driver->driver_obj.MajorFunction[i] = unhandled_irp;
-    list_init( &driver->root_pnp_devices );
 
     EnterCriticalSection( &drivers_cs );
     if (wine_rb_put( &wine_drivers, &driver->driver_obj.DriverName, &driver->entry ))
@@ -1628,17 +1576,9 @@ void WINAPI IoDeleteDevice( DEVICE_OBJECT *device )
     {
         struct wine_device *wine_device = CONTAINING_RECORD(device, struct wine_device, device_obj);
         DEVICE_OBJECT **prev = &device->DriverObject->DeviceObject;
-        DEVICE_RELATIONS *children;
-        unsigned int i;
-
         while (*prev && *prev != device) prev = &(*prev)->NextDevice;
         if (*prev) *prev = (*prev)->NextDevice;
-        if ((children = wine_device->children))
-        {
-            for (i = 0; i < children->Count; ++i)
-                ObDereferenceObject( children->Objects[i] );
-            ExFreePool( children );
-        }
+        ExFreePool( wine_device->children );
         ObDereferenceObject( device );
     }
 }
@@ -1989,8 +1929,6 @@ VOID WINAPI IoCompleteRequest( IRP *irp, UCHAR priority_boost )
             device = IoGetCurrentIrpStackLocation(irp)->DeviceObject;
         else
             device = NULL;
-        irp->PendingReturned = !!(irpsp->Control & SL_PENDING_RETURNED);
-        irpsp->Control = 0;
         if (call_flag)
         {
             TRACE( "calling %p( %p, %p, %p )\n", routine, device, irp, irpsp->Context );
@@ -2003,7 +1941,6 @@ VOID WINAPI IoCompleteRequest( IRP *irp, UCHAR priority_boost )
 
     if (irp->Flags & IRP_DEALLOCATE_BUFFER)
         HeapFree( GetProcessHeap(), 0, irp->AssociatedIrp.SystemBuffer );
-    if (irp->UserIosb) *irp->UserIosb = irp->IoStatus;
     if (irp->UserEvent) KeSetEvent( irp->UserEvent, IO_NO_INCREMENT, FALSE );
 
     IoFreeIrp( irp );
@@ -2734,17 +2671,6 @@ BOOLEAN WINAPI MmIsAddressValid(PVOID VirtualAddress)
 }
 
 /***********************************************************************
- *           MmGetPhysicalAddress   (NTOSKRNL.EXE.@)
- */
-PHYSICAL_ADDRESS WINAPI MmGetPhysicalAddress(void *virtual_address)
-{
-    PHYSICAL_ADDRESS ret;
-    FIXME("(%p): semi-stub\n", virtual_address);
-    ret.QuadPart = (ULONG_PTR)virtual_address;
-    return ret;
-}
-
-/***********************************************************************
  *           MmMapIoSpace   (NTOSKRNL.EXE.@)
  */
 PVOID WINAPI MmMapIoSpace( PHYSICAL_ADDRESS PhysicalAddress, DWORD NumberOfBytes, DWORD CacheType )
@@ -3008,13 +2934,6 @@ HANDLE WINAPI PsGetCurrentProcessId(void)
     return KeGetCurrentThread()->id.UniqueProcess;
 }
 
-/***********************************************************************
- *           PsGetCurrentProcessSessionId   (NTOSKRNL.EXE.@)
- */
-ULONG WINAPI PsGetCurrentProcessSessionId(void)
-{
-    return PsGetCurrentProcess()->info.PebBaseAddress->SessionId;
-}
 
 /***********************************************************************
  *           PsGetCurrentThreadId   (NTOSKRNL.EXE.@)
@@ -3721,7 +3640,7 @@ static HMODULE load_driver( const WCHAR *driver_name, const UNICODE_STRING *keyn
 
     TRACE( "loading driver %s\n", wine_dbgstr_w(str) );
 
-    module = LoadLibraryExW( str, 0, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS );
+    module = LoadLibraryW( str );
 
     if (module && load_image_notify_routine_count)
     {
@@ -3852,7 +3771,7 @@ NTSTATUS WINAPI ZwLoadDriver( const UNICODE_STRING *service_name )
     driver = WINE_RB_ENTRY_VALUE( entry, struct wine_driver, entry );
     driver->service_handle = service_handle;
 
-    wine_enumerate_root_devices( service_name->Buffer + wcslen( servicesW ) );
+    pnp_manager_enumerate_root_devices( service_name->Buffer + wcslen( servicesW ) );
 
     set_service_status( service_handle, SERVICE_RUNNING,
                         SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN );
@@ -3870,7 +3789,6 @@ error:
 NTSTATUS WINAPI ZwUnloadDriver( const UNICODE_STRING *service_name )
 {
     struct wine_rb_entry *entry;
-    struct wine_driver *driver;
     UNICODE_STRING drv_name;
 
     TRACE( "(%s)\n", debugstr_us(service_name) );
@@ -3884,13 +3802,6 @@ NTSTATUS WINAPI ZwUnloadDriver( const UNICODE_STRING *service_name )
     {
         ERR( "failed to locate driver %s\n", debugstr_us(service_name) );
         return STATUS_OBJECT_NAME_NOT_FOUND;
-    }
-    driver = WINE_RB_ENTRY_VALUE( entry, struct wine_driver, entry );
-
-    if (!list_empty( &driver->root_pnp_devices ))
-    {
-        ERR( "cannot unload driver %s which still has running PnP devices\n", debugstr_us(service_name) );
-        return STATUS_UNSUCCESSFUL;
     }
 
     unload_driver( entry, NULL );

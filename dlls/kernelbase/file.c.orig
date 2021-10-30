@@ -499,8 +499,7 @@ BOOL WINAPI CopyFileExW( const WCHAR *source, const WCHAR *dest, LPPROGRESS_ROUT
 {
     static const int buffer_size = 65536;
     HANDLE h1, h2;
-    FILE_BASIC_INFORMATION info;
-    IO_STATUS_BLOCK io;
+    BY_HANDLE_FILE_INFORMATION info;
     DWORD count;
     BOOL ret = FALSE;
     char *buffer;
@@ -526,7 +525,7 @@ BOOL WINAPI CopyFileExW( const WCHAR *source, const WCHAR *dest, LPPROGRESS_ROUT
         return FALSE;
     }
 
-    if (!set_ntstatus( NtQueryInformationFile( h1, &io, &info, sizeof(info), FileBasicInformation )))
+    if (!GetFileInformationByHandle( h1, &info ))
     {
         WARN("GetFileInformationByHandle returned error for %s\n", debugstr_w(source));
         HeapFree( GetProcessHeap(), 0, buffer );
@@ -554,7 +553,7 @@ BOOL WINAPI CopyFileExW( const WCHAR *source, const WCHAR *dest, LPPROGRESS_ROUT
 
     if ((h2 = CreateFileW( dest, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
                            (flags & COPY_FILE_FAIL_IF_EXISTS) ? CREATE_NEW : CREATE_ALWAYS,
-                           info.FileAttributes, h1 )) == INVALID_HANDLE_VALUE)
+                           info.dwFileAttributes, h1 )) == INVALID_HANDLE_VALUE)
     {
         WARN("Unable to open dest %s\n", debugstr_w(dest));
         HeapFree( GetProcessHeap(), 0, buffer );
@@ -576,8 +575,7 @@ BOOL WINAPI CopyFileExW( const WCHAR *source, const WCHAR *dest, LPPROGRESS_ROUT
     ret =  TRUE;
 done:
     /* Maintain the timestamp of source file to destination file */
-    info.FileAttributes = 0;
-    NtSetInformationFile( h2, &io, &info, sizeof(info), FileBasicInformation );
+    SetFileTime( h2, NULL, NULL, &info.ftLastWriteTime );
     HeapFree( GetProcessHeap(), 0, buffer );
     CloseHandle( h1 );
     CloseHandle( h2 );
@@ -723,8 +721,6 @@ static UINT get_nt_file_options( DWORD attributes )
         options |= FILE_SYNCHRONOUS_IO_NONALERT;
     if (attributes & FILE_FLAG_RANDOM_ACCESS)
         options |= FILE_RANDOM_ACCESS;
-    if (attributes & FILE_FLAG_SEQUENTIAL_SCAN)
-        options |= FILE_SEQUENTIAL_ONLY;
     if (attributes & FILE_FLAG_WRITE_THROUGH)
         options |= FILE_WRITE_THROUGH;
     return options;
@@ -3229,7 +3225,6 @@ HANDLE WINAPI DECLSPEC_HOTPATCH OpenFileById( HANDLE handle, LPFILE_ID_DESCRIPTO
     if (flags & FILE_FLAG_NO_BUFFERING) options |= FILE_NO_INTERMEDIATE_BUFFERING;
     if (!(flags & FILE_FLAG_OVERLAPPED)) options |= FILE_SYNCHRONOUS_IO_NONALERT;
     if (flags & FILE_FLAG_RANDOM_ACCESS) options |= FILE_RANDOM_ACCESS;
-    if (flags & FILE_FLAG_SEQUENTIAL_SCAN) options |= FILE_SEQUENTIAL_ONLY;
     flags &= FILE_ATTRIBUTE_VALID_FLAGS;
 
     objectName.Length             = sizeof(ULONGLONG);

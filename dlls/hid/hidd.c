@@ -32,7 +32,6 @@
 #include "ddk/wdm.h"
 
 #include "hidusage.h"
-#include "initguid.h"
 #include "ddk/hidclass.h"
 #include "ddk/hidsdi.h"
 

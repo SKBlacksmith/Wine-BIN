@@ -41,6 +41,8 @@ DEFINE_GUID(WMFORMAT_WaveFormatEx,  0x05589f81,0xc356,0x11ce,0xbf,0x01,0x00,0xaa
 
 WINE_DEFAULT_DEBUG_CHANNEL(mp3dmod);
 
+static HINSTANCE mp3dmod_instance;
+
 struct mp3_decoder
 {
     IUnknown IUnknown_inner;
@@ -649,6 +651,19 @@ static const IClassFactoryVtbl classfactory_vtbl = {
 
 static IClassFactory mp3_decoder_cf = { &classfactory_vtbl };
 
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
+{
+    TRACE("%p, %d, %p\n", instance, reason, reserved);
+    switch (reason)
+    {
+    case DLL_PROCESS_ATTACH:
+        DisableThreadLibraryCalls(instance);
+        mp3dmod_instance = instance;
+        break;
+    }
+    return TRUE;
+}
+
 /*************************************************************************
  *              DllGetClassObject (DSDMO.@)
  */
@@ -661,6 +676,14 @@ HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **obj)
 
     FIXME("class %s not available\n", debugstr_guid(clsid));
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+/******************************************************************
+ *              DllCanUnloadNow (DSDMO.@)
+ */
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
 }
 
 /***********************************************************************
@@ -680,7 +703,7 @@ HRESULT WINAPI DllRegisterServer(void)
         0, 1, &in, 1, &out);
     if (FAILED(hr)) return hr;
 
-    return __wine_register_resources();
+    return __wine_register_resources( mp3dmod_instance );
 }
 
 /***********************************************************************
@@ -693,5 +716,5 @@ HRESULT WINAPI DllUnregisterServer(void)
     hr = DMOUnregister(&CLSID_CMP3DecMediaObject, &DMOCATEGORY_AUDIO_DECODER);
     if (FAILED(hr)) return hr;
 
-    return __wine_unregister_resources();
+    return __wine_unregister_resources( mp3dmod_instance );
 }

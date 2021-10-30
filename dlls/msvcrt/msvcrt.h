@@ -31,7 +31,6 @@
 #include "windef.h"
 #include "winbase.h"
 #undef strncpy
-#undef wcsncpy
 
 extern BOOL sse2_supported DECLSPEC_HIDDEN;
 
@@ -67,7 +66,6 @@ typedef struct __lc_time_data {
 #endif
     int unk;
     int refcount;
-#if _MSVCR_VER == 0 || _MSVCR_VER >= 100
     union {
         const wchar_t *wstr[43];
         struct {
@@ -82,7 +80,6 @@ typedef struct __lc_time_data {
             const wchar_t *time;
         } names;
     } wstr;
-#endif
 #if _MSVCR_VER >= 110
     const wchar_t *locname;
 #endif
@@ -168,7 +165,6 @@ struct __thread_data {
     void                           *unk10[100];
 #if _MSVCR_VER >= 140
     _invalid_parameter_handler      invalid_parameter_handler;
-    HMODULE                         module;
 #endif
 };
 
@@ -187,7 +183,19 @@ extern WORD *MSVCRT__pwctype;
 
 void msvcrt_set_errno(int) DECLSPEC_HIDDEN;
 #if _MSVCR_VER >= 80
-void throw_bad_alloc(void) DECLSPEC_HIDDEN;
+typedef enum {
+    EXCEPTION_BAD_ALLOC,
+#if _MSVCR_VER >= 100
+    EXCEPTION_SCHEDULER_RESOURCE_ALLOCATION_ERROR,
+    EXCEPTION_IMPROPER_LOCK,
+    EXCEPTION_INVALID_SCHEDULER_POLICY_KEY,
+    EXCEPTION_INVALID_SCHEDULER_POLICY_VALUE,
+    EXCEPTION_INVALID_SCHEDULER_POLICY_THREAD_SPECIFICATION,
+    EXCEPTION_IMPROPER_SCHEDULER_ATTACH,
+    EXCEPTION_IMPROPER_SCHEDULER_DETACH,
+#endif
+} exception_type;
+void throw_exception(exception_type, HRESULT, const char*) DECLSPEC_HIDDEN;
 #endif
 
 void __cdecl _purecall(void);
@@ -222,6 +230,7 @@ extern BOOL msvcrt_init_locale(void) DECLSPEC_HIDDEN;
 extern void msvcrt_init_math(void*) DECLSPEC_HIDDEN;
 extern void msvcrt_init_io(void) DECLSPEC_HIDDEN;
 extern void msvcrt_free_io(void) DECLSPEC_HIDDEN;
+extern void msvcrt_init_console(void) DECLSPEC_HIDDEN;
 extern void msvcrt_free_console(void) DECLSPEC_HIDDEN;
 extern void msvcrt_init_args(void) DECLSPEC_HIDDEN;
 extern void msvcrt_free_args(void) DECLSPEC_HIDDEN;
@@ -233,8 +242,8 @@ extern void msvcrt_destroy_heap(void) DECLSPEC_HIDDEN;
 extern void msvcrt_init_clock(void) DECLSPEC_HIDDEN;
 
 #if _MSVCR_VER >= 100
-extern void msvcrt_init_concurrency(void*) DECLSPEC_HIDDEN;
-extern void msvcrt_free_concurrency(void) DECLSPEC_HIDDEN;
+extern void msvcrt_init_scheduler(void*) DECLSPEC_HIDDEN;
+extern void msvcrt_free_scheduler(void) DECLSPEC_HIDDEN;
 extern void msvcrt_free_scheduler_thread(void) DECLSPEC_HIDDEN;
 #endif
 

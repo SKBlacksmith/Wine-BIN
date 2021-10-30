@@ -43,6 +43,21 @@ static WCHAR *heap_strdupW(const WCHAR *src)
     return dst;
 }
 
+BOOL WINAPI DllMain(HINSTANCE hinst, DWORD reason, LPVOID reserved)
+{
+    TRACE("(%p, %d, %p)\n", hinst, reason, reserved);
+
+    switch(reason)
+    {
+        case DLL_WINE_PREATTACH:
+            return FALSE; /* prefer native version */
+        case DLL_PROCESS_ATTACH:
+            DisableThreadLibraryCalls(hinst);
+            break;
+    }
+    return TRUE;
+}
+
 HRESULT WINAPI PTReleaseMemory(PVOID mem)
 {
     heap_free(mem);

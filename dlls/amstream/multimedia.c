@@ -28,7 +28,7 @@
 
 #include "amstream_private.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+WINE_DEFAULT_DEBUG_CHANNEL(amstream);
 
 struct multimedia_stream
 {
@@ -207,18 +207,13 @@ static HRESULT WINAPI multimedia_stream_Seek(IAMMultiMediaStream *iface, STREAM_
     return IMediaSeeking_SetPositions(This->media_seeking, &seek_time, AM_SEEKING_AbsolutePositioning, NULL, AM_SEEKING_NoPositioning);
 }
 
-static HRESULT WINAPI multimedia_stream_GetEndOfStream(IAMMultiMediaStream *iface, HANDLE *eos)
+static HRESULT WINAPI multimedia_stream_GetEndOfStream(IAMMultiMediaStream *iface, HANDLE *phEOS)
 {
-    struct multimedia_stream *mmstream = impl_from_IAMMultiMediaStream(iface);
+    struct multimedia_stream *This = impl_from_IAMMultiMediaStream(iface);
 
-    TRACE("mmstream %p, eos %p.\n", mmstream, eos);
+    FIXME("(%p/%p)->(%p) stub!\n", This, iface, phEOS);
 
-    if (!eos)
-        return E_POINTER;
-
-    *eos = (HANDLE)mmstream->event;
-
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 static HRESULT create_graph(struct multimedia_stream *mmstream, IGraphBuilder *graph)

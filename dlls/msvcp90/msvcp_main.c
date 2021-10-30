@@ -54,6 +54,8 @@ DEFINE_VTBL_WRAPPER(56);
 
 #endif
 
+void* (__cdecl *MSVCRT_operator_new)(size_t);
+void (__cdecl *MSVCRT_operator_delete)(void*);
 void* (__cdecl *MSVCRT_set_new_handler)(void*);
 
 #if _MSVCP_VER >= 110
@@ -77,7 +79,7 @@ bool (__cdecl *Context_IsCurrentTaskCollectionCanceling)(void);
 #endif
 
 #if _MSVCP_VER >= 140
-void* __cdecl operator_new(size_t size)
+static void* __cdecl operator_new(size_t size)
 {
     void *retval;
     int freed;
@@ -94,10 +96,11 @@ void* __cdecl operator_new(size_t size)
     } while (freed);
 
     TRACE("(%Iu) out of memory\n", size);
-    _Xmem();
+    throw_exception(EXCEPTION_BAD_ALLOC, "bad allocation");
+    return NULL;
 }
 
-void __cdecl operator_delete(void *mem)
+static void __cdecl operator_delete(void *mem)
 {
     TRACE("(%p)\n", mem);
     free(mem);
@@ -106,23 +109,6 @@ void __cdecl operator_delete(void *mem)
 void __cdecl _invalid_parameter(const wchar_t *expr, const wchar_t *func, const wchar_t *file, unsigned int line, uintptr_t arg)
 {
    _invalid_parameter_noinfo();
-}
-#else
-static void* (__cdecl *MSVCRT_operator_new)(size_t);
-static void (__cdecl *MSVCRT_operator_delete)(void*);
-
-void* __cdecl operator_new(size_t size)
-{
-    void *ret = MSVCRT_operator_new(size);
-#if _MSVCP_VER < 80
-    if (!ret) _Xmem();
-#endif
-    return ret;
-}
-
-void __cdecl operator_delete(void *mem)
-{
-    MSVCRT_operator_delete(mem);
 }
 #endif
 
@@ -136,6 +122,8 @@ static void init_cxx_funcs(void)
     if (!hmod) FIXME( "%s not loaded\n", MSVCRT_NAME(_MSVCP_VER) );
 
 #if _MSVCP_VER >= 140
+    MSVCRT_operator_new = operator_new;
+    MSVCRT_operator_delete = operator_delete;
     MSVCRT_set_new_handler = (void*)GetProcAddress(hmod, "_set_new_handler");
 
     hcon = LoadLibraryA( CONCRT_NAME(_MSVCP_VER) );
@@ -201,7 +189,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
             init_io(hinstDLL);
 #if _MSVCP_VER >= 100
             init_misc(hinstDLL);
-            init_concurrency_details(hinstDLL);
 #endif
             break;
         case DLL_PROCESS_DETACH:

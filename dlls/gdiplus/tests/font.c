@@ -388,9 +388,12 @@ static void test_fontfamily (void)
     expect (Ok, stat);
     expect (0, lstrcmpiW(itsName, L"Tahoma"));
 
-    /* Crashes on Windows XP SP2 and Vista */
-    stat = GdipGetFamilyName (family, NULL, LANG_NEUTRAL);
-    expect (Ok, stat);
+    if (0)
+    {
+        /* Crashes on Windows XP SP2, Vista, and so Wine as well */
+        stat = GdipGetFamilyName (family, NULL, LANG_NEUTRAL);
+        expect (Ok, stat);
+    }
 
     /* Make sure we don't read old data */
     ZeroMemory (itsName, sizeof(itsName));
@@ -883,10 +886,8 @@ static void test_font_substitution(void)
     ok(lstrcmpA(lf.lfFaceName, "MS Shell Dlg") != 0, "expected substitution of MS Shell Dlg\n");
     GdipDeleteFont(font);
 
-    family = NULL;
     status = GdipCreateFontFamilyFromName(L"MS Shell Dlg", NULL, &family);
     expect(Ok, status);
-    font = NULL;
     status = GdipCreateFont(family, 12, FontStyleRegular, UnitPoint, &font);
     expect(Ok, status);
     memset(&lf, 0xfe, sizeof(lf));

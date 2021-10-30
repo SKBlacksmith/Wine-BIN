@@ -17,6 +17,7 @@
  */
 
 #include <stdarg.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -613,8 +614,8 @@ HRESULT HTMLOptionElementFactory_Create(HTMLInnerWindow *window, HTMLOptionEleme
     ret->ref = 1;
     ret->window = window;
 
-    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLOptionElementFactory_iface,
-                  &HTMLOptionElementFactory_dispex, dispex_compat_mode(&window->event_target.dispex));
+    init_dispex(&ret->dispex, (IUnknown*)&ret->IHTMLOptionElementFactory_iface,
+            &HTMLOptionElementFactory_dispex);
 
     *ret_ptr = ret;
     return S_OK;

@@ -100,7 +100,7 @@ void PerfDataRefresh(void)
         return;
 
     /* Get system cache information */
-    status = NtQuerySystemInformation(SystemFileCacheInformation, &SysCacheInfo, sizeof(SysCacheInfo), NULL);
+    status = NtQuerySystemInformation(SystemCacheInformation, &SysCacheInfo, sizeof(SysCacheInfo), NULL);
     if (status != NO_ERROR)
         return;
 
@@ -328,7 +328,7 @@ BOOL PerfDataGetImageName(ULONG Index, LPWSTR lpImageName, int nMaxCount)
     EnterCriticalSection(&PerfDataCriticalSection);
 
     if (Index < ProcessCount) {
-        lstrcpynW(lpImageName, pPerfData[Index].ImageName, nMaxCount);
+        wcsncpy(lpImageName, pPerfData[Index].ImageName, nMaxCount);
         if (pPerfData[Index].Wow64Process &&
             nMaxCount - lstrlenW(lpImageName) > 4 /* =lstrlenW(proc32W) */)
             lstrcatW(lpImageName, proc32W);
@@ -363,7 +363,7 @@ BOOL PerfDataGetUserName(ULONG Index, LPWSTR lpUserName, int nMaxCount)
     EnterCriticalSection(&PerfDataCriticalSection);
 
     if (Index < ProcessCount) {
-        lstrcpynW(lpUserName, pPerfData[Index].UserName, nMaxCount);
+        wcsncpy(lpUserName, pPerfData[Index].UserName, nMaxCount);
         bSuccessful = TRUE;
     } else {
         bSuccessful = FALSE;

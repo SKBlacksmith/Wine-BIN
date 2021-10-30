@@ -43,10 +43,9 @@
 @ stdcall MFCreateAlignedMemoryBuffer(long long ptr)
 @ stdcall MFCreateAsyncResult(ptr ptr ptr ptr) rtworkq.RtwqCreateAsyncResult
 @ stdcall MFCreateAttributes(ptr long)
-@ stdcall MFCreateAudioMediaType(ptr ptr)
+@ stub MFCreateAudioMediaType
 @ stdcall MFCreateCollection(ptr)
 @ stdcall MFCreateDXGIDeviceManager(ptr ptr)
-@ stdcall MFCreateDXGISurfaceBuffer(ptr ptr long long ptr)
 @ stdcall MFCreateDXSurfaceBuffer(ptr ptr long ptr)
 @ stdcall MFCreateEventQueue(ptr)
 @ stdcall MFCreateFile(long long long wstr ptr)
@@ -82,7 +81,6 @@
 @ stdcall MFCreateVideoMediaTypeFromSubtype(ptr ptr)
 @ stub MFCreateVideoMediaTypeFromVideoInfoHeader2
 @ stub MFCreateVideoMediaTypeFromVideoInfoHeader
-@ stdcall MFCreateVideoSampleAllocatorEx(ptr ptr)
 @ stdcall MFCreateWaveFormatExFromMFMediaType(ptr ptr ptr long)
 @ stub MFDeserializeAttributesFromStream
 @ stub MFDeserializeEvent
@@ -127,15 +125,12 @@
 @ stub MFInitMediaTypeFromVideoInfoHeader
 @ stdcall MFInitMediaTypeFromWaveFormatEx(ptr ptr long)
 @ stub MFInitVideoFormat
-@ stdcall MFInitVideoFormat_RGB(ptr long long long)
+@ stub MFInitVideoFormat_RGB
 @ stdcall MFInvokeCallback(ptr)
 @ stub MFJoinIoPort
 @ stdcall MFJoinWorkQueue(long long ptr) rtworkq.RtwqJoinWorkQueue
-@ stdcall MFLockDXGIDeviceManager(ptr ptr)
 @ stdcall MFLockPlatform() rtworkq.RtwqLockPlatform
-@ stdcall MFLockSharedWorkQueue(wstr long ptr ptr) rtworkq.RtwqLockSharedWorkQueue
 @ stdcall MFLockWorkQueue(long) rtworkq.RtwqLockWorkQueue
-@ stdcall MFMapDX9FormatToDXGIFormat(long)
 @ stdcall MFMapDXGIFormatToDX9Format(long)
 @ stdcall MFPutWaitingWorkItem(long long ptr ptr) rtworkq.RtwqPutWaitingWorkItem
 @ stdcall MFPutWorkItem(long ptr ptr)
@@ -172,12 +167,11 @@
 @ stub MFTraceFuncEnter
 @ stub MFUnblockThread
 @ stdcall MFUnjoinWorkQueue(long long) rtworkq.RtwqUnjoinWorkQueue
-@ stdcall MFUnlockDXGIDeviceManager()
 @ stdcall MFUnlockPlatform() rtworkq.RtwqUnlockPlatform
 @ stdcall MFUnlockWorkQueue(long) rtworkq.RtwqUnlockWorkQueue
 @ stdcall MFUnwrapMediaType(ptr ptr)
 @ stub MFValidateMediaTypeSize
 @ stdcall MFWrapMediaType(ptr ptr ptr ptr)
-@ stdcall -ret64 MFllMulDiv(int64 int64 int64 int64)
+@ stub MFllMulDiv
 @ stub PropVariantFromStream
 @ stub PropVariantToStream

@@ -798,13 +798,7 @@ double CDECL _wtof_l(const wchar_t *str, _locale_t locale)
  */
 float CDECL _wcstof_l( const wchar_t *str, wchar_t **end, _locale_t locale )
 {
-    double ret = _wcstod_l(str, end, locale);
-    if (ret && isfinite(ret)) {
-        float f = ret;
-        if (!f || !isfinite(f))
-            *_errno() = ERANGE;
-    }
-    return ret;
+    return _wcstod_l(str, end, locale);
 }
 
 /*********************************************************************
@@ -1916,13 +1910,10 @@ wchar_t * CDECL wcstok_s( wchar_t *str, const wchar_t *delim,
     if (!str) str = *next_token;
 
     while (*str && wcschr( delim, *str )) str++;
-    if (!*str) ret = NULL;
-    else
-    {
-        ret = str++;
-        while (*str && !wcschr( delim, *str )) str++;
-        if (*str) *str++ = 0;
-    }
+    if (!*str) return NULL;
+    ret = str++;
+    while (*str && !wcschr( delim, *str )) str++;
+    if (*str) *str++ = 0;
     *next_token = str;
     return ret;
 }

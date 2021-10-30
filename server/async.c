@@ -55,8 +55,6 @@ struct async
     struct completion   *completion;      /* completion associated with fd */
     apc_param_t          comp_key;        /* completion key associated with fd */
     unsigned int         comp_flags;      /* completion flags */
-    async_completion_callback completion_callback; /* callback to be called on completion */
-    void                *completion_callback_private; /* argument to completion_callback */
 };
 
 static void async_dump( struct object *obj, int verbose );
@@ -67,17 +65,16 @@ static void async_destroy( struct object *obj );
 static const struct object_ops async_ops =
 {
     sizeof(struct async),      /* size */
-    &no_type,                  /* type */
     async_dump,                /* dump */
+    no_get_type,               /* get_type */
     add_queue,                 /* add_queue */
     remove_queue,              /* remove_queue */
     async_signaled,            /* signaled */
     NULL,                      /* get_esync_fd */
-    NULL,                      /* get_fsync_idx */
     async_satisfied,           /* satisfied */
     no_signal,                 /* signal */
     no_get_fd,                 /* get_fd */
-    default_map_access,        /* map_access */
+    no_map_access,             /* map_access */
     default_get_sd,            /* get_sd */
     default_set_sd,            /* set_sd */
     no_get_full_name,          /* get_full_name */
@@ -120,14 +117,14 @@ static void async_satisfied( struct object *obj, struct wait_queue_entry *entry 
         async->direct_result = 0;
     }
 
-    set_wait_status( entry, async->status );
-
     /* close wait handle here to avoid extra server round trip */
     if (async->wait_handle)
     {
         close_handle( async->thread->process, async->wait_handle );
         async->wait_handle = 0;
     }
+
+    if (async->status == STATUS_PENDING) make_wait_abandoned( entry );
 }
 
 static void async_destroy( struct object *obj )
@@ -156,21 +153,30 @@ void async_terminate( struct async *async, unsigned int status )
 {
     assert( status != STATUS_PENDING );
 
-    if (async->status != STATUS_PENDING) return; /* already terminated */
+    if (async->status != STATUS_PENDING)
+    {
+        /* already terminated, just update status */
+        async->status = status;
+        return;
+    }
 
     async->status = status;
     if (async->iosb && async->iosb->status == STATUS_PENDING) async->iosb->status = status;
 
     if (!async->direct_result)
     {
-        apc_call_t data;
+        if (async->data.user)
+        {
+            apc_call_t data;
 
-        memset( &data, 0, sizeof(data) );
-        data.type            = APC_ASYNC_IO;
-        data.async_io.user   = async->data.user;
-        data.async_io.sb     = async->data.iosb;
-        data.async_io.status = status;
-        thread_queue_apc( async->thread->process, async->thread, &async->obj, &data );
+            memset( &data, 0, sizeof(data) );
+            data.type            = APC_ASYNC_IO;
+            data.async_io.user   = async->data.user;
+            data.async_io.sb     = async->data.iosb;
+            data.async_io.status = status;
+            thread_queue_apc( async->thread->process, async->thread, &async->obj, &data );
+        }
+        else async_set_result( &async->obj, STATUS_SUCCESS, 0 );
     }
 
     async_reselect( async );
@@ -242,8 +248,6 @@ struct async *create_async( struct fd *fd, struct thread *thread, const async_da
     async->direct_result = 0;
     async->completion    = fd_get_completion( fd, &async->comp_key );
     async->comp_flags    = 0;
-    async->completion_callback = NULL;
-    async->completion_callback_private = NULL;
 
     if (iosb) async->iosb = (struct iosb *)grab_object( iosb );
     else async->iosb = NULL;
@@ -359,13 +363,6 @@ void async_set_timeout( struct async *async, timeout_t timeout, unsigned int sta
     async->timeout_status = status;
 }
 
-/* set a callback to be notified when the async is completed */
-void async_set_completion_callback( struct async *async, async_completion_callback func, void *private )
-{
-    async->completion_callback = func;
-    async->completion_callback_private = private;
-}
-
 static void add_async_completion( struct async *async, apc_param_t cvalue, unsigned int status,
                                   apc_param_t information )
 {
@@ -398,16 +395,17 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
         if (async->timeout) remove_timeout_user( async->timeout );
         async->timeout = NULL;
         async->status = status;
+        if (status == STATUS_MORE_PROCESSING_REQUIRED) return;  /* don't report the completion */
 
         if (async->data.apc)
         {
             apc_call_t data;
             memset( &data, 0, sizeof(data) );
-            data.type         = APC_USER;
-            data.user.func    = async->data.apc;
-            data.user.args[0] = async->data.apc_context;
-            data.user.args[1] = async->data.iosb;
-            data.user.args[2] = 0;
+            data.type              = APC_USER;
+            data.user.user.func    = async->data.apc;
+            data.user.user.args[0] = async->data.apc_context;
+            data.user.user.args[1] = async->data.iosb;
+            data.user.user.args[2] = 0;
             thread_queue_apc( NULL, async->thread, NULL, &data );
         }
         else if (async->data.apc_context && (async->pending ||
@@ -423,10 +421,6 @@ void async_set_result( struct object *obj, unsigned int status, apc_param_t tota
             async->signaled = 1;
             wake_up( &async->obj, 0 );
         }
-
-        if (async->completion_callback)
-            async->completion_callback( async->completion_callback_private );
-        async->completion_callback = NULL;
     }
 }
 
@@ -449,8 +443,8 @@ static int cancel_async( struct process *process, struct object *obj, struct thr
 restart:
     LIST_FOR_EACH_ENTRY( async, &process->asyncs, struct async, process_entry )
     {
-        if (async->status != STATUS_PENDING) continue;
-        if ((!obj || (get_fd_user( async->fd ) == obj)) &&
+        if (async->status == STATUS_CANCELLED) continue;
+        if ((!obj || (async->fd && get_fd_user( async->fd ) == obj)) &&
             (!thread || async->thread == thread) &&
             (!iosb || async->data.iosb == iosb))
         {
@@ -486,17 +480,16 @@ static void iosb_destroy( struct object *obj );
 static const struct object_ops iosb_ops =
 {
     sizeof(struct iosb),      /* size */
-    &no_type,                 /* type */
     iosb_dump,                /* dump */
+    no_get_type,              /* get_type */
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
     NULL,                     /* get_esync_fd */
-    NULL,                     /* get_fsync_idx */
     NULL,                     /* satisfied */
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
-    default_map_access,       /* map_access */
+    no_map_access,            /* map_access */
     default_get_sd,           /* get_sd */
     default_set_sd,           /* set_sd */
     no_get_full_name,         /* get_full_name */
@@ -554,6 +547,11 @@ struct iosb *async_get_iosb( struct async *async )
 struct thread *async_get_thread( struct async *async )
 {
     return async->thread;
+}
+
+int async_is_blocking( struct async *async )
+{
+    return !async->event && !async->data.apc && !async->data.apc_context;
 }
 
 /* find the first pending async in queue */

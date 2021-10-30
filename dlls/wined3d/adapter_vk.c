@@ -43,7 +43,6 @@ static const struct wined3d_state_entry_template misc_state_template_vk[] =
     {STATE_STREAMSRC,                                     {STATE_STREAMSRC,                                     state_nop}},
     {STATE_VDECL,                                         {STATE_VDECL,                                         state_nop}},
     {STATE_DEPTH_STENCIL,                                 {STATE_DEPTH_STENCIL,                                 state_nop}},
-    {STATE_STENCIL_REF,                                   {STATE_STENCIL_REF,                                   state_nop}},
     {STATE_RASTERIZER,                                    {STATE_RASTERIZER,                                    state_nop}},
     {STATE_SCISSORRECT,                                   {STATE_SCISSORRECT,                                   state_nop}},
     {STATE_POINTSPRITECOORDORIGIN,                        {STATE_POINTSPRITECOORDORIGIN,                        state_nop}},
@@ -117,6 +116,7 @@ static const struct wined3d_state_entry_template misc_state_template_vk[] =
     {STATE_RENDER(WINED3D_RS_ANISOTROPY),                 {STATE_RENDER(WINED3D_RS_ANISOTROPY),                 state_nop}},
     {STATE_RENDER(WINED3D_RS_FLUSHBATCH),                 {STATE_RENDER(WINED3D_RS_FLUSHBATCH),                 state_nop}},
     {STATE_RENDER(WINED3D_RS_TRANSLUCENTSORTINDEPENDENT), {STATE_RENDER(WINED3D_RS_TRANSLUCENTSORTINDEPENDENT), state_nop}},
+    {STATE_RENDER(WINED3D_RS_STENCILREF),                 {STATE_RENDER(WINED3D_RS_STENCILREF),                 state_nop}},
     {STATE_RENDER(WINED3D_RS_WRAP0),                      {STATE_RENDER(WINED3D_RS_WRAP0),                      state_nop}},
     {STATE_RENDER(WINED3D_RS_WRAP1),                      {STATE_RENDER(WINED3D_RS_WRAP0)}},
     {STATE_RENDER(WINED3D_RS_WRAP2),                      {STATE_RENDER(WINED3D_RS_WRAP0)}},
@@ -313,14 +313,16 @@ struct wined3d_physical_device_info
 {
     VkPhysicalDeviceTransformFeedbackFeaturesEXT xfb_features;
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT vertex_divisor_features;
-    VkPhysicalDeviceHostQueryResetFeatures host_query_reset_features;
 
     VkPhysicalDeviceFeatures2 features2;
 };
 
 static void wined3d_disable_vulkan_features(struct wined3d_physical_device_info *info)
 {
+    VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features = &info->vertex_divisor_features;
     VkPhysicalDeviceFeatures *features = &info->features2.features;
+
+    vertex_divisor_features->vertexAttributeInstanceRateZeroDivisor = VK_FALSE;
 
     features->depthBounds = VK_FALSE;
     features->alphaToOne = VK_FALSE;
@@ -404,7 +406,6 @@ static HRESULT adapter_vk_create_device(struct wined3d *wined3d, const struct wi
 {
     const struct wined3d_adapter_vk *adapter_vk = wined3d_adapter_vk_const(adapter);
     VkPhysicalDeviceVertexAttributeDivisorFeaturesEXT *vertex_divisor_features;
-    VkPhysicalDeviceHostQueryResetFeatures *host_query_reset_features;
     const struct wined3d_vk_info *vk_info = &adapter_vk->vk_info;
     VkPhysicalDeviceTransformFeedbackFeaturesEXT *xfb_features;
     struct wined3d_physical_device_info physical_device_info;
@@ -437,21 +438,16 @@ static HRESULT adapter_vk_create_device(struct wined3d *wined3d, const struct wi
     vertex_divisor_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VERTEX_ATTRIBUTE_DIVISOR_FEATURES_EXT;
     vertex_divisor_features->pNext = xfb_features;
 
-    host_query_reset_features = &physical_device_info.host_query_reset_features;
-    host_query_reset_features->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES;
-    host_query_reset_features->pNext = vertex_divisor_features;
-
     features2 = &physical_device_info.features2;
     features2->sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    features2->pNext = host_query_reset_features;
+    features2->pNext = vertex_divisor_features;
 
     if (vk_info->vk_ops.vkGetPhysicalDeviceFeatures2)
         VK_CALL(vkGetPhysicalDeviceFeatures2(physical_device, features2));
     else
         VK_CALL(vkGetPhysicalDeviceFeatures(physical_device, &features2->features));
 
-    if (!vertex_divisor_features->vertexAttributeInstanceRateDivisor
-            || !vertex_divisor_features->vertexAttributeInstanceRateZeroDivisor)
+    if (!vertex_divisor_features->vertexAttributeInstanceRateDivisor)
     {
         WARN("Vertex attribute divisors not supported.\n");
         hr = E_FAIL;
@@ -542,7 +538,7 @@ static void adapter_vk_destroy_device(struct wined3d_device *device)
     heap_free(device_vk);
 }
 
-static struct wined3d_context *adapter_vk_acquire_context(struct wined3d_device *device,
+struct wined3d_context *adapter_vk_acquire_context(struct wined3d_device *device,
         struct wined3d_texture *texture, unsigned int sub_resource_idx)
 {
     TRACE("device %p, texture %p, sub_resource_idx %u.\n", device, texture, sub_resource_idx);
@@ -555,7 +551,7 @@ static struct wined3d_context *adapter_vk_acquire_context(struct wined3d_device 
     return &wined3d_device_vk(device)->context_vk.c;
 }
 
-static void adapter_vk_release_context(struct wined3d_context *context)
+void adapter_vk_release_context(struct wined3d_context *context)
 {
     TRACE("context %p.\n", context);
 }
@@ -564,8 +560,7 @@ static void adapter_vk_get_wined3d_caps(const struct wined3d_adapter *adapter, s
 {
     const struct wined3d_adapter_vk *adapter_vk = wined3d_adapter_vk_const(adapter);
     const VkPhysicalDeviceLimits *limits = &adapter_vk->device_limits;
-    bool sampler_anisotropy = limits->maxSamplerAnisotropy > 1.0f;
-    const struct wined3d_vk_info *vk_info = &adapter_vk->vk_info;
+    BOOL sampler_anisotropy = limits->maxSamplerAnisotropy > 1.0f;
 
     caps->ddraw_caps.dds_caps |= WINEDDSCAPS_BACKBUFFER
             | WINEDDSCAPS_COMPLEX
@@ -620,9 +615,8 @@ static void adapter_vk_get_wined3d_caps(const struct wined3d_adapter *adapter, s
             | WINED3DPTADDRESSCAPS_CLAMP
             | WINED3DPTADDRESSCAPS_WRAP;
     caps->VolumeTextureAddressCaps |= WINED3DPTADDRESSCAPS_BORDER
-            | WINED3DPTADDRESSCAPS_MIRROR;
-    if (vk_info->supported[WINED3D_VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE])
-        caps->VolumeTextureAddressCaps |= WINED3DPTADDRESSCAPS_MIRRORONCE;
+            | WINED3DPTADDRESSCAPS_MIRROR
+            | WINED3DPTADDRESSCAPS_MIRRORONCE;
 
     caps->MaxVolumeExtent = limits->maxImageDimension3D;
 
@@ -649,9 +643,8 @@ static void adapter_vk_get_wined3d_caps(const struct wined3d_adapter *adapter, s
     }
 
     caps->TextureAddressCaps |= WINED3DPTADDRESSCAPS_BORDER
-            | WINED3DPTADDRESSCAPS_MIRROR;
-    if (vk_info->supported[WINED3D_VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE])
-        caps->TextureAddressCaps |= WINED3DPTADDRESSCAPS_MIRRORONCE;
+            | WINED3DPTADDRESSCAPS_MIRROR
+            | WINED3DPTADDRESSCAPS_MIRRORONCE;
 
     caps->StencilCaps |= WINED3DSTENCILCAPS_DECR
             | WINED3DSTENCILCAPS_INCR
@@ -1013,7 +1006,6 @@ static void adapter_vk_copy_bo_address(struct wined3d_context *context,
     struct wined3d_bo_vk staging_bo, *src_bo, *dst_bo;
     VkAccessFlags src_access_mask, dst_access_mask;
     VkBufferMemoryBarrier vk_barrier[2];
-    DWORD map_flags = WINED3D_MAP_WRITE;
     struct wined3d_bo_address staging;
     VkCommandBuffer vk_command_buffer;
     struct wined3d_range range;
@@ -1022,9 +1014,6 @@ static void adapter_vk_copy_bo_address(struct wined3d_context *context,
 
     src_bo = (struct wined3d_bo_vk *)src->buffer_object;
     dst_bo = (struct wined3d_bo_vk *)dst->buffer_object;
-
-    if (dst_bo && !dst->addr && size == dst_bo->size)
-        map_flags |= WINED3D_MAP_DISCARD;
 
     if (src_bo && dst_bo)
     {
@@ -1102,8 +1091,8 @@ static void adapter_vk_copy_bo_address(struct wined3d_context *context,
         return;
     }
 
-    if (dst_bo && (!(dst_bo->memory_type & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) || (!(map_flags & WINED3D_MAP_DISCARD)
-            && dst_bo->command_buffer_id > context_vk->completed_command_buffer_id)))
+    if (dst_bo && (dst_bo->command_buffer_id > context_vk->completed_command_buffer_id
+            || !(dst_bo->memory_type & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)))
     {
         if (!(wined3d_context_vk_create_bo(context_vk, size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, &staging_bo)))
@@ -1123,7 +1112,7 @@ static void adapter_vk_copy_bo_address(struct wined3d_context *context,
     }
 
     src_ptr = adapter_vk_map_bo_address(context, src, size, WINED3D_MAP_READ);
-    dst_ptr = adapter_vk_map_bo_address(context, dst, size, map_flags);
+    dst_ptr = adapter_vk_map_bo_address(context, dst, size, WINED3D_MAP_WRITE);
 
     memcpy(dst_ptr, src_ptr, size);
 
@@ -1314,7 +1303,6 @@ struct wined3d_view_vk_destroy_ctx
     struct wined3d_device_vk *device_vk;
     VkBufferView *vk_buffer_view;
     VkImageView *vk_image_view;
-    struct wined3d_bo_user *bo_user;
     struct wined3d_bo_vk *vk_counter_bo;
     VkBufferView *vk_counter_view;
     uint64_t *command_buffer_id;
@@ -1329,8 +1317,6 @@ static void wined3d_view_vk_destroy_object(void *object)
     struct wined3d_device_vk *device_vk;
     struct wined3d_context *context;
 
-    TRACE("ctx %p.\n", ctx);
-
     device_vk = ctx->device_vk;
     vk_info = &wined3d_adapter_vk(device_vk->d.adapter)->vk_info;
     context = context_acquire(&device_vk->d, NULL, 0);
@@ -1339,7 +1325,7 @@ static void wined3d_view_vk_destroy_object(void *object)
     {
         if (context)
         {
-            wined3d_context_vk_destroy_vk_buffer_view(wined3d_context_vk(context),
+            wined3d_context_vk_destroy_buffer_view(wined3d_context_vk(context),
                     *ctx->vk_buffer_view, *ctx->command_buffer_id);
         }
         else
@@ -1352,7 +1338,7 @@ static void wined3d_view_vk_destroy_object(void *object)
     {
         if (context)
         {
-            wined3d_context_vk_destroy_vk_image_view(wined3d_context_vk(context),
+            wined3d_context_vk_destroy_image_view(wined3d_context_vk(context),
                     *ctx->vk_image_view, *ctx->command_buffer_id);
         }
         else
@@ -1361,15 +1347,13 @@ static void wined3d_view_vk_destroy_object(void *object)
             TRACE("Destroyed image view 0x%s.\n", wine_dbgstr_longlong(*ctx->vk_image_view));
         }
     }
-    if (ctx->bo_user)
-        list_remove(&ctx->bo_user->entry);
     if (ctx->vk_counter_bo && ctx->vk_counter_bo->vk_buffer)
         wined3d_context_vk_destroy_bo(wined3d_context_vk(context), ctx->vk_counter_bo);
     if (ctx->vk_counter_view)
     {
         if (context)
         {
-            wined3d_context_vk_destroy_vk_buffer_view(wined3d_context_vk(context),
+            wined3d_context_vk_destroy_buffer_view(wined3d_context_vk(context),
                     *ctx->vk_counter_view, *ctx->command_buffer_id);
         }
         else
@@ -1387,7 +1371,7 @@ static void wined3d_view_vk_destroy_object(void *object)
 }
 
 static void wined3d_view_vk_destroy(struct wined3d_device *device, VkBufferView *vk_buffer_view,
-        VkImageView *vk_image_view, struct wined3d_bo_user *bo_user, struct wined3d_bo_vk *vk_counter_bo,
+        VkImageView *vk_image_view, struct wined3d_bo_vk *vk_counter_bo,
         VkBufferView *vk_counter_view, uint64_t *command_buffer_id, void *view_vk)
 {
     struct wined3d_view_vk_destroy_ctx *ctx, c;
@@ -1397,7 +1381,6 @@ static void wined3d_view_vk_destroy(struct wined3d_device *device, VkBufferView 
     ctx->device_vk = wined3d_device_vk(device);
     ctx->vk_buffer_view = vk_buffer_view;
     ctx->vk_image_view = vk_image_view;
-    ctx->bo_user = bo_user;
     ctx->vk_counter_bo = vk_counter_bo;
     ctx->vk_counter_view = vk_counter_view;
     ctx->command_buffer_id = command_buffer_id;
@@ -1406,23 +1389,28 @@ static void wined3d_view_vk_destroy(struct wined3d_device *device, VkBufferView 
 
     wined3d_cs_destroy_object(device->cs, wined3d_view_vk_destroy_object, ctx);
     if (ctx == &c)
-        wined3d_cs_finish(device->cs, WINED3D_CS_QUEUE_DEFAULT);
+        device->cs->ops->finish(device->cs, WINED3D_CS_QUEUE_DEFAULT);
 }
 
 static void adapter_vk_destroy_rendertarget_view(struct wined3d_rendertarget_view *view)
 {
     struct wined3d_rendertarget_view_vk *view_vk = wined3d_rendertarget_view_vk(view);
-    struct wined3d_resource *resource = view_vk->v.resource;
+    struct wined3d_device *device = view_vk->v.resource->device;
+    unsigned int swapchain_count = device->swapchain_count;
 
     TRACE("view_vk %p.\n", view_vk);
 
-    /* Take a reference to the resource, in case releasing the resource
-     * would cause the device to be destroyed. */
-    wined3d_resource_incref(resource);
+    /* Take a reference to the device, in case releasing the view's resource
+     * would cause the device to be destroyed. However, swapchain resources
+     * don't take a reference to the device, and we wouldn't want to increment
+     * the refcount on a device that's in the process of being destroyed. */
+    if (swapchain_count)
+        wined3d_device_incref(device);
     wined3d_rendertarget_view_cleanup(&view_vk->v);
-    wined3d_view_vk_destroy(resource->device, NULL, &view_vk->vk_image_view,
-            NULL, NULL, NULL, &view_vk->command_buffer_id, view_vk);
-    wined3d_resource_decref(resource);
+    wined3d_view_vk_destroy(device, NULL, &view_vk->vk_image_view,
+            NULL, NULL, &view_vk->command_buffer_id, view_vk);
+    if (swapchain_count)
+        wined3d_device_decref(device);
 }
 
 static HRESULT adapter_vk_create_shader_resource_view(const struct wined3d_view_desc *desc,
@@ -1454,28 +1442,30 @@ static HRESULT adapter_vk_create_shader_resource_view(const struct wined3d_view_
 static void adapter_vk_destroy_shader_resource_view(struct wined3d_shader_resource_view *view)
 {
     struct wined3d_shader_resource_view_vk *srv_vk = wined3d_shader_resource_view_vk(view);
-    struct wined3d_resource *resource = srv_vk->v.resource;
+    struct wined3d_device *device = srv_vk->v.resource->device;
+    unsigned int swapchain_count = device->swapchain_count;
     struct wined3d_view_vk *view_vk = &srv_vk->view_vk;
     VkBufferView *vk_buffer_view = NULL;
     VkImageView *vk_image_view = NULL;
 
     TRACE("srv_vk %p.\n", srv_vk);
 
-    /* Take a reference to the resource. There are two reasons for this:
-     *  - Releasing the resource could in turn cause the device to be
-     *    destroyed, but we still need the device for
-     *    wined3d_view_vk_destroy().
-     *  - We shouldn't free buffer resources until after we've removed the
-     *    view from its bo_user list. */
-    wined3d_resource_incref(resource);
-    if (resource->type == WINED3D_RTYPE_BUFFER)
+    /* Take a reference to the device, in case releasing the view's resource
+     * would cause the device to be destroyed. However, swapchain resources
+     * don't take a reference to the device, and we wouldn't want to increment
+     * the refcount on a device that's in the process of being destroyed. */
+    if (swapchain_count)
+        wined3d_device_incref(device);
+    if (srv_vk->v.resource->type == WINED3D_RTYPE_BUFFER)
         vk_buffer_view = &view_vk->u.vk_buffer_view;
     else
         vk_image_view = &view_vk->u.vk_image_info.imageView;
+    list_remove(&view_vk->bo_user.entry);
     wined3d_shader_resource_view_cleanup(&srv_vk->v);
-    wined3d_view_vk_destroy(resource->device, vk_buffer_view, vk_image_view,
-            &view_vk->bo_user, NULL, NULL, &view_vk->command_buffer_id, srv_vk);
-    wined3d_resource_decref(resource);
+    wined3d_view_vk_destroy(device, vk_buffer_view, vk_image_view,
+            NULL, NULL, &view_vk->command_buffer_id, srv_vk);
+    if (swapchain_count)
+        wined3d_device_decref(device);
 }
 
 static HRESULT adapter_vk_create_unordered_access_view(const struct wined3d_view_desc *desc,
@@ -1507,28 +1497,30 @@ static HRESULT adapter_vk_create_unordered_access_view(const struct wined3d_view
 static void adapter_vk_destroy_unordered_access_view(struct wined3d_unordered_access_view *view)
 {
     struct wined3d_unordered_access_view_vk *uav_vk = wined3d_unordered_access_view_vk(view);
-    struct wined3d_resource *resource = uav_vk->v.resource;
+    struct wined3d_device *device = uav_vk->v.resource->device;
+    unsigned int swapchain_count = device->swapchain_count;
     struct wined3d_view_vk *view_vk = &uav_vk->view_vk;
     VkBufferView *vk_buffer_view = NULL;
     VkImageView *vk_image_view = NULL;
 
     TRACE("uav_vk %p.\n", uav_vk);
 
-    /* Take a reference to the resource. There are two reasons for this:
-     *  - Releasing the resource could in turn cause the device to be
-     *    destroyed, but we still need the device for
-     *    wined3d_view_vk_destroy().
-     *  - We shouldn't free buffer resources until after we've removed the
-     *    view from its bo_user list. */
-    wined3d_resource_incref(resource);
-    if (resource->type == WINED3D_RTYPE_BUFFER)
+    /* Take a reference to the device, in case releasing the view's resource
+     * would cause the device to be destroyed. However, swapchain resources
+     * don't take a reference to the device, and we wouldn't want to increment
+     * the refcount on a device that's in the process of being destroyed. */
+    if (swapchain_count)
+        wined3d_device_incref(device);
+    if (uav_vk->v.resource->type == WINED3D_RTYPE_BUFFER)
         vk_buffer_view = &view_vk->u.vk_buffer_view;
     else
         vk_image_view = &view_vk->u.vk_image_info.imageView;
+    list_remove(&view_vk->bo_user.entry);
     wined3d_unordered_access_view_cleanup(&uav_vk->v);
-    wined3d_view_vk_destroy(resource->device, vk_buffer_view, vk_image_view, &view_vk->bo_user,
-            &uav_vk->counter_bo, &uav_vk->vk_counter_view, &view_vk->command_buffer_id, uav_vk);
-    wined3d_resource_decref(resource);
+    wined3d_view_vk_destroy(device, vk_buffer_view, vk_image_view, &uav_vk->counter_bo,
+            &uav_vk->vk_counter_view, &view_vk->command_buffer_id, uav_vk);
+    if (swapchain_count)
+        wined3d_device_decref(device);
 }
 
 static HRESULT adapter_vk_create_sampler(struct wined3d_device *device, const struct wined3d_sampler_desc *desc,
@@ -1555,11 +1547,9 @@ static void wined3d_sampler_vk_destroy_object(void *object)
     struct wined3d_sampler_vk *sampler_vk = object;
     struct wined3d_context_vk *context_vk;
 
-    TRACE("sampler_vk %p.\n", sampler_vk);
-
     context_vk = wined3d_context_vk(context_acquire(sampler_vk->s.device, NULL, 0));
 
-    wined3d_context_vk_destroy_vk_sampler(context_vk, sampler_vk->vk_image_info.sampler, sampler_vk->command_buffer_id);
+    wined3d_context_vk_destroy_sampler(context_vk, sampler_vk->vk_image_info.sampler, sampler_vk->command_buffer_id);
     heap_free(sampler_vk);
 
     context_release(&context_vk->c);
@@ -1586,8 +1576,6 @@ static HRESULT adapter_vk_create_query(struct wined3d_device *device, enum wined
 static void wined3d_query_vk_destroy_object(void *object)
 {
     struct wined3d_query_vk *query_vk = object;
-
-    TRACE("query_vk %p.\n", query_vk);
 
     query_vk->q.query_ops->query_destroy(&query_vk->q);
 }
@@ -1754,20 +1742,12 @@ static void adapter_vk_dispatch_compute(struct wined3d_device *device,
 }
 
 static void adapter_vk_clear_uav(struct wined3d_context *context,
-        struct wined3d_unordered_access_view *view, const struct wined3d_uvec4 *clear_value, bool fp)
+        struct wined3d_unordered_access_view *view, const struct wined3d_uvec4 *clear_value)
 {
     TRACE("context %p, view %p, clear_value %s.\n", context, view, debug_uvec4(clear_value));
 
-    wined3d_unordered_access_view_vk_clear(wined3d_unordered_access_view_vk(view),
-            clear_value, wined3d_context_vk(context), fp);
-}
-
-static void adapter_vk_generate_mipmap(struct wined3d_context *context, struct wined3d_shader_resource_view *view)
-{
-    TRACE("context %p, view %p.\n", context, view);
-
-    wined3d_shader_resource_view_vk_generate_mipmap(wined3d_shader_resource_view_vk(view),
-            wined3d_context_vk(context));
+    wined3d_unordered_access_view_vk_clear_uint(wined3d_unordered_access_view_vk(view),
+            clear_value, wined3d_context_vk(context));
 }
 
 static const struct wined3d_adapter_ops wined3d_adapter_vk_ops =
@@ -1804,7 +1784,6 @@ static const struct wined3d_adapter_ops wined3d_adapter_vk_ops =
     .adapter_draw_primitive = adapter_vk_draw_primitive,
     .adapter_dispatch_compute = adapter_vk_dispatch_compute,
     .adapter_clear_uav = adapter_vk_clear_uav,
-    .adapter_generate_mipmap = adapter_vk_generate_mipmap,
 };
 
 static unsigned int wined3d_get_wine_vk_version(void)
@@ -1833,7 +1812,6 @@ static const struct
 vulkan_instance_extensions[] =
 {
     {VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME, VK_API_VERSION_1_1, FALSE},
-    {VK_KHR_EXTERNAL_MEMORY_EXTENSION_NAME,                  VK_API_VERSION_1_1, FALSE},
     {VK_KHR_SURFACE_EXTENSION_NAME,                          ~0u,                TRUE},
     {VK_KHR_WIN32_SURFACE_EXTENSION_NAME,                    ~0u,                TRUE},
 };
@@ -1870,12 +1848,6 @@ static BOOL enable_vulkan_instance_extensions(uint32_t *extension_count,
     {
         WARN("Failed to enumerate extensions, vr %s.\n", wined3d_debug_vkresult(vr));
         goto done;
-    }
-
-    TRACE("Vulkan instance extensions reported:\n");
-    for (i = 0; i < count; ++i)
-    {
-        TRACE("    - %s.\n", debugstr_a(extensions[i].extensionName));
     }
 
     for (i = 0; i < ARRAY_SIZE(vulkan_instance_extensions); ++i)
@@ -2053,7 +2025,6 @@ static bool adapter_vk_init_driver_info(struct wined3d_adapter_vk *adapter_vk,
     const struct wined3d_gpu_description *gpu_description;
     struct wined3d_gpu_description description;
     UINT64 vram_bytes, sysmem_bytes;
-    const VkMemoryType *type;
     const VkMemoryHeap *heap;
     unsigned int i;
 
@@ -2074,12 +2045,6 @@ static bool adapter_vk_init_driver_info(struct wined3d_adapter_vk *adapter_vk,
     }
     TRACE("Total device memory: 0x%s.\n", wine_dbgstr_longlong(vram_bytes));
     TRACE("Total shared system memory: 0x%s.\n", wine_dbgstr_longlong(sysmem_bytes));
-
-    for (i = 0; i < memory_properties->memoryTypeCount; ++i)
-    {
-        type = &memory_properties->memoryTypes[i];
-        TRACE("Memory type [%u]: flags %#x, heap %u.\n", i, type->propertyFlags, type->heapIndex);
-    }
 
     if (!(gpu_description = wined3d_get_user_override_gpu_description(properties->vendorID, properties->deviceID)))
         gpu_description = wined3d_get_gpu_description(properties->vendorID, properties->deviceID);
@@ -2198,10 +2163,8 @@ static bool wined3d_adapter_vk_init_device_extensions(struct wined3d_adapter_vk 
         {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,          ~0u},
         {VK_EXT_VERTEX_ATTRIBUTE_DIVISOR_EXTENSION_NAME,    ~0u,                true},
         {VK_KHR_MAINTENANCE1_EXTENSION_NAME,                VK_API_VERSION_1_1, true},
-        {VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME,VK_API_VERSION_1_2},
         {VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,      VK_API_VERSION_1_1, true},
         {VK_KHR_SWAPCHAIN_EXTENSION_NAME,                   ~0u,                true},
-        {VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME,            VK_API_VERSION_1_2},
     };
 
     static const struct
@@ -2211,9 +2174,7 @@ static bool wined3d_adapter_vk_init_device_extensions(struct wined3d_adapter_vk 
     }
     map[] =
     {
-        {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,           WINED3D_VK_EXT_TRANSFORM_FEEDBACK},
-        {VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE_EXTENSION_NAME, WINED3D_VK_KHR_SAMPLER_MIRROR_CLAMP_TO_EDGE},
-        {VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME,             WINED3D_VK_EXT_HOST_QUERY_RESET},
+        {VK_EXT_TRANSFORM_FEEDBACK_EXTENSION_NAME,  WINED3D_VK_EXT_TRANSFORM_FEEDBACK},
     };
 
     if ((vr = VK_CALL(vkEnumerateDeviceExtensionProperties(physical_device, NULL, &count, NULL))) < 0)
@@ -2232,12 +2193,6 @@ static bool wined3d_adapter_vk_init_device_extensions(struct wined3d_adapter_vk 
     {
         ERR("Failed to enumerate device extensions, vr %s.\n", wined3d_debug_vkresult(vr));
         goto done;
-    }
-
-    TRACE("Vulkan device extensions reported:\n");
-    for (i = 0; i < count; ++i)
-    {
-        TRACE("    - %s.\n", debugstr_a(extensions[i].extensionName));
     }
 
     for (i = 0, enable_count = 0; i < ARRAY_SIZE(info); ++i)

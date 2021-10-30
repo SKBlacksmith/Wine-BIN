@@ -168,6 +168,7 @@ extern BOOL CDECL X11DRV_PaintRgn( PHYSDEV dev, HRGN hrgn ) DECLSPEC_HIDDEN;
 extern BOOL CDECL X11DRV_PatBlt( PHYSDEV dev, struct bitblt_coords *dst, DWORD rop ) DECLSPEC_HIDDEN;
 extern BOOL CDECL X11DRV_Pie( PHYSDEV dev, INT left, INT top, INT right,
                               INT bottom, INT xstart, INT ystart, INT xend, INT yend ) DECLSPEC_HIDDEN;
+extern BOOL CDECL X11DRV_Polygon( PHYSDEV dev, const POINT* pt, INT count ) DECLSPEC_HIDDEN;
 extern BOOL CDECL X11DRV_PolyPolygon( PHYSDEV dev, const POINT* pt, const INT* counts, UINT polygons) DECLSPEC_HIDDEN;
 extern BOOL CDECL X11DRV_PolyPolyline( PHYSDEV dev, const POINT* pt, const DWORD* counts, DWORD polylines) DECLSPEC_HIDDEN;
 extern DWORD CDECL X11DRV_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
@@ -282,9 +283,10 @@ extern int *get_window_surface_mapping( int bpp, int *mapping ) DECLSPEC_HIDDEN;
 enum x11drv_escape_codes
 {
     X11DRV_SET_DRAWABLE,     /* set current drawable for a DC */
+    X11DRV_GET_DRAWABLE,     /* get current drawable for a DC */
     X11DRV_START_EXPOSURES,  /* start graphics exposures */
     X11DRV_END_EXPOSURES,    /* end graphics exposures */
-    X11DRV_PRESENT_DRAWABLE, /* present the drawable on screen */
+    X11DRV_FLUSH_GL_DRAWABLE /* flush changes made to the gl drawable */
 };
 
 struct x11drv_escape_set_drawable
@@ -295,10 +297,18 @@ struct x11drv_escape_set_drawable
     RECT                     dc_rect;      /* DC rectangle relative to drawable */
 };
 
-struct x11drv_escape_present_drawable
+struct x11drv_escape_get_drawable
 {
-    enum x11drv_escape_codes code;         /* escape code (X11DRV_PRESENT_DRAWABLE) */
-    Drawable                 drawable;     /* GL / VK drawable */
+    enum x11drv_escape_codes code;         /* escape code (X11DRV_GET_DRAWABLE) */
+    Drawable                 drawable;     /* X drawable */
+    Drawable                 gl_drawable;  /* GL drawable */
+    int                      pixel_format; /* internal GL pixel format */
+};
+
+struct x11drv_escape_flush_gl_drawable
+{
+    enum x11drv_escape_codes code;         /* escape code (X11DRV_FLUSH_GL_DRAWABLE) */
+    Drawable                 gl_drawable;  /* GL drawable */
     BOOL                     flush;        /* flush X11 before copying */
 };
 
@@ -327,6 +337,7 @@ struct x11drv_thread_data
     Window   clip_window;          /* window used for cursor clipping */
     HWND     clip_hwnd;            /* message window stored in desktop while clipping is active */
     DWORD    clip_reset;           /* time when clipping was last reset */
+    HKL      kbd_layout;           /* active keyboard layout */
     enum { xi_unavailable = -1, xi_unknown, xi_disabled, xi_enabled } xi2_state; /* XInput2 state */
     void    *xi2_devices;          /* list of XInput2 devices (valid when state is enabled) */
     int      xi2_device_count;
@@ -387,8 +398,6 @@ extern BOOL show_systray DECLSPEC_HIDDEN;
 extern BOOL grab_pointer DECLSPEC_HIDDEN;
 extern BOOL grab_fullscreen DECLSPEC_HIDDEN;
 extern BOOL usexcomposite DECLSPEC_HIDDEN;
-extern BOOL use_xfixes DECLSPEC_HIDDEN;
-extern BOOL use_xpresent DECLSPEC_HIDDEN;
 extern BOOL managed_mode DECLSPEC_HIDDEN;
 extern BOOL decorated_mode DECLSPEC_HIDDEN;
 extern BOOL private_color_map DECLSPEC_HIDDEN;
@@ -396,7 +405,6 @@ extern int primary_monitor DECLSPEC_HIDDEN;
 extern int copy_default_colors DECLSPEC_HIDDEN;
 extern int alloc_system_colors DECLSPEC_HIDDEN;
 extern int xrender_error_base DECLSPEC_HIDDEN;
-extern int xfixes_event_base DECLSPEC_HIDDEN;
 extern HMODULE x11drv_module DECLSPEC_HIDDEN;
 extern char *process_name DECLSPEC_HIDDEN;
 extern Display *clipboard_display DECLSPEC_HIDDEN;
@@ -588,8 +596,6 @@ extern void sync_gl_drawable( HWND hwnd, BOOL known_child ) DECLSPEC_HIDDEN;
 extern void set_gl_drawable_parent( HWND hwnd, HWND parent ) DECLSPEC_HIDDEN;
 extern void destroy_gl_drawable( HWND hwnd ) DECLSPEC_HIDDEN;
 extern void wine_vk_surface_destroy( HWND hwnd ) DECLSPEC_HIDDEN;
-extern void resize_vk_surfaces( HWND hwnd, Window active, int mask, XWindowChanges *changes ) DECLSPEC_HIDDEN;
-extern void sync_vk_surface( HWND hwnd, BOOL known_child ) DECLSPEC_HIDDEN;
 
 extern void wait_for_withdrawn_state( HWND hwnd, BOOL set ) DECLSPEC_HIDDEN;
 extern Window init_clip_window(void) DECLSPEC_HIDDEN;
@@ -597,9 +603,7 @@ extern void update_user_time( Time time ) DECLSPEC_HIDDEN;
 extern void read_net_wm_states( Display *display, struct x11drv_win_data *data ) DECLSPEC_HIDDEN;
 extern void update_net_wm_states( struct x11drv_win_data *data ) DECLSPEC_HIDDEN;
 extern void make_window_embedded( struct x11drv_win_data *data ) DECLSPEC_HIDDEN;
-extern Window create_dummy_client_window(void) DECLSPEC_HIDDEN;
 extern Window create_client_window( HWND hwnd, const XVisualInfo *visual ) DECLSPEC_HIDDEN;
-extern void destroy_client_window( HWND hwnd, Window old_window, Window new_window ) DECLSPEC_HIDDEN;
 extern void set_window_visual( struct x11drv_win_data *data, const XVisualInfo *vis, BOOL use_alpha ) DECLSPEC_HIDDEN;
 extern void change_systray_owner( Display *display, Window systray_window ) DECLSPEC_HIDDEN;
 extern void update_systray_balloon_position(void) DECLSPEC_HIDDEN;

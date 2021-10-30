@@ -103,6 +103,7 @@ static HICON STATIC_SetIcon( HWND hwnd, HICON hicon, DWORD style )
     HICON prevIcon;
     SIZE size;
 
+    if ((style & SS_TYPEMASK) != SS_ICON) return 0;
     if (hicon && !get_icon_size( hicon, &size ))
     {
         WARN("hicon != 0, but invalid\n");
@@ -137,6 +138,7 @@ static HBITMAP STATIC_SetBitmap( HWND hwnd, HBITMAP hBitmap, DWORD style )
 {
     HBITMAP hOldBitmap;
 
+    if ((style & SS_TYPEMASK) != SS_BITMAP) return 0;
     if (hBitmap && GetObjectType(hBitmap) != OBJ_BITMAP) {
         WARN("hBitmap != 0, but it's not a bitmap\n");
         return 0;
@@ -172,6 +174,7 @@ static HBITMAP STATIC_SetBitmap( HWND hwnd, HBITMAP hBitmap, DWORD style )
  */
 static HENHMETAFILE STATIC_SetEnhMetaFile( HWND hwnd, HENHMETAFILE hEnhMetaFile, DWORD style )
 {
+    if ((style & SS_TYPEMASK) != SS_ENHMETAFILE) return 0;
     if (hEnhMetaFile && GetObjectType(hEnhMetaFile) != OBJ_ENHMETAFILE) {
         WARN("hEnhMetaFile != 0, but it's not an enhanced metafile\n");
         return 0;
@@ -498,16 +501,13 @@ LRESULT StaticWndProc_common( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
     case STM_SETIMAGE:
         switch(wParam) {
 	case IMAGE_BITMAP:
-            if (style != SS_BITMAP) return 0;
 	    lResult = (LRESULT)STATIC_SetBitmap( hwnd, (HBITMAP)lParam, full_style );
 	    break;
 	case IMAGE_ENHMETAFILE:
-            if (style != SS_ENHMETAFILE) return 0;
 	    lResult = (LRESULT)STATIC_SetEnhMetaFile( hwnd, (HENHMETAFILE)lParam, full_style );
 	    break;
 	case IMAGE_ICON:
 	case IMAGE_CURSOR:
-            if (style != SS_ICON) return 0;
 	    lResult = (LRESULT)STATIC_SetIcon( hwnd, (HICON)lParam, full_style );
 	    break;
 	default:
@@ -518,7 +518,6 @@ LRESULT StaticWndProc_common( HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam
 	break;
 
     case STM_SETICON:
-        if (style != SS_ICON) return 0;
         lResult = (LRESULT)STATIC_SetIcon( hwnd, (HICON)wParam, full_style );
         STATIC_TryPaintFcn( hwnd, full_style );
         break;

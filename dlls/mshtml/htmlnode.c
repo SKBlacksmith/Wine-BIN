@@ -17,6 +17,7 @@
  */
 
 #include <stdarg.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -435,24 +436,24 @@ static dispex_static_data_t HTMLDOMChildrenCollection_dispex = {
     HTMLDOMNode_init_dispex_info
 };
 
-HRESULT create_child_collection(nsIDOMNodeList *nslist, compat_mode_t compat_mode, IHTMLDOMChildrenCollection **ret)
+IHTMLDOMChildrenCollection *create_child_collection(nsIDOMNodeList *nslist)
 {
-    HTMLDOMChildrenCollection *collection;
+    HTMLDOMChildrenCollection *ret;
 
-    if(!(collection = heap_alloc_zero(sizeof(*collection))))
-        return E_OUTOFMEMORY;
+    ret = heap_alloc_zero(sizeof(*ret));
+    if(!ret)
+        return NULL;
 
-    collection->IHTMLDOMChildrenCollection_iface.lpVtbl = &HTMLDOMChildrenCollectionVtbl;
-    collection->ref = 1;
+    ret->IHTMLDOMChildrenCollection_iface.lpVtbl = &HTMLDOMChildrenCollectionVtbl;
+    ret->ref = 1;
 
     nsIDOMNodeList_AddRef(nslist);
-    collection->nslist = nslist;
+    ret->nslist = nslist;
 
-    init_dispatch(&collection->dispex, (IUnknown*)&collection->IHTMLDOMChildrenCollection_iface,
-                  &HTMLDOMChildrenCollection_dispex, compat_mode);
+    init_dispex(&ret->dispex, (IUnknown*)&ret->IHTMLDOMChildrenCollection_iface,
+            &HTMLDOMChildrenCollection_dispex);
 
-    *ret = &collection->IHTMLDOMChildrenCollection_iface;
-    return S_OK;
+    return &ret->IHTMLDOMChildrenCollection_iface;
 }
 
 static inline HTMLDOMNode *impl_from_IHTMLDOMNode(IHTMLDOMNode *iface)
@@ -610,20 +611,20 @@ static HRESULT WINAPI HTMLDOMNode_get_childNodes(IHTMLDOMNode *iface, IDispatch 
 {
     HTMLDOMNode *This = impl_from_IHTMLDOMNode(iface);
     nsIDOMNodeList *nslist;
-    HRESULT hres;
+    nsresult nsres;
 
     TRACE("(%p)->(%p)\n", This, p);
 
-    hres = map_nsresult(nsIDOMNode_GetChildNodes(This->nsnode, &nslist));
-    if(FAILED(hres)) {
-        ERR("GetChildNodes failed: %08x\n", hres);
-        return hres;
+    nsres = nsIDOMNode_GetChildNodes(This->nsnode, &nslist);
+    if(NS_FAILED(nsres)) {
+        ERR("GetChildNodes failed: %08x\n", nsres);
+        return E_FAIL;
     }
 
-    hres = create_child_collection(nslist, dispex_compat_mode(&This->event_target.dispex),
-                                   (IHTMLDOMChildrenCollection**)p);
+    *p = (IDispatch*)create_child_collection(nslist);
     nsIDOMNodeList_Release(nslist);
-    return hres;
+
+    return *p ? S_OK : E_OUTOFMEMORY;
 }
 
 static HRESULT WINAPI HTMLDOMNode_get_attributes(IHTMLDOMNode *iface, IDispatch **p)

@@ -491,35 +491,8 @@ static void test_qsort_s(void)
         ok(tab[i] == i, "data sorted incorrectly on position %d: %d\n", i, tab[i]);
 }
 
-static int eq_nan(UINT64 ai, double b)
-{
-    UINT64 bi = *(UINT64*)&b;
-    UINT64 mask;
-
-#if defined(__i386__)
-    mask = 0xFFFFFFFF00000000ULL;
-#else
-    mask = ~0;
-#endif
-
-    ok((ai & mask) == (bi & mask), "comparing %s and %s\n",
-            wine_dbgstr_longlong(ai), wine_dbgstr_longlong(bi));
-    return (ai & mask) == (bi & mask);
-}
-
-static int eq_nanf(DWORD ai, float b)
-{
-    DWORD bi = *(DWORD*)&b;
-    ok(ai == bi, "comparing %08x and %08x\n", ai, bi);
-    return ai == bi;
-}
-
 static void test_math_functions(void)
 {
-    static const UINT64 test_nan_i = 0xFFF0000123456780ULL;
-    static const DWORD test_nanf_i = 0xFF801234;
-    double test_nan = *(double*)&test_nan_i;
-    float test_nanf = *(float*)&test_nanf_i;
     double ret;
 
     errno = 0xdeadbeef;
@@ -552,13 +525,6 @@ static void test_math_functions(void)
     errno = 0xdeadbeef;
     p_exp(INFINITY);
     ok(errno == 0xdeadbeef, "errno = %d\n", errno);
-
-    ok(eq_nan(test_nan_i | (1ULL << 51), cosh(test_nan)), "cosh not preserving nan\n");
-    ok(eq_nan(test_nan_i | (1ULL << 51), sinh(test_nan)), "sinh not preserving nan\n");
-    ok(eq_nan(test_nan_i | (1ULL << 51), tanh(test_nan)), "tanh not preserving nan\n");
-    ok(eq_nanf(test_nanf_i | (1 << 22), coshf(test_nanf)), "coshf not preserving nan\n");
-    ok(eq_nanf(test_nanf_i | (1 << 22), sinhf(test_nanf)), "sinhf not preserving nan\n");
-    ok(eq_nanf(test_nanf_i | (1 << 22), tanhf(test_nanf)), "tanhf not preserving nan\n");
 }
 
 static void __cdecl test_thread_func(void *end_thread_type)
@@ -619,19 +585,6 @@ static void test_thread_handle_close(void)
     ok(ret == WAIT_OBJECT_0, "ret = %d\n", ret);
     ret = CloseHandle(hThread);
     ok(ret, "ret = %d\n", ret);
-}
-
-static void test_thread_suspended(void)
-{
-    HANDLE hThread;
-    DWORD ret;
-
-    hThread = (HANDLE)_beginthreadex(NULL, 0, test_thread_func_ex, NULL, CREATE_SUSPENDED, NULL);
-    ok(hThread != NULL, "_beginthreadex failed (%d)\n", errno);
-    ret = ResumeThread(hThread);
-    ok(ret == 1, "suspend count = %d\n", ret);
-    ret = WaitForSingleObject(hThread, 200);
-    ok(ret == WAIT_OBJECT_0, "ret = %d\n", ret);
 }
 
 static int __cdecl _lfind_s_comp(void *ctx, const void *l, const void *r)
@@ -731,6 +684,5 @@ START_TEST(misc)
     test_qsort_s();
     test_math_functions();
     test_thread_handle_close();
-    test_thread_suspended();
     test__lfind_s();
 }

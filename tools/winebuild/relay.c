@@ -379,7 +379,7 @@ static void BuildCallFrom16Core( int reg_func, int thunk )
 static void BuildCallTo16Core( int reg_func )
 {
     const char *name = reg_func ? "wine_call_to_16_regs" : "wine_call_to_16";
-    const char *func_name = is_pe() ? strmake( "%s@12", name ) : name;
+    const char *func_name = (target_platform == PLATFORM_WINDOWS ? strmake( "%s@12", name ) : name);
 
     /* Function header */
     function_header( func_name );
@@ -428,7 +428,7 @@ static void BuildCallTo16Core( int reg_func )
         /*
          * Modify CONTEXT86 structure to contain new values
          *
-         * NOTE:  We restore only EAX, EBX, ECX, EDX, EBP, and ESP.
+         * NOTE:  We restore only EAX, EBX, EDX, EDX, EBP, and ESP.
          *        The segment registers as well as ESI and EDI should
          *        not be modified by a well-behaved 16-bit routine in
          *        any case.  [If necessary, we could restore them as well,

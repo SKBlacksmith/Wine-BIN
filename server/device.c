@@ -40,7 +40,6 @@
 #include "request.h"
 #include "process.h"
 #include "esync.h"
-#include "fsync.h"
 
 /* IRP object */
 
@@ -59,22 +58,22 @@ struct irp_call
 };
 
 static void irp_call_dump( struct object *obj, int verbose );
+static int irp_call_signaled( struct object *obj, struct wait_queue_entry *entry );
 static void irp_call_destroy( struct object *obj );
 
 static const struct object_ops irp_call_ops =
 {
     sizeof(struct irp_call),          /* size */
-    &no_type,                         /* type */
     irp_call_dump,                    /* dump */
-    no_add_queue,                     /* add_queue */
-    NULL,                             /* remove_queue */
-    NULL,                             /* signaled */
+    no_get_type,                      /* get_type */
+    add_queue,                        /* add_queue */
+    remove_queue,                     /* remove_queue */
+    irp_call_signaled,                /* signaled */
     NULL,                             /* get_esync_fd */
-    NULL,                             /* get_fsync_idx */
-    NULL,                             /* satisfied */
+    no_satisfied,                     /* satisfied */
     no_signal,                        /* signal */
     no_get_fd,                        /* get_fd */
-    default_map_access,               /* map_access */
+    no_map_access,                    /* map_access */
     default_get_sd,                   /* get_sd */
     default_set_sd,                   /* set_sd */
     no_get_full_name,                 /* get_full_name */
@@ -98,29 +97,26 @@ struct device_manager
     struct irp_call       *current_call;   /* call currently executed on client side */
     struct wine_rb_tree    kernel_objects; /* map of objects that have client side pointer associated */
     int                    esync_fd;       /* esync file descriptor */
-    unsigned int           fsync_idx;
 };
 
 static void device_manager_dump( struct object *obj, int verbose );
 static int device_manager_signaled( struct object *obj, struct wait_queue_entry *entry );
 static int device_manager_get_esync_fd( struct object *obj, enum esync_type *type );
-static unsigned int device_manager_get_fsync_idx( struct object *obj, enum fsync_type *type );
 static void device_manager_destroy( struct object *obj );
 
 static const struct object_ops device_manager_ops =
 {
     sizeof(struct device_manager),    /* size */
-    &no_type,                         /* type */
     device_manager_dump,              /* dump */
+    no_get_type,                      /* get_type */
     add_queue,                        /* add_queue */
     remove_queue,                     /* remove_queue */
     device_manager_signaled,          /* signaled */
     device_manager_get_esync_fd,      /* get_esync_fd */
-    device_manager_get_fsync_idx,     /* get_fsync_idx */
     no_satisfied,                     /* satisfied */
     no_signal,                        /* signal */
     no_get_fd,                        /* get_fd */
-    default_map_access,               /* map_access */
+    no_map_access,                    /* map_access */
     default_get_sd,                   /* get_sd */
     default_set_sd,                   /* set_sd */
     no_get_full_name,                 /* get_full_name */
@@ -136,20 +132,6 @@ static const struct object_ops device_manager_ops =
 
 /* device (a single device object) */
 
-static const WCHAR device_name[] = {'D','e','v','i','c','e'};
-
-struct type_descr device_type =
-{
-    { device_name, sizeof(device_name) },   /* name */
-    FILE_ALL_ACCESS,                        /* valid_access */
-    {                                       /* mapping */
-        FILE_GENERIC_READ,
-        FILE_GENERIC_WRITE,
-        FILE_GENERIC_EXECUTE,
-        FILE_ALL_ACCESS
-    },
-};
-
 struct device
 {
     struct object          obj;           /* object header */
@@ -161,6 +143,7 @@ struct device
 };
 
 static void device_dump( struct object *obj, int verbose );
+static struct object_type *device_get_type( struct object *obj );
 static void device_destroy( struct object *obj );
 static struct object *device_open_file( struct object *obj, unsigned int access,
                                         unsigned int sharing, unsigned int options );
@@ -169,17 +152,16 @@ static struct list *device_get_kernel_obj_list( struct object *obj );
 static const struct object_ops device_ops =
 {
     sizeof(struct device),            /* size */
-    &device_type,                     /* type */
     device_dump,                      /* dump */
+    device_get_type,                  /* get_type */
     no_add_queue,                     /* add_queue */
     NULL,                             /* remove_queue */
     NULL,                             /* signaled */
     NULL,                             /* get_esync_fd */
-    NULL,                             /* get_fsync_idx */
     no_satisfied,                     /* satisfied */
     no_signal,                        /* signal */
     no_get_fd,                        /* get_fd */
-    default_map_access,               /* map_access */
+    default_fd_map_access,            /* map_access */
     default_get_sd,                   /* get_sd */
     default_set_sd,                   /* set_sd */
     default_get_full_name,            /* get_full_name */
@@ -218,22 +200,20 @@ static int device_file_write( struct fd *fd, struct async *async, file_pos_t pos
 static int device_file_flush( struct fd *fd, struct async *async );
 static int device_file_ioctl( struct fd *fd, ioctl_code_t code, struct async *async );
 static void device_file_reselect_async( struct fd *fd, struct async_queue *queue );
-static int device_file_get_volume_info( struct fd *fd, struct async *async, unsigned int info_class );
 
 static const struct object_ops device_file_ops =
 {
     sizeof(struct device_file),       /* size */
-    &file_type,                       /* type */
     device_file_dump,                 /* dump */
+    file_get_type,                    /* get_type */
     add_queue,                        /* add_queue */
     remove_queue,                     /* remove_queue */
     default_fd_signaled,              /* signaled */
     NULL,                             /* get_esync_fd */
-    NULL,                             /* get_fsync_idx */
     no_satisfied,                     /* satisfied */
     no_signal,                        /* signal */
     device_file_get_fd,               /* get_fd */
-    default_map_access,               /* map_access */
+    default_fd_map_access,            /* map_access */
     default_get_sd,                   /* get_sd */
     default_set_sd,                   /* set_sd */
     device_file_get_full_name,        /* get_full_name */
@@ -255,7 +235,7 @@ static const struct fd_ops device_file_fd_ops =
     device_file_write,                /* write */
     device_file_flush,                /* flush */
     default_fd_get_file_info,         /* get_file_info */
-    device_file_get_volume_info,      /* get_volume_info */
+    no_fd_get_volume_info,            /* get_volume_info */
     device_file_ioctl,                /* ioctl */
     default_fd_queue_async,           /* queue_async */
     device_file_reselect_async        /* reselect_async */
@@ -348,6 +328,13 @@ static void irp_call_dump( struct object *obj, int verbose )
     fprintf( stderr, "IRP call file=%p\n", irp->file );
 }
 
+static int irp_call_signaled( struct object *obj, struct wait_queue_entry *entry )
+{
+    struct irp_call *irp = (struct irp_call *)obj;
+
+    return !irp->file;  /* file is cleared once the irp has completed */
+}
+
 static void irp_call_destroy( struct object *obj )
 {
     struct irp_call *irp = (struct irp_call *)obj;
@@ -417,6 +404,7 @@ static void set_irp_result( struct irp_call *irp, unsigned int status,
         release_object( irp->async );
         irp->async = NULL;
     }
+    wake_up( &irp->obj, 0 );
 
     release_object( irp );  /* no longer on the device queue */
     release_object( file );
@@ -426,6 +414,13 @@ static void set_irp_result( struct irp_call *irp, unsigned int status,
 static void device_dump( struct object *obj, int verbose )
 {
     fputs( "Device\n", stderr );
+}
+
+static struct object_type *device_get_type( struct object *obj )
+{
+    static const WCHAR name[] = {'D','e','v','i','c','e'};
+    static const struct unicode_str str = { name, sizeof(name) };
+    return get_object_type( &str );
 }
 
 static void device_destroy( struct object *obj )
@@ -452,7 +447,6 @@ static struct object *device_open_file( struct object *obj, unsigned int access,
 {
     struct device *device = (struct device *)obj;
     struct device_file *file;
-    struct unicode_str nt_name;
 
     if (!(file = alloc_object( &device_file_ops ))) return NULL;
 
@@ -465,8 +459,7 @@ static struct object *device_open_file( struct object *obj, unsigned int access,
     {
         mode_t mode = 0666;
         access = file->obj.ops->map_access( &file->obj, access );
-        nt_name.str = device->obj.ops->get_full_name( &device->obj, &nt_name.len );
-        file->fd = open_fd( NULL, device->unix_path, nt_name, O_NONBLOCK | O_LARGEFILE,
+        file->fd = open_fd( NULL, device->unix_path, O_NONBLOCK | O_LARGEFILE,
                             &mode, access, sharing, options );
         if (file->fd) set_fd_user( file->fd, &device_file_fd_ops, &file->obj );
     }
@@ -600,10 +593,6 @@ static int fill_irp_params( struct device_manager *manager, struct irp_call *irp
         irp->params.ioctl.file     = get_kernel_object_ptr( manager, &irp->file->obj );
         irp->params.ioctl.out_size = irp->iosb->out_size;
         break;
-    case IRP_CALL_VOLUME:
-        irp->params.volume.file     = get_kernel_object_ptr( manager, &irp->file->obj );
-        irp->params.volume.out_size = irp->iosb->out_size;
-        break;
     }
 
     *params = irp->params;
@@ -639,17 +628,6 @@ static int queue_irp( struct device_file *file, const irp_params_t *params, stru
 static enum server_fd_type device_file_get_fd_type( struct fd *fd )
 {
     return FD_TYPE_DEVICE;
-}
-
-static int device_file_get_volume_info( struct fd *fd, struct async *async, unsigned int info_class )
-{
-    struct device_file *file = get_fd_user( fd );
-    irp_params_t params;
-
-    memset( &params, 0, sizeof(params) );
-    params.volume.type = IRP_CALL_VOLUME;
-    params.volume.info_class = info_class;
-    return queue_irp( file, &params, async );
 }
 
 static int device_file_read( struct fd *fd, struct async *async, file_pos_t pos )
@@ -776,9 +754,6 @@ static void delete_file( struct device_file *file )
     /* terminate all pending requests */
     LIST_FOR_EACH_ENTRY_SAFE( irp, next, &file->requests, struct irp_call, dev_entry )
     {
-        if (do_fsync() && file->device->manager && list_empty( &file->device->manager->requests ))
-            fsync_clear( &file->device->manager->obj );
-
         if (do_esync() && file->device->manager && list_empty( &file->device->manager->requests ))
             esync_clear( file->device->manager->esync_fd );
 
@@ -822,13 +797,6 @@ static int device_manager_get_esync_fd( struct object *obj, enum esync_type *typ
     struct device_manager *manager = (struct device_manager *)obj;
     *type = ESYNC_MANUAL_SERVER;
     return manager->esync_fd;
-}
-
-static unsigned int device_manager_get_fsync_idx( struct object *obj, enum fsync_type *type )
-{
-    struct device_manager *manager = (struct device_manager *)obj;
-    *type = FSYNC_MANUAL_SERVER;
-    return manager->fsync_idx;
 }
 
 static void device_manager_destroy( struct object *obj )
@@ -880,9 +848,6 @@ static struct device_manager *create_device_manager(void)
         list_init( &manager->devices );
         list_init( &manager->requests );
         wine_rb_init( &manager->kernel_objects, compare_kernel_object );
-
-        if (do_fsync())
-            manager->fsync_idx = fsync_alloc_shm( 0, 0 );
 
         if (do_esync())
             manager->esync_fd = esync_create_fd( 0, 0 );
@@ -1051,9 +1016,6 @@ DECL_HANDLER(get_next_device_request)
                 /* we already own the object if it's only on manager queue */
                 if (irp->file) grab_object( irp );
                 manager->current_call = irp;
-
-                if (do_fsync() && list_empty( &manager->requests ))
-                    fsync_clear( &manager->obj );
 
                 if (do_esync() && list_empty( &manager->requests ))
                     esync_clear( manager->esync_fd );

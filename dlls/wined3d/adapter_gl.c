@@ -4288,13 +4288,13 @@ static void adapter_gl_destroy_device(struct wined3d_device *device)
     heap_free(device_gl);
 }
 
-static struct wined3d_context *adapter_gl_acquire_context(struct wined3d_device *device,
+struct wined3d_context *adapter_gl_acquire_context(struct wined3d_device *device,
         struct wined3d_texture *texture, unsigned int sub_resource_idx)
 {
     return wined3d_context_gl_acquire(device, texture, sub_resource_idx);
 }
 
-static void adapter_gl_release_context(struct wined3d_context *context)
+void adapter_gl_release_context(struct wined3d_context *context)
 {
     return wined3d_context_gl_release(wined3d_context_gl(context));
 }
@@ -4764,7 +4764,6 @@ struct wined3d_view_gl_destroy_ctx
 {
     struct wined3d_device *device;
     const struct wined3d_gl_view *gl_view;
-    struct wined3d_bo_user *bo_user;
     struct wined3d_bo_gl *counter_bo;
     void *object;
     struct wined3d_view_gl_destroy_ctx *free;
@@ -4777,8 +4776,6 @@ static void wined3d_view_gl_destroy_object(void *object)
     struct wined3d_context *context;
     struct wined3d_device *device;
     GLuint counter_id;
-
-    TRACE("ctx %p.\n", ctx);
 
     device = ctx->device;
 
@@ -4797,15 +4794,13 @@ static void wined3d_view_gl_destroy_object(void *object)
         checkGLcall("delete resources");
         context_release(context);
     }
-    if (ctx->bo_user)
-        list_remove(&ctx->bo_user->entry);
 
     heap_free(ctx->object);
     heap_free(ctx->free);
 }
 
-static void wined3d_view_gl_destroy(struct wined3d_device *device, const struct wined3d_gl_view *gl_view,
-        struct wined3d_bo_user *bo_user, struct wined3d_bo_gl *counter_bo, void *object)
+static void wined3d_view_gl_destroy(struct wined3d_device *device,
+        const struct wined3d_gl_view *gl_view, struct wined3d_bo_gl *counter_bo, void *object)
 {
     struct wined3d_view_gl_destroy_ctx *ctx, c;
 
@@ -4813,29 +4808,33 @@ static void wined3d_view_gl_destroy(struct wined3d_device *device, const struct 
         ctx = &c;
     ctx->device = device;
     ctx->gl_view = gl_view;
-    ctx->bo_user = bo_user;
     ctx->counter_bo = counter_bo;
     ctx->object = object;
     ctx->free = ctx != &c ? ctx : NULL;
 
     wined3d_cs_destroy_object(device->cs, wined3d_view_gl_destroy_object, ctx);
     if (ctx == &c)
-        wined3d_cs_finish(device->cs, WINED3D_CS_QUEUE_DEFAULT);
+        device->cs->ops->finish(device->cs, WINED3D_CS_QUEUE_DEFAULT);
 }
 
 static void adapter_gl_destroy_rendertarget_view(struct wined3d_rendertarget_view *view)
 {
     struct wined3d_rendertarget_view_gl *view_gl = wined3d_rendertarget_view_gl(view);
-    struct wined3d_resource *resource = view_gl->v.resource;
+    struct wined3d_device *device = view_gl->v.resource->device;
+    unsigned int swapchain_count = device->swapchain_count;
 
     TRACE("view_gl %p.\n", view_gl);
 
-    /* Take a reference to the resource, in case releasing the resource
-     * would cause the device to be destroyed. */
-    wined3d_resource_incref(resource);
+    /* Take a reference to the device, in case releasing the view's resource
+     * would cause the device to be destroyed. However, swapchain resources
+     * don't take a reference to the device, and we wouldn't want to increment
+     * the refcount on a device that's in the process of being destroyed. */
+    if (swapchain_count)
+        wined3d_device_incref(device);
     wined3d_rendertarget_view_cleanup(&view_gl->v);
-    wined3d_view_gl_destroy(resource->device, &view_gl->gl_view, NULL, NULL, view_gl);
-    wined3d_resource_decref(resource);
+    wined3d_view_gl_destroy(device, &view_gl->gl_view, NULL, view_gl);
+    if (swapchain_count)
+        wined3d_device_decref(device);
 }
 
 static HRESULT adapter_gl_create_shader_resource_view(const struct wined3d_view_desc *desc,
@@ -4867,20 +4866,22 @@ static HRESULT adapter_gl_create_shader_resource_view(const struct wined3d_view_
 static void adapter_gl_destroy_shader_resource_view(struct wined3d_shader_resource_view *view)
 {
     struct wined3d_shader_resource_view_gl *view_gl = wined3d_shader_resource_view_gl(view);
-    struct wined3d_resource *resource = view_gl->v.resource;
+    struct wined3d_device *device = view_gl->v.resource->device;
+    unsigned int swapchain_count = device->swapchain_count;
 
     TRACE("view_gl %p.\n", view_gl);
 
-    /* Take a reference to the resource. There are two reasons for this:
-     *  - Releasing the resource could in turn cause the device to be
-     *    destroyed, but we still need the device for
-     *    wined3d_view_vk_destroy().
-     *  - We shouldn't free buffer resources until after we've removed the
-     *    view from its bo_user list. */
-    wined3d_resource_incref(resource);
+    /* Take a reference to the device, in case releasing the view's resource
+     * would cause the device to be destroyed. However, swapchain resources
+     * don't take a reference to the device, and we wouldn't want to increment
+     * the refcount on a device that's in the process of being destroyed. */
+    if (swapchain_count)
+        wined3d_device_incref(device);
+    list_remove(&view_gl->bo_user.entry);
     wined3d_shader_resource_view_cleanup(&view_gl->v);
-    wined3d_view_gl_destroy(resource->device, &view_gl->gl_view, &view_gl->bo_user, NULL, view_gl);
-    wined3d_resource_decref(resource);
+    wined3d_view_gl_destroy(device, &view_gl->gl_view, NULL, view_gl);
+    if (swapchain_count)
+        wined3d_device_decref(device);
 }
 
 static HRESULT adapter_gl_create_unordered_access_view(const struct wined3d_view_desc *desc,
@@ -4912,20 +4913,22 @@ static HRESULT adapter_gl_create_unordered_access_view(const struct wined3d_view
 static void adapter_gl_destroy_unordered_access_view(struct wined3d_unordered_access_view *view)
 {
     struct wined3d_unordered_access_view_gl *view_gl = wined3d_unordered_access_view_gl(view);
-    struct wined3d_resource *resource = view_gl->v.resource;
+    struct wined3d_device *device = view_gl->v.resource->device;
+    unsigned int swapchain_count = device->swapchain_count;
 
     TRACE("view_gl %p.\n", view_gl);
 
-    /* Take a reference to the resource. There are two reasons for this:
-     *  - Releasing the resource could in turn cause the device to be
-     *    destroyed, but we still need the device for
-     *    wined3d_view_vk_destroy().
-     *  - We shouldn't free buffer resources until after we've removed the
-     *    view from its bo_user list. */
-    wined3d_resource_incref(resource);
+    /* Take a reference to the device, in case releasing the view's resource
+     * would cause the device to be destroyed. However, swapchain resources
+     * don't take a reference to the device, and we wouldn't want to increment
+     * the refcount on a device that's in the process of being destroyed. */
+    if (swapchain_count)
+        wined3d_device_incref(device);
+    list_remove(&view_gl->bo_user.entry);
     wined3d_unordered_access_view_cleanup(&view_gl->v);
-    wined3d_view_gl_destroy(resource->device, &view_gl->gl_view, &view_gl->bo_user, &view_gl->counter_bo, view_gl);
-    wined3d_resource_decref(resource);
+    wined3d_view_gl_destroy(device, &view_gl->gl_view, &view_gl->counter_bo, view_gl);
+    if (swapchain_count)
+        wined3d_device_decref(device);
 }
 
 static HRESULT adapter_gl_create_sampler(struct wined3d_device *device, const struct wined3d_sampler_desc *desc,
@@ -4952,8 +4955,6 @@ static void wined3d_sampler_gl_destroy_object(void *object)
     struct wined3d_sampler_gl *sampler_gl = object;
     const struct wined3d_gl_info *gl_info;
     struct wined3d_context *context;
-
-    TRACE("sampler_gl %p.\n", sampler_gl);
 
     if (sampler_gl->name)
     {
@@ -4988,8 +4989,6 @@ static void wined3d_query_gl_destroy_object(void *object)
 {
     struct wined3d_query *query = object;
 
-    TRACE("query %p.\n", query);
-
     if (query->buffer_object)
     {
         struct wined3d_context *context;
@@ -5023,21 +5022,13 @@ static void adapter_gl_flush_context(struct wined3d_context *context)
         context_gl->gl_info->gl_ops.gl.p_glFlush();
 }
 
-static void adapter_gl_clear_uav(struct wined3d_context *context,
-        struct wined3d_unordered_access_view *view, const struct wined3d_uvec4 *clear_value, bool fp)
+void adapter_gl_clear_uav(struct wined3d_context *context,
+        struct wined3d_unordered_access_view *view, const struct wined3d_uvec4 *clear_value)
 {
     TRACE("context %p, view %p, clear_value %s.\n", context, view, debug_uvec4(clear_value));
 
-    wined3d_unordered_access_view_gl_clear(wined3d_unordered_access_view_gl(view),
-            clear_value, wined3d_context_gl(context), fp);
-}
-
-static void adapter_gl_generate_mipmap(struct wined3d_context *context, struct wined3d_shader_resource_view *view)
-{
-    TRACE("context %p, view %p.\n", context, view);
-
-    wined3d_shader_resource_view_gl_generate_mipmap(wined3d_shader_resource_view_gl(view),
-            wined3d_context_gl(context));
+    wined3d_unordered_access_view_gl_clear_uint(wined3d_unordered_access_view_gl(view),
+            clear_value, wined3d_context_gl(context));
 }
 
 static const struct wined3d_adapter_ops wined3d_adapter_gl_ops =
@@ -5074,7 +5065,6 @@ static const struct wined3d_adapter_ops wined3d_adapter_gl_ops =
     .adapter_draw_primitive = draw_primitive,
     .adapter_dispatch_compute = dispatch_compute,
     .adapter_clear_uav = adapter_gl_clear_uav,
-    .adapter_generate_mipmap = adapter_gl_generate_mipmap,
 };
 
 static void wined3d_adapter_gl_init_d3d_info(struct wined3d_adapter_gl *adapter_gl, uint32_t wined3d_creation_flags)
@@ -5124,7 +5114,6 @@ static void wined3d_adapter_gl_init_d3d_info(struct wined3d_adapter_gl *adapter_
     d3d_info->shader_color_key = !!(fragment_caps.wined3d_caps & WINED3D_FRAGMENT_CAP_COLOR_KEY);
     d3d_info->shader_double_precision = !!(shader_caps.wined3d_caps & WINED3D_SHADER_CAP_DOUBLE_PRECISION);
     d3d_info->shader_output_interpolation = !!(shader_caps.wined3d_caps & WINED3D_SHADER_CAP_OUTPUT_INTERPOLATION);
-    d3d_info->frag_coord_correction = !!gl_info->supported[ARB_FRAGMENT_COORD_CONVENTIONS];
     d3d_info->viewport_array_index_any_shader = !!gl_info->supported[ARB_SHADER_VIEWPORT_LAYER_ARRAY];
     d3d_info->texture_npot = !!gl_info->supported[ARB_TEXTURE_NON_POWER_OF_TWO];
     d3d_info->texture_npot_conditional = gl_info->supported[WINED3D_GL_NORMALIZED_TEXRECT]

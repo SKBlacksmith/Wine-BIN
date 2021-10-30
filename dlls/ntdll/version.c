@@ -207,41 +207,6 @@ static const struct { WCHAR name[12]; WINDOWS_VERSION ver; } version_names[] =
 /* initialized to null so that we crash if we try to retrieve the version too early at startup */
 static const RTL_OSVERSIONINFOEXW *current_version;
 
-static char wine_version[256];
-
-/*********************************************************************
- *                  wine_get_version
- */
-const char * CDECL wine_get_version(void)
-{
-    return wine_version;
-}
-
-
-/*********************************************************************
- *                  wine_get_build_id
- */
-const char * CDECL wine_get_build_id(void)
-{
-    const char *p = wine_version;
-    p += strlen(p) + 1;  /* skip version */
-    return p;
-}
-
-
-/*********************************************************************
- *                  wine_get_host_version
- */
-void CDECL wine_get_host_version( const char **sysname, const char **release )
-{
-    const char *p = wine_version;
-    p += strlen(p) + 1;  /* skip version */
-    p += strlen(p) + 1;  /* skip build id */
-    if (sysname) *sysname = p;
-    p += strlen(p) + 1;
-    if (release) *release = p;
-}
-
 
 /**********************************************************************
  *         get_nt_registry_version
@@ -465,9 +430,7 @@ void version_init(void)
     const WCHAR *p, *appname = NtCurrentTeb()->Peb->ProcessParameters->ImagePathName.Buffer;
     WCHAR appversion[MAX_PATH+20];
 
-    NtQuerySystemInformation( SystemWineVersionInformation, wine_version, sizeof(wine_version), NULL );
-
-    current_version = &VersionData[WIN10];
+    current_version = &VersionData[WIN7];
 
     RtlOpenCurrentUser( KEY_ALL_ACCESS, &root );
     attr.Length = sizeof(attr);
@@ -758,22 +721,4 @@ NTSTATUS WINAPI RtlVerifyVersionInfo( const RTL_OSVERSIONINFOEXW *info,
     }
 
     return STATUS_SUCCESS;
-}
-
-
-/******************************************************************************
- *        VerSetConditionMask   (NTDLL.@)
- */
-ULONGLONG WINAPI VerSetConditionMask( ULONGLONG condition_mask, DWORD type_mask, BYTE condition )
-{
-    condition &= 0x07;
-    if (type_mask & VER_PRODUCT_TYPE) condition_mask |= condition << 7*3;
-    else if (type_mask & VER_SUITENAME) condition_mask |= condition << 6*3;
-    else if (type_mask & VER_SERVICEPACKMAJOR) condition_mask |= condition << 5*3;
-    else if (type_mask & VER_SERVICEPACKMINOR) condition_mask |= condition << 4*3;
-    else if (type_mask & VER_PLATFORMID) condition_mask |= condition << 3*3;
-    else if (type_mask & VER_BUILDNUMBER) condition_mask |= condition << 2*3;
-    else if (type_mask & VER_MAJORVERSION) condition_mask |= condition << 1*3;
-    else if (type_mask & VER_MINORVERSION) condition_mask |= condition << 0*3;
-    return condition_mask;
 }

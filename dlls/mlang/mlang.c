@@ -48,6 +48,7 @@ static HRESULT MultiLanguage_create(IUnknown *pUnkOuter, LPVOID *ppObj);
 static HRESULT MLangConvertCharset_create(IUnknown *outer, void **obj);
 static HRESULT EnumRfc1766_create(LANGID LangId, IEnumRfc1766 **ppEnum);
 
+static HINSTANCE instance;
 static DWORD MLANG_tls_index; /* to store various per thead data */
 
 /* FIXME:
@@ -934,6 +935,7 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
 {
     switch(fdwReason) {
         case DLL_PROCESS_ATTACH:
+            instance = hInstDLL;
             MLANG_tls_index = TlsAlloc();
             DisableThreadLibraryCalls(hInstDLL);
 	    break;
@@ -3974,7 +3976,7 @@ HRESULT WINAPI DllRegisterServer(void)
 {
     if(!register_codepages())
         return E_FAIL;
-    return __wine_register_resources();
+    return __wine_register_resources( instance );
 }
 
 /***********************************************************************
@@ -3982,7 +3984,7 @@ HRESULT WINAPI DllRegisterServer(void)
  */
 HRESULT WINAPI DllUnregisterServer(void)
 {
-    return __wine_unregister_resources();
+    return __wine_unregister_resources( instance );
 }
 
 HRESULT WINAPI GetGlobalFontLinkObject(void **unknown)

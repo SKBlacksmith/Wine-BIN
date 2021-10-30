@@ -456,12 +456,24 @@ DWORD bytes_to_samples(DWORD bytes, LPWAVEFORMATEX pwfx)
     return bytes / pwfx->nBlockAlign;
 }
 
+DWORD bytes_to_ms(DWORD bytes, LPWAVEFORMATEX pwfx)
+{
+    return bytes_to_samples(bytes, pwfx) * 1000 / pwfx->nSamplesPerSec;
+}
+
 DWORD time_to_bytes(LPMMTIME mmtime, LPWAVEFORMATEX pwfx)
 {
     if (mmtime->wType == TIME_BYTES)
         return mmtime->u.cb;
     else if (mmtime->wType == TIME_SAMPLES)
         return mmtime->u.sample * pwfx->nBlockAlign;
+    else if (mmtime->wType == TIME_MS)
+        return mmtime->u.ms * pwfx->nAvgBytesPerSec / 1000;
+    else if (mmtime->wType == TIME_SMPTE)
+        return ((mmtime->u.smpte.hour * 60 * 60) +
+                (mmtime->u.smpte.min * 60) +
+                (mmtime->u.smpte.sec)) * pwfx->nAvgBytesPerSec +
+                mmtime->u.smpte.frame  * pwfx->nAvgBytesPerSec / 30;
 
     trace("FIXME: time_to_bytes() type not supported\n");
     return -1;
@@ -483,8 +495,9 @@ static void check_position(int device, HWAVEOUT wout, DWORD bytes,
     rc=waveOutGetPosition(wout, &mmtime, sizeof(mmtime) + 1);
     ok(rc==MMSYSERR_NOERROR,
        "waveOutGetPosition(%s): rc=%s\n",dev_name(device),wave_out_error(rc));
-    ok(mmtime.wType == TIME_BYTES, "(waveOutGetPosition(%s): returned %s\n",
-       dev_name(device), wave_time_format(mmtime.wType));
+    if (mmtime.wType != TIME_BYTES && winetest_debug > 1)
+        trace("waveOutGetPosition(%s): TIME_BYTES not supported, returned %s\n",
+              dev_name(device),wave_time_format(mmtime.wType));
     returned = time_to_bytes(&mmtime, pwfx);
     ok(returned == bytes, "waveOutGetPosition(%s): returned %d bytes, "
        "should be %d\n", dev_name(device), returned, bytes);
@@ -493,8 +506,9 @@ static void check_position(int device, HWAVEOUT wout, DWORD bytes,
     rc=waveOutGetPosition(wout, &mmtime, sizeof(mmtime));
     ok(rc==MMSYSERR_NOERROR,
        "waveOutGetPosition(%s): rc=%s\n",dev_name(device),wave_out_error(rc));
-    ok(mmtime.wType == TIME_SAMPLES, "(waveOutGetPosition(%s): returned %s\n",
-       dev_name(device), wave_time_format(mmtime.wType));
+    if (mmtime.wType != TIME_SAMPLES && winetest_debug > 1)
+        trace("waveOutGetPosition(%s): TIME_SAMPLES not supported, "
+              "returned %s\n",dev_name(device),wave_time_format(mmtime.wType));
     returned = time_to_bytes(&mmtime, pwfx);
     ok(returned == bytes, "waveOutGetPosition(%s): returned %d samples "
        "(%d bytes), should be %d (%d bytes)\n", dev_name(device),
@@ -515,8 +529,9 @@ static void check_position(int device, HWAVEOUT wout, DWORD bytes,
     rc=waveOutGetPosition(wout, &mmtime, sizeof(mmtime));
     ok(rc==MMSYSERR_NOERROR,
        "waveOutGetPosition(%s): rc=%s\n",dev_name(device),wave_out_error(rc));
-    ok(mmtime.wType == TIME_BYTES, "(waveOutGetPosition(%s): returned %s\n",
-       dev_name(device), wave_time_format(mmtime.wType));
+    if (mmtime.wType != TIME_SMPTE && winetest_debug > 1)
+        trace("waveOutGetPosition(%s): TIME_SMPTE not supported, returned %s\n",
+              dev_name(device),wave_time_format(mmtime.wType));
     returned = time_to_bytes(&mmtime, pwfx);
     ok(returned == bytes, "waveOutGetPosition(%s): SMPTE test failed\n",
        dev_name(device));
@@ -525,8 +540,9 @@ static void check_position(int device, HWAVEOUT wout, DWORD bytes,
     rc=waveOutGetPosition(wout, &mmtime, sizeof(mmtime));
     ok(rc==MMSYSERR_NOERROR,
        "waveOutGetPosition(%s): rc=%s\n",dev_name(device),wave_out_error(rc));
-    ok(mmtime.wType == TIME_BYTES, "(waveOutGetPosition(%s): returned %s\n",
-       dev_name(device), wave_time_format(mmtime.wType));
+    if (mmtime.wType != TIME_MIDI && winetest_debug > 1)
+        trace("waveOutGetPosition(%s): TIME_MIDI not supported, returned %s\n",
+              dev_name(device),wave_time_format(mmtime.wType));
     returned = time_to_bytes(&mmtime, pwfx);
     ok(returned == bytes, "waveOutGetPosition(%s): MIDI test failed\n",
        dev_name(device));
@@ -535,8 +551,9 @@ static void check_position(int device, HWAVEOUT wout, DWORD bytes,
     rc=waveOutGetPosition(wout, &mmtime, sizeof(mmtime));
     ok(rc==MMSYSERR_NOERROR,
        "waveOutGetPosition(%s): rc=%s\n",dev_name(device),wave_out_error(rc));
-    ok(mmtime.wType == TIME_BYTES, "(waveOutGetPosition(%s): returned %s\n",
-       dev_name(device), wave_time_format(mmtime.wType));
+    if (mmtime.wType != TIME_TICKS && winetest_debug > 1)
+        trace("waveOutGetPosition(%s): TIME_TICKS not supported, returned %s\n",
+              dev_name(device),wave_time_format(mmtime.wType));
     returned = time_to_bytes(&mmtime, pwfx);
     ok(returned == bytes, "waveOutGetPosition(%s): TICKS test failed\n",
        dev_name(device));

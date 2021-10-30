@@ -42,6 +42,14 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(variant);
 
+static CRITICAL_SECTION cache_cs;
+static CRITICAL_SECTION_DEBUG critsect_debug =
+{
+    0, 0, &cache_cs,
+    { &critsect_debug.ProcessLocksList, &critsect_debug.ProcessLocksList },
+      0, 0, { (DWORD_PTR)(__FILE__ ": cache_cs") }
+};
+static CRITICAL_SECTION cache_cs = { &critsect_debug, -1, 0, 0, 0, 0 };
 
 /* Convert a variant from one type to another */
 static inline HRESULT VARIANT_Coerce(VARIANTARG* pd, LCID lcid, USHORT wFlags,
@@ -545,13 +553,24 @@ static inline HRESULT VARIANT_ValidateType(VARTYPE vt)
 /******************************************************************************
  *		VariantInit	[OLEAUT32.8]
  *
- * Since Windows 8.1 whole structure is initialized, before that only type field was reset to VT_EMPTY.
+ * Initialise a variant.
+ *
+ * PARAMS
+ *  pVarg [O] Variant to initialise
+ *
+ * RETURNS
+ *  Nothing.
+ *
+ * NOTES
+ *  This function simply sets the type of the variant to VT_EMPTY. It does not
+ *  free any existing value, use VariantClear() for that.
  */
 void WINAPI VariantInit(VARIANTARG* pVarg)
 {
-    TRACE("(%p)\n", pVarg);
+  TRACE("(%p)\n", pVarg);
 
-    memset(pVarg, 0, sizeof(*pVarg));
+  /* Win8.1 zeroes whole struct. Previous implementations don't set any other fields. */
+  V_VT(pVarg) = VT_EMPTY;
 }
 
 HRESULT VARIANT_ClearInd(VARIANTARG *pVarg)
@@ -670,10 +689,10 @@ HRESULT WINAPI DECLSPEC_HOTPATCH VariantClear(VARIANTARG* pVarg)
 /******************************************************************************
  * Copy an IRecordInfo object contained in a variant.
  */
-static HRESULT VARIANT_CopyIRecordInfo(VARIANT *dest, const VARIANT *src)
+static HRESULT VARIANT_CopyIRecordInfo(VARIANT *dest, VARIANT *src)
 {
   struct __tagBRECORD *dest_rec = &V_UNION(dest, brecVal);
-  const struct __tagBRECORD *src_rec = &V_UNION(src, brecVal);
+  struct __tagBRECORD *src_rec = &V_UNION(src, brecVal);
   HRESULT hr = S_OK;
   ULONG size;
 
@@ -726,7 +745,7 @@ static HRESULT VARIANT_CopyIRecordInfo(VARIANT *dest, const VARIANT *src)
  *    reference count increased using IUnknown_AddRef().
  *  - For all by-reference types, only the referencing pointer is copied.
  */
-HRESULT WINAPI VariantCopy(VARIANTARG* pvargDest, const VARIANTARG* pvargSrc)
+HRESULT WINAPI VariantCopy(VARIANTARG* pvargDest, VARIANTARG* pvargSrc)
 {
   HRESULT hres = S_OK;
 
@@ -825,10 +844,9 @@ static inline size_t VARIANT_DataSize(const VARIANT* pv)
  *    pvargDest is always cleared using VariantClear() before pvargSrc is copied
  *    to it. If clearing pvargDest fails, so does this function.
  */
-HRESULT WINAPI VariantCopyInd(VARIANT* pvargDest, const VARIANTARG* pvargSrc)
+HRESULT WINAPI VariantCopyInd(VARIANT* pvargDest, VARIANTARG* pvargSrc)
 {
-  const VARIANTARG *pSrc = pvargSrc;
-  VARIANTARG vTmp;
+  VARIANTARG vTmp, *pSrc = pvargSrc;
   VARTYPE vt;
   HRESULT hres = S_OK;
 
@@ -916,7 +934,7 @@ HRESULT WINAPI VariantCopyInd(VARIANT* pvargDest, const VARIANTARG* pvargSrc)
 VariantCopyInd_Return:
 
   if (pSrc != pvargSrc)
-    VariantClear(&vTmp);
+    VariantClear(pSrc);
 
   TRACE("returning 0x%08x, %s\n", hres, debugstr_variant(pvargDest));
   return hres;
@@ -941,7 +959,7 @@ VariantCopyInd_Return:
  *  The LCID used for the conversion is LOCALE_USER_DEFAULT.
  *  See VariantChangeTypeEx.
  */
-HRESULT WINAPI DECLSPEC_HOTPATCH VariantChangeType(VARIANTARG* pvargDest, const VARIANTARG* pvargSrc,
+HRESULT WINAPI DECLSPEC_HOTPATCH VariantChangeType(VARIANTARG* pvargDest, VARIANTARG* pvargSrc,
                                                    USHORT wFlags, VARTYPE vt)
 {
   return VariantChangeTypeEx( pvargDest, pvargSrc, LOCALE_USER_DEFAULT, wFlags, vt );
@@ -967,7 +985,7 @@ HRESULT WINAPI DECLSPEC_HOTPATCH VariantChangeType(VARIANTARG* pvargDest, const 
  *  pvargDest and pvargSrc can point to the same variant to perform an in-place
  *  conversion. If the conversion is successful, pvargSrc will be freed.
  */
-HRESULT WINAPI VariantChangeTypeEx(VARIANTARG* pvargDest, const VARIANTARG* pvargSrc,
+HRESULT WINAPI VariantChangeTypeEx(VARIANTARG* pvargDest, VARIANTARG* pvargSrc,
                                    LCID lcid, USHORT wFlags, VARTYPE vt)
 {
   HRESULT res = S_OK;
@@ -1105,11 +1123,11 @@ static HRESULT VARIANT_RollUdate(UDATE *lpUd)
 
   if (iYear > 9999 || iYear < -9999)
     return E_INVALIDARG; /* Invalid value */
-  /* Years 0 to 49 are treated as 2000 + year, see also VARIANT_MakeDate() */
-  if (0 <= iYear && iYear <= 49)
+  /* Year 0 to 29 are treated as 2000 + year */
+  if (iYear >= 0 && iYear < 30)
     iYear += 2000;
-  /* Remaining years 50 to 99 are treated as 1900 + year */
-  else if (50 <= iYear && iYear <= 99)
+  /* Remaining years < 100 are treated as 1900 + year */
+  else if (iYear >= 30 && iYear < 100)
     iYear += 1900;
 
   iMinute += iSecond / 60;
@@ -1488,33 +1506,35 @@ HRESULT WINAPI VarUdateFromDate(DATE dateIn, ULONG dwFlags, UDATE *lpUdate)
   return S_OK;
 }
 
-/* The localised characters that make up a valid number */
-typedef struct tagVARIANT_NUMBER_CHARS
-{
-  WCHAR cNegativeSymbol;
-  WCHAR cPositiveSymbol;
-  WCHAR cDecimalPoint;
-  WCHAR cDigitSeparator;
-  DWORD sCurrencyLen;
-  WCHAR sCurrency[8];
-  WCHAR cCurrencyDecimalPoint;
-  WCHAR cCurrencyDigitSeparator;
-} VARIANT_NUMBER_CHARS;
-
 #define GET_NUMBER_TEXT(fld,name) \
   buff[0] = 0; \
-  if (!GetLocaleInfoW(lcid, lctype|fld, buff, ARRAY_SIZE(buff))) \
+  if (!GetLocaleInfoW(lcid, lctype|fld, buff, 2)) \
     WARN("buffer too small for " #fld "\n"); \
   else \
     if (buff[0]) lpChars->name = buff[0]; \
-  TRACE("lcid 0x%x, " #name "=%s\n", lcid, wine_dbgstr_wn(&lpChars->name, 1))
+  TRACE("lcid 0x%x, " #name "=%d '%c'\n", lcid, lpChars->name, lpChars->name)
 
 /* Get the valid number characters for an lcid */
 static void VARIANT_GetLocalisedNumberChars(VARIANT_NUMBER_CHARS *lpChars, LCID lcid, DWORD dwFlags)
 {
-  static const VARIANT_NUMBER_CHARS defaultChars = { '-','+','.',0,1,{'$',0},0,',' };
+  static const VARIANT_NUMBER_CHARS defaultChars = { '-','+','.',',','$',0,'.',',' };
+  static VARIANT_NUMBER_CHARS lastChars;
+  static LCID lastLcid = -1;
+  static DWORD lastFlags = 0;
   LCTYPE lctype = dwFlags & LOCALE_NOUSEROVERRIDE;
   WCHAR buff[4];
+
+  /* To make caching thread-safe, a critical section is needed */
+  EnterCriticalSection(&cache_cs);
+
+  /* Asking for default locale entries is very expensive: It is a registry
+     server call. So cache one locally, as Microsoft does it too */
+  if(lcid == lastLcid && dwFlags == lastFlags)
+  {
+    memcpy(lpChars, &lastChars, sizeof(defaultChars));
+    LeaveCriticalSection(&cache_cs);
+    return;
+  }
 
   memcpy(lpChars, &defaultChars, sizeof(defaultChars));
   GET_NUMBER_TEXT(LOCALE_SNEGATIVESIGN, cNegativeSymbol);
@@ -1524,16 +1544,22 @@ static void VARIANT_GetLocalisedNumberChars(VARIANT_NUMBER_CHARS *lpChars, LCID 
   GET_NUMBER_TEXT(LOCALE_SMONDECIMALSEP, cCurrencyDecimalPoint);
   GET_NUMBER_TEXT(LOCALE_SMONTHOUSANDSEP, cCurrencyDigitSeparator);
 
-  if (!GetLocaleInfoW(lcid, lctype|LOCALE_SCURRENCY, lpChars->sCurrency, ARRAY_SIZE(lpChars->sCurrency)))
+  /* Local currency symbols are often 2 characters */
+  lpChars->cCurrencyLocal2 = '\0';
+  switch(GetLocaleInfoW(lcid, lctype|LOCALE_SCURRENCY, buff, ARRAY_SIZE(buff)))
   {
-    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
-      WARN("buffer too small for LOCALE_SCURRENCY\n");
-    *lpChars->sCurrency = 0;
+    case 3: lpChars->cCurrencyLocal2 = buff[1]; /* Fall through */
+    case 2: lpChars->cCurrencyLocal  = buff[0];
+            break;
+    default: WARN("buffer too small for LOCALE_SCURRENCY\n");
   }
-  if (!*lpChars->sCurrency)
-    wcscpy(lpChars->sCurrency, L"$");
-  lpChars->sCurrencyLen = wcslen(lpChars->sCurrency);
-  TRACE("lcid 0x%x, sCurrency=%u %s\n", lcid, lpChars->sCurrencyLen, wine_dbgstr_w(lpChars->sCurrency));
+  TRACE("lcid 0x%x, cCurrencyLocal =%d,%d '%c','%c'\n", lcid, lpChars->cCurrencyLocal,
+        lpChars->cCurrencyLocal2, lpChars->cCurrencyLocal, lpChars->cCurrencyLocal2);
+
+  memcpy(&lastChars, lpChars, sizeof(defaultChars));
+  lastLcid = lcid;
+  lastFlags = dwFlags;
+  LeaveCriticalSection(&cache_cs);
 }
 
 /* Number Parsing States */
@@ -1580,7 +1606,7 @@ static inline BOOL is_digit(WCHAR c)
  *  - I am unsure if this function should parse non-Arabic (e.g. Thai)
  *   numerals, so this has not been implemented.
  */
-HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFlags,
+HRESULT WINAPI VarParseNumFromStr(OLECHAR *lpszStr, LCID lcid, ULONG dwFlags,
                                   NUMPARSE *pNumprs, BYTE *rgbDig)
 {
   VARIANT_NUMBER_CHARS chars;
@@ -1588,7 +1614,6 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
   DWORD dwState = B_EXPONENT_START|B_INEXACT_ZEROS;
   int iMaxDigits = ARRAY_SIZE(rgbTmp);
   int cchUsed = 0;
-  OLECHAR cDigitSeparator2;
 
   TRACE("(%s,%d,0x%08x,%p,%p)\n", debugstr_w(lpszStr), lcid, dwFlags, pNumprs, rgbDig);
 
@@ -1608,42 +1633,11 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
     return DISP_E_TYPEMISMATCH;
 
   VARIANT_GetLocalisedNumberChars(&chars, lcid, dwFlags);
-  if (chars.cDigitSeparator == chars.cDecimalPoint)
-    /* The decimal point completely masks the digit separator */
-    chars.cDigitSeparator = 0;
-  /* Setting the thousands separator to a non-breaking space implies regular
-   * spaces are allowed too. But the converse is not true.
-   */
-  cDigitSeparator2 = chars.cDigitSeparator == 0xa0 ? ' ' : 0;
 
   /* First consume all the leading symbols and space from the string */
   while (1)
   {
-    if (pNumprs->dwInFlags & NUMPRS_DECIMAL &&
-        (*lpszStr == chars.cDecimalPoint ||
-         *lpszStr == chars.cCurrencyDecimalPoint))
-    {
-      pNumprs->dwOutFlags |= NUMPRS_DECIMAL;
-      if (*lpszStr == chars.cCurrencyDecimalPoint &&
-        chars.cDecimalPoint != chars.cCurrencyDecimalPoint)
-        pNumprs->dwOutFlags |= NUMPRS_CURRENCY;
-      cchUsed++;
-      lpszStr++;
-
-      /* If we have no digits so far, skip leading zeros */
-      if (!pNumprs->cDig)
-      {
-        while (lpszStr[1] == '0')
-        {
-          dwState |= B_LEADING_ZERO;
-          cchUsed++;
-          lpszStr++;
-          pNumprs->nPwr10--;
-        }
-      }
-      break;
-    }
-    else if (pNumprs->dwInFlags & NUMPRS_LEADING_WHITE && iswspace(*lpszStr))
+    if (pNumprs->dwInFlags & NUMPRS_LEADING_WHITE && iswspace(*lpszStr))
     {
       pNumprs->dwOutFlags |= NUMPRS_LEADING_WHITE;
       do
@@ -1651,17 +1645,6 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
         cchUsed++;
         lpszStr++;
       } while (iswspace(*lpszStr));
-    }
-    else if (pNumprs->dwInFlags & NUMPRS_THOUSANDS &&
-             ((chars.cDigitSeparator && *lpszStr == chars.cDigitSeparator) ||
-              (cDigitSeparator2 && *lpszStr == cDigitSeparator2)))
-    {
-      return DISP_E_TYPEMISMATCH; /* Not allowed before the first digit */
-    }
-    else if ((pNumprs->dwInFlags & (NUMPRS_THOUSANDS|NUMPRS_CURRENCY)) == (NUMPRS_THOUSANDS|NUMPRS_CURRENCY) &&
-             chars.cCurrencyDigitSeparator && *lpszStr == chars.cCurrencyDigitSeparator)
-    {
-      return DISP_E_TYPEMISMATCH; /* Not allowed before the first digit */
     }
     else if (pNumprs->dwInFlags & NUMPRS_LEADING_PLUS &&
              *lpszStr == chars.cPositiveSymbol &&
@@ -1681,11 +1664,15 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
     }
     else if (pNumprs->dwInFlags & NUMPRS_CURRENCY &&
              !(pNumprs->dwOutFlags & NUMPRS_CURRENCY) &&
-             wcsncmp(lpszStr, chars.sCurrency, chars.sCurrencyLen) == 0)
+             *lpszStr == chars.cCurrencyLocal &&
+             (!chars.cCurrencyLocal2 || lpszStr[1] == chars.cCurrencyLocal2))
     {
       pNumprs->dwOutFlags |= NUMPRS_CURRENCY;
-      cchUsed += chars.sCurrencyLen;
-      lpszStr += chars.sCurrencyLen;
+      cchUsed++;
+      lpszStr++;
+      /* Only accept currency characters */
+      chars.cDecimalPoint = chars.cCurrencyDecimalPoint;
+      chars.cDigitSeparator = chars.cCurrencyDigitSeparator;
     }
     else if (pNumprs->dwInFlags & NUMPRS_PARENS && *lpszStr == '(' &&
              !(pNumprs->dwOutFlags & NUMPRS_PARENS))
@@ -1698,24 +1685,28 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
       break;
   }
 
-  if (!(pNumprs->dwOutFlags & (NUMPRS_CURRENCY|NUMPRS_DECIMAL)))
+  if (!(pNumprs->dwOutFlags & NUMPRS_CURRENCY))
   {
-    if ((*lpszStr == '&' && (*(lpszStr+1) == 'H' || *(lpszStr+1) == 'h')) &&
-        pNumprs->dwInFlags & NUMPRS_HEX_OCT)
-    {
+    /* Only accept non-currency characters */
+    chars.cCurrencyDecimalPoint = chars.cDecimalPoint;
+    chars.cCurrencyDigitSeparator = chars.cDigitSeparator;
+  }
+
+  if ((*lpszStr == '&' && (*(lpszStr+1) == 'H' || *(lpszStr+1) == 'h')) &&
+    pNumprs->dwInFlags & NUMPRS_HEX_OCT)
+  {
       dwState |= B_PROCESSING_HEX;
       pNumprs->dwOutFlags |= NUMPRS_HEX_OCT;
       cchUsed=cchUsed+2;
       lpszStr=lpszStr+2;
-    }
-    else if ((*lpszStr == '&' && (*(lpszStr+1) == 'O' || *(lpszStr+1) == 'o')) &&
-             pNumprs->dwInFlags & NUMPRS_HEX_OCT)
-    {
+  }
+  else if ((*lpszStr == '&' && (*(lpszStr+1) == 'O' || *(lpszStr+1) == 'o')) &&
+    pNumprs->dwInFlags & NUMPRS_HEX_OCT)
+  {
       dwState |= B_PROCESSING_OCT;
       pNumprs->dwOutFlags |= NUMPRS_HEX_OCT;
       cchUsed=cchUsed+2;
       lpszStr=lpszStr+2;
-    }
   }
 
   /* Strip Leading zeros */
@@ -1789,30 +1780,16 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
         cchUsed++;
       }
     }
-    else if (pNumprs->dwInFlags & NUMPRS_THOUSANDS &&
-             !(pNumprs->dwOutFlags & NUMPRS_HEX_OCT) &&
-             ((chars.cDigitSeparator && *lpszStr == chars.cDigitSeparator) ||
-              (cDigitSeparator2 && *lpszStr == cDigitSeparator2)))
+    else if (*lpszStr == chars.cDigitSeparator && pNumprs->dwInFlags & NUMPRS_THOUSANDS)
     {
       pNumprs->dwOutFlags |= NUMPRS_THOUSANDS;
       cchUsed++;
     }
-    else if ((pNumprs->dwInFlags & (NUMPRS_THOUSANDS|NUMPRS_CURRENCY)) == (NUMPRS_THOUSANDS|NUMPRS_CURRENCY) &&
-             !(pNumprs->dwOutFlags & NUMPRS_HEX_OCT) &&
-             chars.cCurrencyDigitSeparator && *lpszStr == chars.cCurrencyDigitSeparator)
-    {
-      pNumprs->dwOutFlags |= NUMPRS_THOUSANDS|NUMPRS_CURRENCY;
-      cchUsed++;
-    }
-    else if (pNumprs->dwInFlags & NUMPRS_DECIMAL &&
-             (*lpszStr == chars.cDecimalPoint ||
-              *lpszStr == chars.cCurrencyDecimalPoint) &&
-             !(pNumprs->dwOutFlags & (NUMPRS_HEX_OCT|NUMPRS_DECIMAL|NUMPRS_EXPONENT)))
+    else if (*lpszStr == chars.cDecimalPoint &&
+             pNumprs->dwInFlags & NUMPRS_DECIMAL &&
+             !(pNumprs->dwOutFlags & (NUMPRS_DECIMAL|NUMPRS_EXPONENT)))
     {
       pNumprs->dwOutFlags |= NUMPRS_DECIMAL;
-      if (*lpszStr == chars.cCurrencyDecimalPoint &&
-        chars.cDecimalPoint != chars.cCurrencyDecimalPoint)
-        pNumprs->dwOutFlags |= NUMPRS_CURRENCY;
       cchUsed++;
 
       /* If we have no digits so far, skip leading zeros */
@@ -1847,7 +1824,7 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
     }
     else if ((*lpszStr == 'e' || *lpszStr == 'E') &&
              pNumprs->dwInFlags & NUMPRS_EXPONENT &&
-             !(pNumprs->dwOutFlags & (NUMPRS_HEX_OCT|NUMPRS_CURRENCY|NUMPRS_EXPONENT)))
+             !(pNumprs->dwOutFlags & NUMPRS_EXPONENT))
     {
       dwState |= B_PROCESSING_EXPONENT;
       pNumprs->dwOutFlags |= NUMPRS_EXPONENT;
@@ -1931,38 +1908,7 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
   /* Consume any trailing symbols and space */
   while (1)
   {
-    if ((chars.cDigitSeparator && *lpszStr == chars.cDigitSeparator) ||
-        (cDigitSeparator2 && *lpszStr == cDigitSeparator2))
-    {
-      if (pNumprs->dwInFlags & NUMPRS_THOUSANDS &&
-          !(pNumprs->dwOutFlags & NUMPRS_HEX_OCT))
-      {
-        pNumprs->dwOutFlags |= NUMPRS_THOUSANDS;
-        cchUsed++;
-        lpszStr++;
-      }
-      else
-      {
-        /* Not allowed, even with NUMPRS_TRAILING_WHITE */
-        break;
-      }
-    }
-    else if (*lpszStr == chars.cCurrencyDigitSeparator)
-    {
-      if ((pNumprs->dwInFlags & (NUMPRS_THOUSANDS|NUMPRS_CURRENCY)) == (NUMPRS_THOUSANDS|NUMPRS_CURRENCY) &&
-          !(pNumprs->dwOutFlags & NUMPRS_HEX_OCT))
-      {
-        pNumprs->dwOutFlags |= NUMPRS_THOUSANDS|NUMPRS_CURRENCY;
-        cchUsed++;
-        lpszStr++;
-      }
-      else
-      {
-        /* Not allowed, even with NUMPRS_TRAILING_WHITE */
-        break;
-      }
-    }
-    else if ((pNumprs->dwInFlags & NUMPRS_TRAILING_WHITE) && iswspace(*lpszStr))
+    if ((pNumprs->dwInFlags & NUMPRS_TRAILING_WHITE) && iswspace(*lpszStr))
     {
       pNumprs->dwOutFlags |= NUMPRS_TRAILING_WHITE;
       do
@@ -1993,14 +1939,6 @@ HRESULT WINAPI VarParseNumFromStr(const OLECHAR *lpszStr, LCID lcid, ULONG dwFla
       cchUsed++;
       lpszStr++;
       pNumprs->dwOutFlags |= NUMPRS_NEG;
-    }
-    else if (pNumprs->dwInFlags & NUMPRS_CURRENCY &&
-             !(pNumprs->dwOutFlags & NUMPRS_HEX_OCT) &&
-             wcsncmp(lpszStr, chars.sCurrency, chars.sCurrencyLen) == 0)
-    {
-      pNumprs->dwOutFlags |= NUMPRS_CURRENCY;
-      cchUsed += chars.sCurrencyLen;
-      lpszStr += chars.sCurrencyLen;
     }
     else
       break;

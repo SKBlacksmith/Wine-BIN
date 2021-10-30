@@ -367,12 +367,7 @@ static HRESULT WINAPI IPersistFile_fnSave(IPersistFile* iface, LPCOLESTR pszFile
     TRACE("(%p)->(%s)\n",This,debugstr_w(pszFileName));
 
     if (!pszFileName)
-    {
-        if (!This->filepath) return S_OK;
-
-        pszFileName = This->filepath;
-        fRemember = FALSE;
-    }
+        return E_FAIL;
 
     r = SHCreateStreamOnFileW( pszFileName, STGM_READWRITE | STGM_CREATE | STGM_SHARE_EXCLUSIVE, &stm );
     if( SUCCEEDED( r ) )
@@ -384,12 +379,9 @@ static HRESULT WINAPI IPersistFile_fnSave(IPersistFile* iface, LPCOLESTR pszFile
 	{
             StartLinkProcessor( pszFileName );
 
-            if (fRemember)
-            {
-                /* update file path */
-                heap_free(This->filepath);
-                This->filepath = strdupW(pszFileName);
-            }
+            /* update file path */
+            heap_free(This->filepath);
+            This->filepath = strdupW(pszFileName);
 
             This->bDirty = FALSE;
         }
@@ -2308,7 +2300,7 @@ static HRESULT WINAPI
 ShellLink_SetFlags( IShellLinkDataList* iface, DWORD dwFlags )
 {
     FIXME("(%p)->(%u): stub\n", iface, dwFlags);
-    return S_OK;
+    return E_NOTIMPL;
 }
 
 static const IShellLinkDataListVtbl dlvt =

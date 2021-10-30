@@ -43,6 +43,21 @@ static inline PStore_impl *impl_from_IPStore(IPStore *iface)
     return CONTAINING_RECORD(iface, PStore_impl, IPStore_iface);
 }
 
+BOOL WINAPI DllMain(HINSTANCE hinst, DWORD fdwReason, LPVOID fImpLoad)
+{
+    TRACE("%p %x %p\n", hinst, fdwReason, fImpLoad);
+
+    switch (fdwReason)
+    {
+    case DLL_WINE_PREATTACH:
+        return FALSE;  /* prefer native version */
+    case DLL_PROCESS_ATTACH:
+        DisableThreadLibraryCalls(hinst);
+        break;
+    }
+    return TRUE;
+}
+
 /**************************************************************************
  *  IPStore->QueryInterface
  */
@@ -355,6 +370,18 @@ HRESULT WINAPI PStoreCreateInstance( IPStore** ppProvider,
     return S_OK;
 }
 
+HRESULT WINAPI DllRegisterServer(void)
+{
+    FIXME("\n");
+    return S_OK;
+}
+
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    FIXME("\n");
+    return S_OK;
+}
+
 /***********************************************************************
  *             DllGetClassObject (PSTOREC.@)
  */
@@ -362,4 +389,9 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID iid, LPVOID *ppv)
 {
     FIXME("%s %s %p\n", debugstr_guid(rclsid), debugstr_guid(iid), ppv);
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
 }

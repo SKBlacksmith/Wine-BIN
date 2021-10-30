@@ -46,6 +46,8 @@ static BOOL MSSTYLES_GetNextToken(LPCWSTR lpStringStart, LPCWSTR lpStringEnd, LP
 static void MSSTYLES_ParseThemeIni(PTHEME_FILE tf, BOOL setMetrics);
 static HRESULT MSSTYLES_GetFont (LPCWSTR lpStringStart, LPCWSTR lpStringEnd, LPCWSTR *lpValEnd, LOGFONTW* logfont);
 
+extern int alphaBlendMode;
+
 #define MSSTYLES_VERSION 0x0003
 
 static PTHEME_FILE tfActiveTheme;
@@ -1072,18 +1074,11 @@ static BOOL prepare_alpha (HBITMAP bmp, BOOL* hasAlpha)
     if (!bmp || GetObjectW( bmp, sizeof(dib), &dib ) != sizeof(dib))
         return FALSE;
 
-    if (dib.dsBm.bmBitsPixel != 32 || dib.dsBmih.biCompression != BI_RGB)
+    if(dib.dsBm.bmBitsPixel != 32)
         /* nothing to do */
         return TRUE;
 
-    /* If all alpha values are 0xff, don't use alpha blending */
-    for (n = 0, p = dib.dsBm.bmBits; n < dib.dsBmih.biWidth * dib.dsBmih.biHeight; n++, p += 4)
-        if ((*hasAlpha = (p[3] != 0xff)))
-            break;
-
-    if (!*hasAlpha)
-        return TRUE;
-
+    *hasAlpha = TRUE;
     p = dib.dsBm.bmBits;
     n = dib.dsBmih.biHeight * dib.dsBmih.biWidth;
     /* AlphaBlend() wants premultiplied alpha, so do that now */

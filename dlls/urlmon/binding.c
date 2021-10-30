@@ -1126,7 +1126,8 @@ static void report_data(Binding *This, DWORD bscf, ULONG progress, ULONG progres
         HRESULT hres;
 
         if(!(This->state & BINDING_LOCKED)) {
-            hres = IInternetProtocolEx_LockRequest(&This->protocol->IInternetProtocolEx_iface, 0);
+            HRESULT hres = IInternetProtocolEx_LockRequest(
+                    &This->protocol->IInternetProtocolEx_iface, 0);
             if(SUCCEEDED(hres))
                 This->state |= BINDING_LOCKED;
         }

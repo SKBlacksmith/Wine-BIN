@@ -498,7 +498,7 @@ HRESULT protocol_read(Protocol *protocol, void *buf, ULONG size, ULONG *read_ret
 HRESULT protocol_lock_request(Protocol *protocol)
 {
     if (!InternetLockRequestFile(protocol->request, &protocol->lock))
-        WARN("InternetLockRequestFile failed: %d\n", GetLastError());
+        WARN("InternetLockRequest failed: %d\n", GetLastError());
 
     return S_OK;
 }
@@ -509,7 +509,7 @@ HRESULT protocol_unlock_request(Protocol *protocol)
         return S_OK;
 
     if(!InternetUnlockRequestFile(protocol->lock))
-        WARN("InternetUnlockRequestFile failed: %d\n", GetLastError());
+        WARN("InternetUnlockRequest failed: %d\n", GetLastError());
     protocol->lock = 0;
 
     return S_OK;

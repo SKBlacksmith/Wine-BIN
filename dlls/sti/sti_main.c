@@ -137,6 +137,8 @@ BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpvReserved)
 {
     TRACE("(0x%p, %d, %p)\n",hInstDLL,fdwReason,lpvReserved);
 
+    if (fdwReason == DLL_WINE_PREATTACH)
+        return FALSE;
     return STI_DllMain(hInstDLL, fdwReason, lpvReserved);
 }
 
@@ -157,6 +159,14 @@ HRESULT WINAPI DllGetClassObject( REFCLSID rclsid, REFIID iid, LPVOID *ppv )
     if (cf)
         return IClassFactory_QueryInterface( cf, iid, ppv );
     return STI_DllGetClassObject( rclsid, iid, ppv );
+}
+
+/******************************************************************************
+ *           DllCanUnloadNow   (STI.@)
+ */
+HRESULT WINAPI DllCanUnloadNow( void )
+{
+    return S_FALSE;
 }
 
 /***********************************************************************

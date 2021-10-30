@@ -186,7 +186,7 @@ static HRESULT WINAPI property_bag_Read(IPropertyBag *iface,
             reg_pins[1].nMediaTypes = output_count;
             reg_pins[1].lpMediaType = reg_types + count;
             reg_filter.dwVersion = 2;
-            reg_filter.dwMerit = MERIT_NORMAL + 0x800;
+            reg_filter.dwMerit = MERIT_NORMAL + 0x800,
             reg_filter.cPins2 = 2;
             reg_filter.rgPins2 = reg_pins;
 
@@ -414,6 +414,7 @@ static ULONG WINAPI moniker_Release(IMoniker *iface)
     if (ref == 0) {
         free(This->name);
         free(This);
+        DEVENUM_UnlockModule();
     }
     return ref;
 }
@@ -782,6 +783,8 @@ struct moniker *filter_moniker_create(const GUID *class, const WCHAR *name)
     object->has_class = !!class;
     object->name = wcsdup(name);
 
+    DEVENUM_LockModule();
+
     return object;
 }
 
@@ -801,6 +804,8 @@ struct moniker *codec_moniker_create(const GUID *class, const WCHAR *name)
     object->has_class = !!class;
     object->name = wcsdup(name);
 
+    DEVENUM_LockModule();
+
     return object;
 }
 
@@ -817,6 +822,8 @@ struct moniker *dmo_moniker_create(const GUID class, const GUID clsid)
     object->type = DEVICE_DMO;
     object->class = class;
     object->clsid = clsid;
+
+    DEVENUM_LockModule();
 
     return object;
 }
@@ -872,6 +879,7 @@ static ULONG WINAPI enum_moniker_Release(IEnumMoniker *iface)
         RegCloseKey(This->sw_key);
         RegCloseKey(This->cm_key);
         free(This);
+        DEVENUM_UnlockModule();
         return 0;
     }
     return ref;
@@ -1061,6 +1069,8 @@ HRESULT enum_moniker_create(REFCLSID class, IEnumMoniker **out)
     }
 
     *out = &object->IEnumMoniker_iface;
+
+    DEVENUM_LockModule();
 
     return S_OK;
 }

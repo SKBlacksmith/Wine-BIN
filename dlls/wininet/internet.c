@@ -1083,28 +1083,18 @@ BOOL WINAPI InternetGetLastResponseInfoA(LPDWORD lpdwError,
 {
     LPWITHREADERROR lpwite = TlsGetValue(g_dwTlsErrIndex);
 
-    TRACE("(%p, %p, %p)\n", lpdwError, lpszBuffer, lpdwBufferLength);
+    TRACE("\n");
 
-    if (!lpdwError || !lpdwBufferLength)
-    {
-        SetLastError(ERROR_INVALID_PARAMETER);
-        return FALSE;
-    }
     if (lpwite)
     {
-        if (lpszBuffer == NULL || *lpdwBufferLength < strlen(lpwite->response))
-        {
-            *lpdwBufferLength = strlen(lpwite->response);
-            SetLastError(ERROR_INSUFFICIENT_BUFFER);
-            return FALSE;
-        }
         *lpdwError = lpwite->dwError;
-        if (*lpdwBufferLength)
+        if (lpwite->dwError)
         {
             memcpy(lpszBuffer, lpwite->response, *lpdwBufferLength);
-            lpszBuffer[*lpdwBufferLength - 1] = 0;
             *lpdwBufferLength = strlen(lpszBuffer);
         }
+        else
+            *lpdwBufferLength = 0;
     }
     else
     {
@@ -1130,25 +1120,18 @@ BOOL WINAPI InternetGetLastResponseInfoW(LPDWORD lpdwError,
 {
     LPWITHREADERROR lpwite = TlsGetValue(g_dwTlsErrIndex);
 
-    TRACE("(%p, %p, %p)\n", lpdwError, lpszBuffer, lpdwBufferLength);
+    TRACE("\n");
 
-    if (!lpdwError || !lpdwBufferLength)
-    {
-        SetLastError(ERROR_INVALID_PARAMETER);
-        return FALSE;
-    }
     if (lpwite)
     {
-        int required_size = MultiByteToWideChar(CP_ACP, 0, lpwite->response, -1, NULL, 0) - 1;
-        if (lpszBuffer == NULL || *lpdwBufferLength < required_size)
-        {
-            *lpdwBufferLength = required_size;
-            SetLastError(ERROR_INSUFFICIENT_BUFFER);
-            return FALSE;
-        }
         *lpdwError = lpwite->dwError;
-        if (*lpdwBufferLength)
-            *lpdwBufferLength = MultiByteToWideChar(CP_ACP, 0, lpwite->response, -1, lpszBuffer, *lpdwBufferLength);
+        if (lpwite->dwError)
+        {
+            memcpy(lpszBuffer, lpwite->response, *lpdwBufferLength);
+            *lpdwBufferLength = lstrlenW(lpszBuffer);
+        }
+        else
+            *lpdwBufferLength = 0;
     }
     else
     {
@@ -1653,13 +1636,7 @@ BOOL WINAPI InternetCrackUrlW(const WCHAR *lpszUrl, DWORD dwUrlLength, DWORD dwF
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
-
-    if (!dwUrlLength)
-        dwUrlLength = lstrlenW(lpszUrl);
-    else {
-        /* Windows stops at a null, regardless of what dwUrlLength says. */
-        dwUrlLength = wcsnlen(lpszUrl, dwUrlLength);
-    }
+    if (!dwUrlLength) dwUrlLength = lstrlenW(lpszUrl);
 
     if (dwFlags & ICU_DECODE)
     {

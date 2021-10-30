@@ -18,6 +18,7 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -1646,7 +1647,6 @@ static HRESULT WINAPI HTMLDocument_get_styleSheets(IHTMLDocument2 *iface,
     HTMLDocument *This = impl_from_IHTMLDocument2(iface);
     nsIDOMStyleSheetList *nsstylelist;
     nsresult nsres;
-    HRESULT hres;
 
     TRACE("(%p)->(%p)\n", This, p);
 
@@ -1660,13 +1660,13 @@ static HRESULT WINAPI HTMLDocument_get_styleSheets(IHTMLDocument2 *iface,
     nsres = nsIDOMHTMLDocument_GetStyleSheets(This->doc_node->nsdoc, &nsstylelist);
     if(NS_FAILED(nsres)) {
         ERR("GetStyleSheets failed: %08x\n", nsres);
-        return map_nsresult(nsres);
+        return E_FAIL;
     }
 
-    hres = create_style_sheet_collection(nsstylelist,
-                                         dispex_compat_mode(&This->doc_node->node.event_target.dispex), p);
+    *p = HTMLStyleSheetsCollection_Create(nsstylelist);
     nsIDOMStyleSheetList_Release(nsstylelist);
-    return hres;
+
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLDocument_put_onbeforeupdate(IHTMLDocument2 *iface, VARIANT v)
@@ -1733,8 +1733,8 @@ static HRESULT WINAPI HTMLDocument_createStyleSheet(IHTMLDocument2 *iface, BSTR 
 
     if(bstrHref && *bstrHref) {
         FIXME("semi-stub for href %s\n", debugstr_w(bstrHref));
-        return create_style_sheet(NULL, dispex_compat_mode(&This->doc_node->node.event_target.dispex),
-                                  ppnewStyleSheet);
+        *ppnewStyleSheet = HTMLStyleSheet_Create(NULL);
+        return S_OK;
     }
 
     hres = create_element(This->doc_node, L"style", &elem);
@@ -2637,8 +2637,7 @@ static HRESULT WINAPI HTMLDocument4_get_namespaces(IHTMLDocument4 *iface, IDispa
     if(!This->doc_node->namespaces) {
         HRESULT hres;
 
-        hres = create_namespace_collection(dispex_compat_mode(&This->doc_node->node.event_target.dispex),
-                                           &This->doc_node->namespaces);
+        hres = create_namespace_collection(&This->doc_node->namespaces);
         if(FAILED(hres))
             return hres;
     }
@@ -2682,7 +2681,7 @@ static HRESULT WINAPI HTMLDocument4_createEventObject(IHTMLDocument4 *iface,
         return E_NOTIMPL;
     }
 
-    return create_event_obj(dispex_compat_mode(&This->doc_node->node.event_target.dispex), ppEventObj);
+    return create_event_obj(ppEventObj);
 }
 
 static HRESULT WINAPI HTMLDocument4_fireEvent(IHTMLDocument4 *iface, BSTR bstrEventName,
@@ -4348,21 +4347,21 @@ static HRESULT WINAPI DocumentSelector_querySelectorAll(IDocumentSelector *iface
     HTMLDocument *This = impl_from_IDocumentSelector(iface);
     nsIDOMNodeList *node_list;
     nsAString nsstr;
-    HRESULT hres;
+    nsresult nsres;
 
     TRACE("(%p)->(%s %p)\n", This, debugstr_w(v), pel);
 
     nsAString_InitDepend(&nsstr, v);
-    hres = map_nsresult(nsIDOMHTMLDocument_QuerySelectorAll(This->doc_node->nsdoc, &nsstr, &node_list));
+    nsres = nsIDOMHTMLDocument_QuerySelectorAll(This->doc_node->nsdoc, &nsstr, &node_list);
     nsAString_Finish(&nsstr);
-    if(FAILED(hres)) {
-        ERR("QuerySelectorAll failed: %08x\n", hres);
-        return hres;
+    if(NS_FAILED(nsres)) {
+        ERR("QuerySelectorAll failed: %08x\n", nsres);
+        return E_FAIL;
     }
 
-    hres = create_child_collection(node_list, dispex_compat_mode(&This->doc_node->node.event_target.dispex), pel);
+    *pel = create_child_collection(node_list);
     nsIDOMNodeList_Release(node_list);
-    return hres;
+    return *pel ? S_OK : E_OUTOFMEMORY;
 }
 
 static const IDocumentSelectorVtbl DocumentSelectorVtbl = {
@@ -5199,7 +5198,7 @@ static HRESULT WINAPI DocumentRange_createRange(IDocumentRange *iface, IHTMLDOMR
     if(NS_FAILED(nsIDOMHTMLDocument_CreateRange(This->doc_node->nsdoc, &nsrange)))
         return E_FAIL;
 
-    hres = create_dom_range(nsrange, dispex_compat_mode(&This->doc_node->node.event_target.dispex), p);
+    hres = HTMLDOMRange_Create(nsrange, p);
     nsIDOMRange_Release(nsrange);
     return hres;
 }
@@ -5978,7 +5977,7 @@ static HRESULT create_document_object(BOOL is_mhtml, IUnknown *outer, REFIID rii
 
     doc->basedoc.doc_obj = doc;
 
-    init_dispatch(&doc->dispex, (IUnknown*)&doc->ICustomDoc_iface, &HTMLDocumentObj_dispex, COMPAT_MODE_QUIRKS);
+    init_dispex(&doc->dispex, (IUnknown*)&doc->ICustomDoc_iface, &HTMLDocumentObj_dispex);
     init_doc(&doc->basedoc, outer ? outer : &doc->IUnknown_inner, &doc->dispex.IDispatchEx_iface);
     TargetContainer_Init(doc);
     doc->is_mhtml = is_mhtml;

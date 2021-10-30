@@ -1074,7 +1074,7 @@ BOOL CDECL X11DRV_PaintRgn( PHYSDEV dev, HRGN hrgn )
 /**********************************************************************
  *          X11DRV_Polygon
  */
-static BOOL X11DRV_Polygon( PHYSDEV dev, const POINT* pt, INT count )
+BOOL CDECL X11DRV_Polygon( PHYSDEV dev, const POINT* pt, INT count )
 {
     X11DRV_PDEVICE *physDev = get_x11drv_dev( dev );
     int i;
@@ -1122,8 +1122,6 @@ BOOL CDECL X11DRV_PolyPolygon( PHYSDEV dev, const POINT* pt, const INT* counts, 
     DWORD total = 0, max = 0, pos, i;
     POINT *points;
     BOOL ret = FALSE;
-
-    if (polygons == 1) return X11DRV_Polygon( dev, pt, *counts );
 
     for (i = 0; i < polygons; i++)
     {

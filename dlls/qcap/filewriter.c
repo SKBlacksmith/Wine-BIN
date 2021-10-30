@@ -20,7 +20,7 @@
 
 #include "qcap_private.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(quartz);
+WINE_DEFAULT_DEBUG_CHANNEL(qcap);
 
 struct file_writer
 {
@@ -109,14 +109,14 @@ static HRESULT file_writer_sink_eos(struct strmbase_sink *iface)
 {
     struct file_writer *filter = impl_from_strmbase_pin(&iface->pin);
 
-    EnterCriticalSection(&filter->filter.filter_cs);
+    EnterCriticalSection(&filter->filter.csFilter);
 
     if (filter->filter.state == State_Running)
         deliver_ec_complete(filter);
     else
         filter->eos = TRUE;
 
-    LeaveCriticalSection(&filter->filter.filter_cs);
+    LeaveCriticalSection(&filter->filter.csFilter);
     return S_OK;
 }
 

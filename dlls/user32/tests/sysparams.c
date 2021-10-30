@@ -821,6 +821,13 @@ static void test_SPI_SETBORDER( void )                 /*      6 */
             "Control Panel\\Desktop\\WindowMetrics","CaptionWidth", dpi);
     ncmsave.iCaptionWidth = CaptionWidth;
 
+    /* These tests hang when XFree86 4.0 for Windows is running (tested on
+     *  WinNT, SP2, Cygwin/XFree 4.1.0. Skip the test when XFree86 is
+     * running.
+     */
+    if (FindWindowA( NULL, "Cygwin/XFree86" ))
+        return;
+
     trace("testing SPI_{GET,SET}BORDER\n");
 
     SetLastError(0xdeadbeef);
@@ -1119,6 +1126,13 @@ static void test_SPI_SETICONTITLEWRAP( void )          /*     26 */
     const UINT vals[]={TRUE,FALSE};
     unsigned int i;
     ICONMETRICSA im;
+
+    /* These tests hang when XFree86 4.0 for Windows is running (tested on
+     * WinNT, SP2, Cygwin/XFree 4.1.0. Skip the test when XFree86 is
+     * running.
+     */
+    if (FindWindowA( NULL, "Cygwin/XFree86" ))
+        return;
 
     trace("testing SPI_{GET,SET}ICONTITLEWRAP\n");
     SetLastError(0xdeadbeef);
@@ -1500,7 +1514,7 @@ static void test_SPI_SETNONCLIENTMETRICS( void )               /*     44 */
     /* SPI_GETNONCLIENTMETRICS returns some "cooked" values. For instance if 
        the caption font height is higher than the CaptionHeight field,
        the latter is adjusted accordingly. To be able to restore these setting
-       accurately we restore the raw values. */
+       accurately be restore the raw values. */
     Ncmorig.iCaptionWidth = metricfromreg( SPI_METRIC_REGKEY, SPI_CAPTIONWIDTH_VALNAME, real_dpi);
     Ncmorig.iCaptionHeight = metricfromreg( SPI_METRIC_REGKEY, SPI_CAPTIONHEIGHT_VALNAME, dpi);
     Ncmorig.iSmCaptionHeight = metricfromreg( SPI_METRIC_REGKEY, SPI_SMCAPTIONHEIGHT_VALNAME, dpi);

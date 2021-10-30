@@ -48,21 +48,6 @@ static void _expect_ref(IUnknown* obj, ULONG ref, int line)
     ok_(__FILE__, line)(rc == ref, "expected refcount %d, got %d\n", ref, rc);
 }
 
-#define check_interface(a, b, c) check_interface_(__LINE__, a, b, c)
-static void check_interface_(unsigned int line, void *iface_ptr, REFIID iid, BOOL supported)
-{
-    IUnknown *iface = iface_ptr;
-    HRESULT hr, expected_hr;
-    IUnknown *unk;
-
-    expected_hr = supported ? S_OK : E_NOINTERFACE;
-
-    hr = IUnknown_QueryInterface(iface, iid, (void **)&unk);
-    ok_(__FILE__, line)(hr == expected_hr, "Got hr %#x, expected %#x.\n", hr, expected_hr);
-    if (SUCCEEDED(hr))
-        IUnknown_Release(unk);
-}
-
 static LONG get_refcount(void *iface)
 {
     IUnknown *unk = iface;
@@ -3839,10 +3824,8 @@ static void test_mxwriter_startendelement_batch2(const struct writer_startendele
 static void test_mxwriter_startendelement(void)
 {
     ISAXContentHandler *content;
-    IVBSAXContentHandler *vb_content;
     IMXWriter *writer;
     VARIANT dest;
-    BSTR bstr_null = NULL, bstr_empty, bstr_a, bstr_b, bstr_ab;
     HRESULT hr;
 
     test_mxwriter_startendelement_batch(writer_startendelement);
@@ -3852,87 +3835,10 @@ static void test_mxwriter_startendelement(void)
             &IID_IMXWriter, (void**)&writer);
     ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
 
-    hr = IMXWriter_put_omitXMLDeclaration(writer, VARIANT_TRUE);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    hr = IMXWriter_QueryInterface(writer, &IID_IVBSAXContentHandler, (void**)&vb_content);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_startDocument(vb_content);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    bstr_empty = SysAllocString(L"");
-    bstr_a = SysAllocString(L"a");
-    bstr_b = SysAllocString(L"b");
-    bstr_ab = SysAllocString(L"a:b");
-
-    hr = IVBSAXContentHandler_startElement(vb_content, &bstr_null, &bstr_empty, &bstr_b, NULL);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_startElement(vb_content, &bstr_empty, &bstr_b, &bstr_empty, NULL);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    V_VT(&dest) = VT_EMPTY;
-    hr = IMXWriter_get_output(writer, &dest);
-    ok(hr == S_OK, "got %08x\n", hr);
-    ok(V_VT(&dest) == VT_BSTR, "got %d\n", V_VT(&dest));
-    ok(!lstrcmpW(L"<>", V_BSTR(&dest)), "got wrong content %s\n", wine_dbgstr_w(V_BSTR(&dest)));
-    VariantClear(&dest);
-
-    hr = IVBSAXContentHandler_startElement(vb_content, &bstr_empty, &bstr_empty, &bstr_b, NULL);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    V_VT(&dest) = VT_EMPTY;
-    hr = IMXWriter_get_output(writer, &dest);
-    ok(hr == S_OK, "got %08x\n", hr);
-    ok(V_VT(&dest) == VT_BSTR, "got %d\n", V_VT(&dest));
-    ok(!lstrcmpW(L"<><b>", V_BSTR(&dest)), "got wrong content %s\n", wine_dbgstr_w(V_BSTR(&dest)));
-    VariantClear(&dest);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_null, &bstr_null, &bstr_b);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_null, &bstr_a, &bstr_b);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_a, &bstr_b, &bstr_null);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_empty, &bstr_null, &bstr_b);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_empty, &bstr_b, &bstr_null);
-    ok(hr == E_INVALIDARG, "got %08x\n", hr);
-
-    hr = IVBSAXContentHandler_endElement(vb_content, &bstr_empty, &bstr_empty, &bstr_b);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    V_VT(&dest) = VT_EMPTY;
-    hr = IMXWriter_get_output(writer, &dest);
-    ok(hr == S_OK, "got %08x\n", hr);
-    ok(V_VT(&dest) == VT_BSTR, "got %d\n", V_VT(&dest));
-    ok(!lstrcmpW(L"<><b></b>", V_BSTR(&dest)), "got wrong content %s\n", wine_dbgstr_w(V_BSTR(&dest)));
-    VariantClear(&dest);
-
-    SysFreeString(bstr_empty);
-    SysFreeString(bstr_a);
-    SysFreeString(bstr_b);
-    SysFreeString(bstr_ab);
-
-    hr = IVBSAXContentHandler_endDocument(vb_content);
-    ok(hr == S_OK, "got %08x\n", hr);
-
-    IVBSAXContentHandler_Release(vb_content);
-    IMXWriter_Release(writer);
-
-    hr = CoCreateInstance(&CLSID_MXXMLWriter, NULL, CLSCTX_INPROC_SERVER,
-            &IID_IMXWriter, (void**)&writer);
-    ok(hr == S_OK, "Expected S_OK, got %08x\n", hr);
-
-    hr = IMXWriter_put_omitXMLDeclaration(writer, VARIANT_TRUE);
-    ok(hr == S_OK, "got %08x\n", hr);
-
     hr = IMXWriter_QueryInterface(writer, &IID_ISAXContentHandler, (void**)&content);
+    ok(hr == S_OK, "got %08x\n", hr);
+
+    hr = IMXWriter_put_omitXMLDeclaration(writer, VARIANT_TRUE);
     ok(hr == S_OK, "got %08x\n", hr);
 
     hr = ISAXContentHandler_startDocument(content);
@@ -4461,199 +4367,6 @@ static void test_mxwriter_stream(void)
     free_bstrs();
 }
 
-static void test_mxwriter_domdoc(void)
-{
-    ISAXContentHandler *content;
-    IXMLDOMDocument *domdoc;
-    IMXWriter *writer;
-    HRESULT hr;
-    VARIANT dest;
-    IXMLDOMElement *root = NULL;
-    IXMLDOMNodeList *node_list = NULL;
-    IXMLDOMNode *node = NULL;
-    LONG list_length = 0;
-    BSTR str;
-
-    /* Create writer and attach DOMDocument output */
-    hr = CoCreateInstance(&CLSID_MXXMLWriter60, NULL, CLSCTX_INPROC_SERVER, &IID_IMXWriter, (void**)&writer);
-    ok(hr == S_OK, "Failed to create a writer, hr %#x.\n", hr);
-
-    hr = IMXWriter_QueryInterface(writer, &IID_ISAXContentHandler, (void**)&content);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = CoCreateInstance(&CLSID_DOMDocument60, NULL, CLSCTX_INPROC_SERVER, &IID_IXMLDOMDocument, (void **)&domdoc);
-    ok(hr == S_OK, "Failed to create a document, hr %#x.\n", hr);
-
-    V_VT(&dest) = VT_DISPATCH;
-    V_DISPATCH(&dest) = (IDispatch *)domdoc;
-
-    hr = IMXWriter_put_output(writer, dest);
-todo_wine
-    ok(hr == S_OK, "Failed to set writer output, hr %#x.\n", hr);
-    if (FAILED(hr))
-    {
-        IXMLDOMDocument_Release(domdoc);
-        IMXWriter_Release(writer);
-        return;
-    }
-
-    /* Add root element to document. */
-    hr = IXMLDOMDocument_createElement(domdoc, _bstr_("TestElement"), &root);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    hr = IXMLDOMDocument_appendChild(domdoc, (IXMLDOMNode *)root, NULL);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    IXMLDOMElement_Release(root);
-
-    hr = IXMLDOMDocument_get_documentElement(domdoc, &root);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(root != NULL, "Unexpected document root.\n");
-    IXMLDOMElement_Release(root);
-
-    /* startDocument clears root element and disables methods. */
-    hr = ISAXContentHandler_startDocument(content);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMDocument_get_documentElement(domdoc, &root);
-todo_wine
-    ok(hr == S_FALSE, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMDocument_createElement(domdoc, _bstr_("TestElement"), &root);
-todo_wine
-    ok(hr == E_FAIL, "Unexpected hr %#x.\n", hr);
-
-    /* startElement allows document root node to be accessed. */
-    hr = ISAXContentHandler_startElement(content, L"", 0, L"", 0, L"BankAccount", 11, NULL);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMDocument_get_documentElement(domdoc, &root);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(root != NULL, "Unexpected document root.\n");
-
-    hr = IXMLDOMElement_get_nodeName(root, &str);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-todo_wine
-    ok(!lstrcmpW(L"BankAccount", str), "Unexpected name %s.\n", wine_dbgstr_w(str));
-    SysFreeString(str);
-
-    /* startElement immediately updates previous node. */
-    hr = ISAXContentHandler_startElement(content, L"", 0, L"", 0, L"Number", 6, NULL);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMElement_get_childNodes(root, &node_list);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMNodeList_get_length(node_list, &list_length);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-todo_wine
-    ok(list_length == 1, "list length %i, expected 1\n", list_length);
-
-    hr = IXMLDOMNodeList_get_item(node_list, 0, &node);
-todo_wine
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMNode_get_nodeName(node, &str);
-todo_wine {
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(!lstrcmpW(L"Number", str), "got %s\n", wine_dbgstr_w(str));
-}
-    SysFreeString(str);
-
-    /* characters not immediately visible. */
-    hr = ISAXContentHandler_characters(content, L"12345", 5);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMNode_get_text(node, &str);
-todo_wine {
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(!lstrcmpW(L"", str), "got %s\n", wine_dbgstr_w(str));
-}
-    SysFreeString(str);
-
-    /* characters visible after endElement. */
-    hr = ISAXContentHandler_endElement(content, L"", 0, L"", 0, L"Number", 6);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMNode_get_text(node, &str);
-todo_wine {
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(!lstrcmpW(L"12345", str), "got %s\n", wine_dbgstr_w(str));
-}
-    SysFreeString(str);
-
-    IXMLDOMNode_Release(node);
-
-    /* second startElement updates the existing node list. */
-
-    hr = ISAXContentHandler_startElement(content, L"", 0, L"", 0, L"Name", 4, NULL);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = ISAXContentHandler_characters(content, L"Captain Ahab", 12);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = ISAXContentHandler_endElement(content, L"", 0, L"", 0, L"Name", 4);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = ISAXContentHandler_endElement(content, L"", 0, L"", 0, L"BankAccount", 11);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMNodeList_get_length(node_list, &list_length);
-todo_wine {
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(2 == list_length, "list length %i, expected 2\n", list_length);
-}
-    hr = IXMLDOMNodeList_get_item(node_list, 1, &node);
-todo_wine
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMNode_get_nodeName(node, &str);
-todo_wine {
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(!lstrcmpW(L"Name", str), "got %s\n", wine_dbgstr_w(str));
-}
-    SysFreeString(str);
-
-    hr = IXMLDOMNode_get_text(node, &str);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-todo_wine {
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(!lstrcmpW(L"Captain Ahab", str), "got %s\n", wine_dbgstr_w(str));
-}
-    SysFreeString(str);
-
-    IXMLDOMNode_Release(node);
-    IXMLDOMNodeList_Release(node_list);
-    IXMLDOMElement_Release(root);
-
-    /* endDocument makes document modifiable again. */
-
-    hr = ISAXContentHandler_endDocument(content);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-
-    hr = IXMLDOMDocument_createElement(domdoc, _bstr_("TestElement"), &root);
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    IXMLDOMElement_Release(root);
-
-    /* finally check doc output */
-    hr = IXMLDOMDocument_get_xml(domdoc, &str);
-todo_wine {
-    ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
-    ok(!lstrcmpW(
-            L"<BankAccount>"
-            "<Number>12345</Number>"
-            "<Name>Captain Ahab</Name>"
-            "</BankAccount>\r\n",
-            str),
-        "got %s\n", wine_dbgstr_w(str));
-}
-    SysFreeString(str);
-
-    IXMLDOMDocument_Release(domdoc);
-    ISAXContentHandler_Release(content);
-    IMXWriter_Release(writer);
-
-    free_bstrs();
-}
-
 static const char *encoding_names[] = {
     "iso-8859-1",
     "iso-8859-2",
@@ -4875,11 +4588,6 @@ static void test_saxreader_dispex(void)
     hr = CoCreateInstance(&CLSID_SAXXMLReader, NULL, CLSCTX_INPROC_SERVER,
                 &IID_ISAXXMLReader, (void**)&reader);
     EXPECT_HR(hr, S_OK);
-
-    check_interface(reader, &IID_ISAXXMLReader, TRUE);
-    check_interface(reader, &IID_IVBSAXXMLReader, TRUE);
-    check_interface(reader, &IID_IDispatch, TRUE);
-    check_interface(reader, &IID_IDispatchEx, TRUE);
 
     hr = ISAXXMLReader_QueryInterface(reader, &IID_IUnknown, (void**)&unk);
     EXPECT_HR(hr, S_OK);
@@ -5831,20 +5539,40 @@ static void test_mxattr_dispex(void)
 
 static void test_mxattr_qi(void)
 {
+    IVBSAXAttributes *vbsaxattr, *vbsaxattr2;
+    ISAXAttributes *saxattr;
     IMXAttributes *mxattr;
     HRESULT hr;
 
     hr = CoCreateInstance(&CLSID_SAXAttributes, NULL, CLSCTX_INPROC_SERVER,
-            &IID_IMXAttributes, (void **)&mxattr);
+            &IID_IMXAttributes, (void**)&mxattr);
     EXPECT_HR(hr, S_OK);
 
-    check_interface(mxattr, &IID_IMXAttributes, TRUE);
-    check_interface(mxattr, &IID_ISAXAttributes, TRUE);
-    check_interface(mxattr, &IID_IVBSAXAttributes, TRUE);
-    check_interface(mxattr, &IID_IDispatch, TRUE);
-    check_interface(mxattr, &IID_IDispatchEx, TRUE);
+    EXPECT_REF(mxattr, 1);
+    hr = IMXAttributes_QueryInterface(mxattr, &IID_ISAXAttributes, (void**)&saxattr);
+    EXPECT_HR(hr, S_OK);
+
+    EXPECT_REF(mxattr, 2);
+    EXPECT_REF(saxattr, 2);
+
+    hr = IMXAttributes_QueryInterface(mxattr, &IID_IVBSAXAttributes, (void**)&vbsaxattr);
+    EXPECT_HR(hr, S_OK);
+
+    EXPECT_REF(vbsaxattr, 3);
+    EXPECT_REF(mxattr, 3);
+    EXPECT_REF(saxattr, 3);
+
+    hr = ISAXAttributes_QueryInterface(saxattr, &IID_IVBSAXAttributes, (void**)&vbsaxattr2);
+    EXPECT_HR(hr, S_OK);
+
+    EXPECT_REF(vbsaxattr, 4);
+    EXPECT_REF(mxattr, 4);
+    EXPECT_REF(saxattr, 4);
 
     IMXAttributes_Release(mxattr);
+    ISAXAttributes_Release(saxattr);
+    IVBSAXAttributes_Release(vbsaxattr);
+    IVBSAXAttributes_Release(vbsaxattr2);
 }
 
 static struct msxmlsupported_data_t saxattr_support_data[] =
@@ -6040,7 +5768,6 @@ START_TEST(saxreader)
         test_mxwriter_properties();
         test_mxwriter_flush();
         test_mxwriter_stream();
-        test_mxwriter_domdoc();
         test_mxwriter_encoding();
         test_mxwriter_dispex();
         test_mxwriter_indent();

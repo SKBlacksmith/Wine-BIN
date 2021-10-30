@@ -649,8 +649,7 @@ HRESULT HTMLLocation_Create(HTMLInnerWindow *window, HTMLLocation **ret)
     location->ref = 1;
     location->window = window;
 
-    init_dispatch(&location->dispex, (IUnknown*)&location->IHTMLLocation_iface, &HTMLLocation_dispex,
-                  dispex_compat_mode(&window->event_target.dispex));
+    init_dispex(&location->dispex, (IUnknown*)&location->IHTMLLocation_iface, &HTMLLocation_dispex);
 
     *ret = location;
     return S_OK;

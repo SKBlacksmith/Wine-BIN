@@ -5272,7 +5272,7 @@ static void test_WM_DEVICECHANGE(HWND hwnd)
         ret = PostMessageA(hwnd, WM_DEVICECHANGE, wparams[i], 0);
         if (wparams[i] & 0x8000)
         {
-            ok(ret == FALSE, "PostMessage returned %d\n", ret);
+            ok(ret == FALSE, "PostMessage should returned %d\n", ret);
             ok(GetLastError() == ERROR_MESSAGE_SYNC_ONLY, "PostMessage error %08x\n", GetLastError());
         }
         else
@@ -12523,9 +12523,8 @@ done:
 static void wait_move_event(HWND hwnd, int x, int y)
 {
     MSG msg;
-    DWORD timeout = GetTickCount() + 500;
+    DWORD timeout = GetTickCount() + 500, delay;
     BOOL ret;
-    int delay;
 
     while ((delay = timeout - GetTickCount()) > 0)
     {

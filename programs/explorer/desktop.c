@@ -959,7 +959,6 @@ void manage_desktop( WCHAR *arg )
     const WCHAR *name = NULL;
     BOOL enable_shell = FALSE;
     void (WINAPI *pShellDDEInit)( BOOL ) = NULL;
-    HMODULE shell32;
 
     /* get the rest of the command line (if any) */
     while (*p && !is_whitespace(*p)) p++;
@@ -1029,15 +1028,20 @@ void manage_desktop( WCHAR *arg )
         initialize_display_settings();
         initialize_appbar();
 
-        if (using_root) enable_shell = FALSE;
-
-        initialize_systray( graphics_driver, using_root, enable_shell );
-        if (!using_root) initialize_launchers( hwnd );
-
-        if ((shell32 = LoadLibraryW( L"shell32.dll" )) &&
-            (pShellDDEInit = (void *)GetProcAddress( shell32, (LPCSTR)188)))
+        if (graphics_driver)
         {
-            pShellDDEInit( TRUE );
+            HMODULE shell32;
+
+            if (using_root) enable_shell = FALSE;
+
+            initialize_systray( graphics_driver, using_root, enable_shell );
+            if (!using_root) initialize_launchers( hwnd );
+
+            if ((shell32 = LoadLibraryW( L"shell32.dll" )) &&
+                (pShellDDEInit = (void *)GetProcAddress( shell32, (LPCSTR)188)))
+            {
+                pShellDDEInit( TRUE );
+            }
         }
     }
 
@@ -1215,7 +1219,6 @@ static HRESULT WINAPI shellwindows_Register(IShellWindows *iface,
     window->hwnd = hwnd;
     window->class = class;
     *cookie = window->cookie = ++cookie_counter;
-    window->pidl = NULL;
 
     LeaveCriticalSection(&sw->cs);
     return S_OK;

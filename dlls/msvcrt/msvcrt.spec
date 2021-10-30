@@ -120,9 +120,9 @@
 @ cdecl ?set_unexpected@@YAP6AXXZP6AXXZ@Z(ptr) set_unexpected
 @ cdecl ?terminate@@YAXXZ() terminate
 @ cdecl ?unexpected@@YAXXZ() unexpected
-@ cdecl -arch=arm ?what@exception@std@@UBAPBDXZ(ptr) exception_what
-@ thiscall -arch=i386 ?what@exception@@UBEPBDXZ(ptr) exception_what
-@ cdecl -arch=win64 ?what@exception@@UEBAPEBDXZ(ptr) exception_what
+@ cdecl -arch=arm ?what@exception@std@@UBAPBDXZ(ptr) what_exception
+@ thiscall -arch=i386 ?what@exception@@UBEPBDXZ(ptr) what_exception
+@ cdecl -arch=win64 ?what@exception@@UEBAPEBDXZ(ptr) what_exception
 @ cdecl -arch=i386 _CIacos()
 @ cdecl -arch=i386 _CIasin()
 @ cdecl -arch=i386 _CIatan()
@@ -265,7 +265,7 @@
 @ cdecl -arch=i386 __p__osver()
 @ cdecl -arch=i386 __p__pctype()
 @ cdecl -arch=i386 __p__pgmptr()
-@ cdecl -arch=i386 __p__pwctype()
+@ stub -arch=i386 __p__pwctype()
 @ cdecl -arch=i386 __p__timezone()
 @ cdecl -arch=i386 __p__tzname()
 @ cdecl -arch=i386 __p__wcmdln()
@@ -276,7 +276,7 @@
 @ cdecl -arch=i386 __p__wpgmptr()
 @ cdecl __pctype_func()
 @ extern __pioinfo MSVCRT___pioinfo
-@ cdecl __pwctype_func()
+# stub __pwctype_func()
 @ cdecl __pxcptinfoptrs()
 @ cdecl __set_app_type(long)
 @ extern __setlc_active MSVCRT___setlc_active
@@ -500,7 +500,7 @@
 @ varargs _fwscanf_l(ptr wstr ptr)
 @ varargs _fwscanf_s_l(ptr wstr ptr)
 @ cdecl _gcvt(double long str)
-@ cdecl _gcvt_s(ptr long double long)
+@ cdecl _gcvt_s(ptr long  double long)
 @ cdecl _get_current_locale()
 @ cdecl _get_doserrno(ptr)
 @ cdecl _get_environ(ptr)
@@ -532,7 +532,7 @@
 @ cdecl _getdrives() kernel32.GetLogicalDrives
 @ cdecl _getmaxstdio()
 @ cdecl _getmbcp()
-@ cdecl _getpid()
+@ cdecl _getpid() _getpid
 @ stub _getsystime(ptr)
 @ cdecl _getw(ptr)
 @ cdecl _getwch()
@@ -1284,7 +1284,7 @@
 @ cdecl exp(double)
 @ cdecl -arch=!i386 expf(float)
 @ cdecl fabs(double)
-@ cdecl -arch=arm,arm64 fabsf(float)
+@ cdecl -arch=!i386 fabsf(float)
 @ cdecl fclose(ptr)
 @ cdecl feof(ptr)
 @ cdecl ferror(ptr)

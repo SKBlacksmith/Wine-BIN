@@ -20,7 +20,7 @@
 
 #include <assert.h>
 
-#include "ntgdi_private.h"
+#include "gdi_private.h"
 #include "dibdrv.h"
 
 #include "wine/debug.h"
@@ -584,15 +584,17 @@ static void mask_rect( dib_info *dst, const RECT *dst_rect, const dib_info *src,
 static DWORD blend_rect( dib_info *dst, const RECT *dst_rect, const dib_info *src, const RECT *src_rect,
                          HRGN clip, BLENDFUNCTION blend )
 {
-    POINT offset;
+    POINT origin;
     struct clipped_rects clipped_rects;
+    int i;
 
     if (!get_clipped_rects( dst, dst_rect, clip, &clipped_rects )) return ERROR_SUCCESS;
-
-    offset.x = src_rect->left - dst_rect->left;
-    offset.y = src_rect->top  - dst_rect->top;
-    dst->funcs->blend_rects( dst, clipped_rects.count, clipped_rects.rects, src, &offset, blend );
-
+    for (i = 0; i < clipped_rects.count; i++)
+    {
+        origin.x = src_rect->left + clipped_rects.rects[i].left - dst_rect->left;
+        origin.y = src_rect->top  + clipped_rects.rects[i].top  - dst_rect->top;
+        dst->funcs->blend_rect( dst, &clipped_rects.rects[i], src, &origin, blend );
+    }
     free_clipped_rects( &clipped_rects );
     return ERROR_SUCCESS;
 }
@@ -1011,8 +1013,8 @@ DWORD CDECL dibdrv_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
 
     if (clip && pdev->clip)
     {
-        tmp_rgn = NtGdiCreateRectRgn( 0, 0, 0, 0 );
-        NtGdiCombineRgn( tmp_rgn, clip, pdev->clip, RGN_AND );
+        tmp_rgn = CreateRectRgn( 0, 0, 0, 0 );
+        CombineRgn( tmp_rgn, clip, pdev->clip, RGN_AND );
         clip = tmp_rgn;
     }
     else if (!clip) clip = pdev->clip;
@@ -1030,7 +1032,7 @@ DWORD CDECL dibdrv_PutImage( PHYSDEV dev, HRGN clip, BITMAPINFO *info,
         }
         else
             ret = execute_rop( pdev, &dst->visrect, &src_dib, &src->visrect, &clipped_rects,
-                               &dc->attr->brush_org, rop );
+                               &dc->brush_org, rop );
         free_clipped_rects( &clipped_rects );
     }
     free_dib_info( &src_dib );
@@ -1216,12 +1218,6 @@ DWORD stretch_bitmapinfo( const BITMAPINFO *src_info, void *src_bits, struct bit
     init_dib_info_from_bitmapinfo( &src_dib, src_info, src_bits );
     init_dib_info_from_bitmapinfo( &dst_dib, dst_info, dst_bits );
 
-    if (mode == HALFTONE)
-    {
-        dst_dib.funcs->halftone( &dst_dib, dst, &src_dib, src );
-        goto done;
-    }
-
     /* v */
     ret = calc_1d_stretch_params( dst->y, dst->height, dst->visrect.top, dst->visrect.bottom,
                                   src->y, src->height, src->visrect.top, src->visrect.bottom,
@@ -1306,7 +1302,6 @@ DWORD stretch_bitmapinfo( const BITMAPINFO *src_info, void *src_bits, struct bit
         }
     }
 
-done:
     /* update coordinates, the destination rectangle is always stored at 0,0 */
     *src = *dst;
     src->x -= src->visrect.left;

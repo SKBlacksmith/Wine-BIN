@@ -4381,23 +4381,14 @@ static void test_contextmenu(IContextMenu *menu, BOOL background)
             ok(mii.wID >= 64 && mii.wID <= 64 + max_id,
                     "Expected between 64 and %d, got %d.\n", 64 + max_id, mii.wID);
             hr = IContextMenu_GetCommandString(menu, mii.wID - 64, GCS_VERBA, 0, buf, sizeof(buf));
+        todo_wine_if(background)
             ok(hr == S_OK || hr == E_NOTIMPL || hr == E_INVALIDARG,
                     "Got unexpected hr %#x for ID %d, string %s.\n", hr, mii.wID, debugstr_a(mii.dwTypeData));
             if (hr == S_OK)
             {
                 trace("Got ID %d, verb %s, string %s.\n", mii.wID, debugstr_a(buf), debugstr_a(mii.dwTypeData));
                 if (!strcmp(buf, "copy"))
-                {
-                    CMINVOKECOMMANDINFO cmi;
                     ok(mii.wID == 64 - 0x7000 + FCIDM_SHVIEW_COPY, "wrong menu wID %d\n", mii.wID);
-                    memset(&cmi, 0, sizeof(CMINVOKECOMMANDINFO));
-                    cmi.cbSize = sizeof(CMINVOKECOMMANDINFO);
-                    cmi.lpVerb = "copy";
-                    hr = IContextMenu_InvokeCommand(menu, &cmi);
-                    ok(hr == S_OK, "got 0x%08x\n", hr);
-                    ok(IsClipboardFormatAvailable(RegisterClipboardFormatA(CFSTR_SHELLIDLISTA)), "CFSTR_SHELLIDLISTA not available\n");
-                    ok(IsClipboardFormatAvailable(CF_HDROP), "CF_HDROP not available\n");
-                }
                 else if (!strcmp(buf, "paste"))
                     ok(mii.wID == 64 - 0x7000 + FCIDM_SHVIEW_INSERT, "wrong menu wID %d\n", mii.wID);
                 else if (!strcmp(buf, "properties"))

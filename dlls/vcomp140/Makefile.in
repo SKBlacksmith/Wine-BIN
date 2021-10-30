@@ -1,8 +1,1 @@
 MODULE = vcomp140.dll
-
-EXTRADLLFLAGS = -mno-cygwin
-
-PARENTSRC = ../vcomp
-
-C_SRCS = \
-	main.c

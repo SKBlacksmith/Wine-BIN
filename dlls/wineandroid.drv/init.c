@@ -304,14 +304,18 @@ static const struct gdi_dc_funcs android_drv_funcs =
     NULL,                               /* pEndPath */
     NULL,                               /* pEnumFonts */
     NULL,                               /* pEnumICMProfiles */
+    NULL,                               /* pExcludeClipRect */
     NULL,                               /* pExtDeviceMode */
     NULL,                               /* pExtEscape */
     NULL,                               /* pExtFloodFill */
+    NULL,                               /* pExtSelectClipRgn */
     NULL,                               /* pExtTextOut */
     NULL,                               /* pFillPath */
     NULL,                               /* pFillRgn */
+    NULL,                               /* pFlattenPath */
     NULL,                               /* pFontIsLinked */
     NULL,                               /* pFrameRgn */
+    NULL,                               /* pGdiComment */
     NULL,                               /* pGetBoundsRect */
     NULL,                               /* pGetCharABCWidths */
     NULL,                               /* pGetCharABCWidthsI */
@@ -337,9 +341,14 @@ static const struct gdi_dc_funcs android_drv_funcs =
     NULL,                               /* pGetTextFace */
     NULL,                               /* pGetTextMetrics */
     NULL,                               /* pGradientFill */
+    NULL,                               /* pIntersectClipRect */
     NULL,                               /* pInvertRgn */
     NULL,                               /* pLineTo */
+    NULL,                               /* pModifyWorldTransform */
     NULL,                               /* pMoveTo */
+    NULL,                               /* pOffsetClipRgn */
+    NULL,                               /* pOffsetViewportOrg */
+    NULL,                               /* pOffsetWindowOrg */
     NULL,                               /* pPaintRgn */
     NULL,                               /* pPatBlt */
     NULL,                               /* pPie */
@@ -348,26 +357,51 @@ static const struct gdi_dc_funcs android_drv_funcs =
     NULL,                               /* pPolyDraw */
     NULL,                               /* pPolyPolygon */
     NULL,                               /* pPolyPolyline */
+    NULL,                               /* pPolygon */
+    NULL,                               /* pPolyline */
     NULL,                               /* pPolylineTo */
     NULL,                               /* pPutImage */
     NULL,                               /* pRealizeDefaultPalette */
     NULL,                               /* pRealizePalette */
     NULL,                               /* pRectangle */
     NULL,                               /* pResetDC */
+    NULL,                               /* pRestoreDC */
     NULL,                               /* pRoundRect */
+    NULL,                               /* pSaveDC */
+    NULL,                               /* pScaleViewportExt */
+    NULL,                               /* pScaleWindowExt */
     NULL,                               /* pSelectBitmap */
     NULL,                               /* pSelectBrush */
+    NULL,                               /* pSelectClipPath */
     NULL,                               /* pSelectFont */
+    NULL,                               /* pSelectPalette */
     NULL,                               /* pSelectPen */
+    NULL,                               /* pSetArcDirection */
     NULL,                               /* pSetBkColor */
+    NULL,                               /* pSetBkMode */
     NULL,                               /* pSetBoundsRect */
     NULL,                               /* pSetDCBrushColor */
     NULL,                               /* pSetDCPenColor */
     NULL,                               /* pSetDIBitsToDevice */
     NULL,                               /* pSetDeviceClipping */
     NULL,                               /* pSetDeviceGammaRamp */
+    NULL,                               /* pSetLayout */
+    NULL,                               /* pSetMapMode */
+    NULL,                               /* pSetMapperFlags */
     NULL,                               /* pSetPixel */
+    NULL,                               /* pSetPolyFillMode */
+    NULL,                               /* pSetROP2 */
+    NULL,                               /* pSetRelAbs */
+    NULL,                               /* pSetStretchBltMode */
+    NULL,                               /* pSetTextAlign */
+    NULL,                               /* pSetTextCharacterExtra */
     NULL,                               /* pSetTextColor */
+    NULL,                               /* pSetTextJustification */
+    NULL,                               /* pSetViewportExt */
+    NULL,                               /* pSetViewportOrg */
+    NULL,                               /* pSetWindowExt */
+    NULL,                               /* pSetWindowOrg */
+    NULL,                               /* pSetWorldTransform */
     NULL,                               /* pStartDoc */
     NULL,                               /* pStartPage */
     NULL,                               /* pStretchBlt */
@@ -375,6 +409,7 @@ static const struct gdi_dc_funcs android_drv_funcs =
     NULL,                               /* pStrokeAndFillPath */
     NULL,                               /* pStrokePath */
     NULL,                               /* pUnrealizePalette */
+    NULL,                               /* pWidenPath */
     NULL,                               /* pD3DKMTCheckVidPnExclusiveOwnership */
     NULL,                               /* pD3DKMTSetVidPnSourceOwner */
     ANDROID_wine_get_wgl_driver,        /* wine_get_wgl_driver */

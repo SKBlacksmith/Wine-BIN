@@ -30,8 +30,7 @@
 
 #include "dsound_test.h"
 
-#define TIMESTAMP_NOTIFICATIONS     5
-#define TOTAL_NOTIFICATIONS         (TIMESTAMP_NOTIFICATIONS + 1)
+#define NOTIFICATIONS    5
 
 static const char * get_format_str(WORD format)
 {
@@ -265,8 +264,8 @@ typedef struct {
 
     LPDIRECTSOUNDCAPTUREBUFFER dscbo;
     LPWAVEFORMATEX wfx;
-    DSBPOSITIONNOTIFY posnotify[TOTAL_NOTIFICATIONS];
-    HANDLE event[TOTAL_NOTIFICATIONS];
+    DSBPOSITIONNOTIFY posnotify[NOTIFICATIONS];
+    HANDLE event[NOTIFICATIONS];
     LPDIRECTSOUNDNOTIFY notify;
 
     DWORD buffer_size;
@@ -370,24 +369,21 @@ static void test_capture_buffer(LPDIRECTSOUNDCAPTURE dsco,
     state.dscbo=dscbo;
     state.wfx=&wfx;
     state.buffer_size = dscbcaps.dwBufferBytes;
-    for (i = 0; i < TOTAL_NOTIFICATIONS; i++)
+    for (i = 0; i < NOTIFICATIONS; i++)
         state.event[i] = CreateEventW(NULL, FALSE, FALSE, NULL);
-    state.size = dscbcaps.dwBufferBytes / TIMESTAMP_NOTIFICATIONS;
+    state.size = dscbcaps.dwBufferBytes / NOTIFICATIONS;
 
     rc=IDirectSoundCaptureBuffer_QueryInterface(dscbo,&IID_IDirectSoundNotify,
                                                 (void **)&(state.notify));
     ok((rc==DS_OK)&&(state.notify!=NULL),
        "IDirectSoundCaptureBuffer_QueryInterface() failed: %08x\n", rc);
 
-    for (i = 0; i < TIMESTAMP_NOTIFICATIONS; i++) {
+    for (i = 0; i < NOTIFICATIONS; i++) {
 	state.posnotify[i].dwOffset = (i * state.size) + state.size - 1;
 	state.posnotify[i].hEventNotify = state.event[i];
     }
 
-    state.posnotify[i].dwOffset = DSBPN_OFFSETSTOP;
-    state.posnotify[i].hEventNotify = state.event[i];
-
-    rc = IDirectSoundNotify_SetNotificationPositions(state.notify, TOTAL_NOTIFICATIONS,
+    rc=IDirectSoundNotify_SetNotificationPositions(state.notify,NOTIFICATIONS,
                                                    state.posnotify);
     ok(rc==DS_OK,"IDirectSoundNotify_SetNotificationPositions() failed: %08x\n", rc);
 
@@ -407,15 +403,15 @@ static void test_capture_buffer(LPDIRECTSOUNDCAPTURE dsco,
        "GetStatus: bad status: %x\n",status);
 
     if (record) {
-	/* wait for timestamp notifications */
-	for (i = 0; i < (TIMESTAMP_NOTIFICATIONS * 2); i++) {
-	    rc = WaitForMultipleObjects(TOTAL_NOTIFICATIONS, state.event, FALSE, 3000);
-	    ok(rc == (WAIT_OBJECT_0 + (i % TIMESTAMP_NOTIFICATIONS)),
+	/* wait for the notifications */
+	for (i = 0; i < (NOTIFICATIONS * 2); i++) {
+	    rc=WaitForMultipleObjects(NOTIFICATIONS,state.event,FALSE,3000);
+	    ok(rc==(WAIT_OBJECT_0+(i%NOTIFICATIONS)),
                "WaitForMultipleObjects failed: 0x%x\n",rc);
-	    if (rc != (WAIT_OBJECT_0 + (i % TIMESTAMP_NOTIFICATIONS))) {
+	    if (rc!=(WAIT_OBJECT_0+(i%NOTIFICATIONS))) {
 		ok((rc==WAIT_TIMEOUT)||(rc==WAIT_FAILED),
                    "Wrong notification: should be %d, got %d\n",
-		    i % TIMESTAMP_NOTIFICATIONS, rc - WAIT_OBJECT_0);
+		    i%NOTIFICATIONS,rc-WAIT_OBJECT_0);
 	    }
 	    if (!capture_buffer_service(&state))
 		break;
@@ -424,10 +420,6 @@ static void test_capture_buffer(LPDIRECTSOUNDCAPTURE dsco,
     }
     rc=IDirectSoundCaptureBuffer_Stop(dscbo);
     ok(rc==DS_OK,"IDirectSoundCaptureBuffer_Stop() failed: %08x\n", rc);
-
-    /* wait for stop notification */
-    rc = WaitForSingleObject(state.event[TIMESTAMP_NOTIFICATIONS], 3000);
-    ok(rc == WAIT_OBJECT_0, "WaitForSingleObject failed: 0x%x\n", rc);
 
     rc=IDirectSoundCaptureBuffer_Stop(dscbo);
     ok(rc==DS_OK,"IDirectSoundCaptureBuffer_Stop() failed: %08x\n", rc);

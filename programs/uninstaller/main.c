@@ -23,7 +23,6 @@
 
 #include <string.h>
 #include <windows.h>
-#include <commctrl.h>
 #include <shlwapi.h>
 #include "resource.h"
 #include "regstr.h"
@@ -47,7 +46,17 @@ static WCHAR *sFilter;
 
 static int FetchUninstallInformation(void);
 static void UninstallProgram(void);
-static const WCHAR PathUninstallW[] = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall";
+
+static const WCHAR DisplayNameW[] = {'D','i','s','p','l','a','y','N','a','m','e',0};
+static const WCHAR PathUninstallW[] = {
+        'S','o','f','t','w','a','r','e','\\',
+        'M','i','c','r','o','s','o','f','t','\\',
+        'W','i','n','d','o','w','s','\\',
+        'C','u','r','r','e','n','t','V','e','r','s','i','o','n','\\',
+        'U','n','i','n','s','t','a','l','l',0 };
+static const WCHAR UninstallCommandlineW[] = {'U','n','i','n','s','t','a','l','l','S','t','r','i','n','g',0};
+static const WCHAR WindowsInstallerW[] = {'W','i','n','d','o','w','s','I','n','s','t','a','l','l','e','r',0};
+static const WCHAR SystemComponentW[] = {'S','y','s','t','e','m','C','o','m','p','o','n','e','n','t',0};
 
 static void output_writeconsole(const WCHAR *str, DWORD len)
 {
@@ -101,7 +110,7 @@ static void WINAPIV output_message(unsigned int id, ...)
     __ms_va_end(va_args);
 }
 
-static void WINAPIV output_array(const WCHAR *fmt, ...)
+static void WINAPIV output_array(WCHAR *fmt, ...)
 {
     __ms_va_list va_args;
 
@@ -116,11 +125,12 @@ static void WINAPIV output_array(const WCHAR *fmt, ...)
 static void ListUninstallPrograms(void)
 {
     unsigned int i;
+    static WCHAR fmtW[] = {'%','1','|','|','|','%','2','\n',0};
 
     FetchUninstallInformation();
 
     for (i=0; i < numentries; i++)
-        output_array(L"%1|||%2\n", entries[i].key, entries[i].descr);
+        output_array(fmtW, entries[i].key, entries[i].descr);
 }
 
 
@@ -149,6 +159,9 @@ static void RemoveSpecificProgram(WCHAR *nameW)
 int __cdecl wmain(int argc, WCHAR *argv[])
 {
     LPCWSTR token = NULL;
+    static const WCHAR helpW[] = { '-','-','h','e','l','p',0 };
+    static const WCHAR listW[] = { '-','-','l','i','s','t',0 };
+    static const WCHAR removeW[] = { '-','-','r','e','m','o','v','e',0 };
     int i = 1;
     BOOL is_wow64;
 
@@ -162,8 +175,7 @@ int __cdecl wmain(int argc, WCHAR *argv[])
 
         memset( &si, 0, sizeof(si) );
         si.cb = sizeof(si);
-        GetSystemDirectoryW( filename, MAX_PATH );
-        wcscat( filename, L"\\uninstaller.exe" );
+        GetModuleFileNameW( 0, filename, MAX_PATH );
 
         Wow64DisableWow64FsRedirection( &redir );
         if (CreateProcessW( filename, GetCommandLineW(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi ))
@@ -177,24 +189,22 @@ int __cdecl wmain(int argc, WCHAR *argv[])
         Wow64RevertWow64FsRedirection( redir );
     }
 
-    InitCommonControls();
-
     while( i<argc )
     {
         token = argv[i++];
-
-        if( !lstrcmpW( token, L"--help" ) )
+        
+        if( !lstrcmpW( token, helpW ) )
         {
             output_message(STRING_HEADER);
             output_message(STRING_USAGE);
             return 0;
         }
-        else if( !lstrcmpW( token, L"--list" ) )
+        else if( !lstrcmpW( token, listW ) )
         {
             ListUninstallPrograms();
             return 0;
         }
-        else if( !lstrcmpW( token, L"--remove" ) )
+        else if( !lstrcmpW( token, removeW ) )
         {
             if( i >= argc )
             {
@@ -242,29 +252,29 @@ static int FetchFromRootKey(HKEY root)
     {
         RegOpenKeyExW(root, subKeyName, 0, KEY_READ, &hkeyApp);
         size = sizeof(value);
-        if (!RegQueryValueExW(hkeyApp, L"SystemComponent", NULL, &type, (BYTE *)&value, &size) &&
+        if (!RegQueryValueExW(hkeyApp, SystemComponentW, NULL, &type, (LPBYTE)&value, &size) &&
             type == REG_DWORD && value == 1)
         {
             RegCloseKey(hkeyApp);
             sizeOfSubKeyName = 255;
             continue;
         }
-        if (!RegQueryValueExW(hkeyApp, L"DisplayName", NULL, NULL, NULL, &displen))
+        if (!RegQueryValueExW(hkeyApp, DisplayNameW, NULL, NULL, NULL, &displen))
         {
             WCHAR *command;
 
             size = sizeof(value);
-            if (!RegQueryValueExW(hkeyApp, L"WindowsInstaller", NULL, &type, (BYTE *)&value, &size) &&
+            if (!RegQueryValueExW(hkeyApp, WindowsInstallerW, NULL, &type, (LPBYTE)&value, &size) &&
                 type == REG_DWORD && value == 1)
             {
-                command = HeapAlloc(GetProcessHeap(), 0,
-                        (lstrlenW(L"msiexec /x%s") + lstrlenW(subKeyName)) * sizeof(WCHAR));
-                wsprintfW(command, L"msiexec /x%s", subKeyName);
+                static const WCHAR fmtW[] = {'m','s','i','e','x','e','c',' ','/','x','%','s',0};
+                command = HeapAlloc(GetProcessHeap(), 0, (lstrlenW(fmtW) + lstrlenW(subKeyName)) * sizeof(WCHAR));
+                wsprintfW(command, fmtW, subKeyName);
             }
-            else if (!RegQueryValueExW(hkeyApp, L"UninstallString", NULL, NULL, NULL, &uninstlen))
+            else if (!RegQueryValueExW(hkeyApp, UninstallCommandlineW, NULL, NULL, NULL, &uninstlen))
             {
                 command = HeapAlloc(GetProcessHeap(), 0, uninstlen);
-                RegQueryValueExW(hkeyApp, L"UninstallString", 0, 0, (BYTE *)command, &uninstlen);
+                RegQueryValueExW(hkeyApp, UninstallCommandlineW, 0, 0, (LPBYTE)command, &uninstlen);
             }
             else
             {
@@ -278,7 +288,7 @@ static int FetchFromRootKey(HKEY root)
             entries[numentries-1].key = HeapAlloc(GetProcessHeap(), 0, (lstrlenW(subKeyName)+1)*sizeof(WCHAR));
             lstrcpyW(entries[numentries-1].key, subKeyName);
             entries[numentries-1].descr = HeapAlloc(GetProcessHeap(), 0, displen);
-            RegQueryValueExW(hkeyApp, L"DisplayName", 0, 0, (BYTE *)entries[numentries-1].descr, &displen);
+            RegQueryValueExW(hkeyApp, DisplayNameW, 0, 0, (LPBYTE)entries[numentries-1].descr, &displen);
             entries[numentries-1].command = command;
             entries[numentries-1].active = 0;
             WINE_TRACE("allocated entry #%d: %s (%s), %s\n",

@@ -285,7 +285,7 @@
 # @ stub DuplicateStateContainerHandle
 @ stdcall DuplicateToken(long long ptr)
 @ stdcall DuplicateTokenEx(long long ptr long long ptr)
-@ stdcall EmptyWorkingSet(long)
+# @ stub EmptyWorkingSet
 @ stdcall EncodePointer(ptr) ntdll.RtlEncodePointer
 # @ stub EncodeRemotePointer
 @ stdcall EncodeSystemPointer(ptr) ntdll.RtlEncodeSystemPointer
@@ -298,14 +298,14 @@
 @ stdcall EnumDateFormatsExEx(ptr wstr long long)
 @ stdcall EnumDateFormatsExW(ptr long long)
 @ stdcall EnumDateFormatsW(ptr long long)
-@ stdcall EnumDeviceDrivers(ptr long ptr)
+# @ stub EnumDeviceDrivers
 @ stdcall EnumDynamicTimeZoneInformation(long ptr)
 @ stdcall EnumLanguageGroupLocalesW(ptr long long ptr)
-@ stdcall EnumPageFilesA(ptr ptr)
-@ stdcall EnumPageFilesW(ptr ptr)
-@ stdcall EnumProcessModules(long ptr long ptr)
-@ stdcall EnumProcessModulesEx(long ptr long ptr long)
-@ stdcall EnumProcesses(ptr long ptr)
+# @ stub EnumPageFilesA
+# @ stub EnumPageFilesW
+# @ stub EnumProcessModules
+# @ stub EnumProcessModulesEx
+# @ stub EnumProcesses
 @ stdcall EnumResourceLanguagesExA(long str str ptr long long long)
 @ stdcall EnumResourceLanguagesExW(long wstr wstr ptr long long long)
 @ stdcall EnumResourceNamesExA(long str ptr long long long)
@@ -463,7 +463,7 @@
 @ stdcall GetCurrentPackageFullName(ptr ptr)
 @ stdcall GetCurrentPackageId(ptr ptr)
 # @ stub GetCurrentPackageInfo
-@ stdcall GetCurrentPackagePath(ptr ptr)
+# @ stub GetCurrentPackagePath
 # @ stub GetCurrentPackageResourcesContext
 # @ stub GetCurrentPackageSecurityContext
 @ stdcall -norelay GetCurrentProcess() kernelbase_GetCurrentProcess
@@ -477,10 +477,10 @@
 @ stdcall GetDateFormatA(long long ptr str ptr long) kernel32.GetDateFormatA
 @ stdcall GetDateFormatEx(wstr long ptr wstr ptr long wstr) kernel32.GetDateFormatEx
 @ stdcall GetDateFormatW(long long ptr wstr ptr long) kernel32.GetDateFormatW
-@ stdcall GetDeviceDriverBaseNameA(ptr ptr long)
-@ stdcall GetDeviceDriverBaseNameW(ptr ptr long)
-@ stdcall GetDeviceDriverFileNameA(ptr ptr long)
-@ stdcall GetDeviceDriverFileNameW(ptr ptr long)
+# @ stub GetDeviceDriverBaseNameA
+# @ stub GetDeviceDriverBaseNameW
+# @ stub GetDeviceDriverFileNameA
+# @ stub GetDeviceDriverFileNameW
 @ stdcall GetDiskFreeSpaceA(str ptr ptr ptr ptr)
 @ stdcall GetDiskFreeSpaceExA(str ptr ptr ptr)
 @ stdcall GetDiskFreeSpaceExW(wstr ptr ptr ptr)
@@ -553,20 +553,20 @@
 @ stdcall GetLogicalProcessorInformationEx(long ptr ptr)
 @ stdcall GetLongPathNameA(str ptr long)
 @ stdcall GetLongPathNameW(wstr ptr long)
-@ stdcall GetMappedFileNameA(long ptr ptr long)
-@ stdcall GetMappedFileNameW(long ptr ptr long)
+# @ stub GetMappedFileNameA
+# @ stub GetMappedFileNameW
 # @ stub GetMemoryErrorHandlingCapabilities
-@ stdcall GetModuleBaseNameA(long long ptr long)
-@ stdcall GetModuleBaseNameW(long long ptr long)
+# @ stub GetModuleBaseNameA
+# @ stub GetModuleBaseNameW
 @ stdcall GetModuleFileNameA(long ptr long)
-@ stdcall GetModuleFileNameExA(long long ptr long)
-@ stdcall GetModuleFileNameExW(long long ptr long)
+# @ stub GetModuleFileNameExA
+# @ stub GetModuleFileNameExW
 @ stdcall GetModuleFileNameW(long ptr long)
 @ stdcall GetModuleHandleA(str)
 @ stdcall GetModuleHandleExA(long ptr ptr)
 @ stdcall GetModuleHandleExW(long ptr ptr)
 @ stdcall GetModuleHandleW(wstr)
-@ stdcall GetModuleInformation(long long ptr long)
+# @ stub GetModuleInformation
 @ stdcall GetNLSVersion(long long ptr)
 @ stdcall GetNLSVersionEx(long wstr ptr)
 @ stub GetNamedLocaleHashNode
@@ -601,7 +601,7 @@
 # @ stub GetPackageInfo
 # @ stub GetPackageInstallTime
 # @ stub GetPackageOSMaxVersionTested
-@ stdcall GetPackagePath(ptr long ptr ptr)
+# @ stub GetPackagePath
 # @ stub GetPackagePathByFullName
 # @ stub GetPackagePathOnVolume
 # @ stub GetPackageProperty
@@ -614,8 +614,8 @@
 # @ stub GetPackageStatusForUser
 # @ stub GetPackageTargetPlatformProperty
 # @ stub GetPackageVolumeSisPath
-@ stdcall GetPackagesByPackageFamily(wstr ptr ptr ptr ptr)
-@ stdcall GetPerformanceInfo(ptr long)
+# @ stub GetPackagesByPackageFamily
+# @ stub GetPerformanceInfo
 @ stdcall GetPhysicallyInstalledSystemMemory(ptr)
 # @ stub GetPreviousFgPolicyRefreshInfoInternal
 @ stdcall GetPriorityClass(long)
@@ -623,16 +623,16 @@
 @ stdcall GetProcAddress(long str)
 # @ stub GetProcAddressForCaller
 # @ stub GetProcessDefaultCpuSets
-@ stdcall GetProcessGroupAffinity(long ptr ptr)
+# @ stub GetProcessGroupAffinity
 @ stdcall GetProcessHandleCount(long ptr)
 @ stdcall -norelay GetProcessHeap() kernelbase_GetProcessHeap
 @ stdcall -import GetProcessHeaps(long ptr) RtlGetProcessHeaps
 @ stdcall GetProcessId(long)
 @ stdcall GetProcessIdOfThread(long)
-@ stdcall GetProcessImageFileNameA(long ptr long)
-@ stdcall GetProcessImageFileNameW(long ptr long)
+# @ stub GetProcessImageFileNameA
+# @ stub GetProcessImageFileNameW
 # @ stub GetProcessInformation
-@ stdcall GetProcessMemoryInfo(long ptr long)
+# @ stub GetProcessMemoryInfo
 @ stdcall GetProcessMitigationPolicy(long long ptr long)
 @ stdcall GetProcessPreferredUILanguages(long ptr ptr ptr)
 @ stdcall GetProcessPriorityBoost(long ptr)
@@ -681,7 +681,7 @@
 @ stdcall GetStringTypeW(long wstr long ptr)
 # @ stub GetSystemAppDataFolder
 # @ stub GetSystemAppDataKey
-@ stdcall GetSystemCpuSetInformation(ptr long ptr ptr long)
+# @ stub GetSystemCpuSetInformation
 @ stdcall GetSystemDefaultLCID()
 @ stdcall GetSystemDefaultLangID()
 @ stdcall GetSystemDefaultLocaleName(ptr long)
@@ -741,7 +741,6 @@
 @ stub GetUILanguageInfo
 # @ stub GetUnicodeStringToEightBitSizeRoutine
 # @ stub GetUnicodeStringToEightBitStringRoutine
-@ stdcall GetUserDefaultGeoName(ptr long)
 @ stdcall GetUserDefaultLCID()
 @ stdcall GetUserDefaultLangID()
 @ stdcall GetUserDefaultLocaleName(ptr long)
@@ -765,8 +764,8 @@
 @ stdcall GetWindowsDirectoryA(ptr long)
 @ stdcall GetWindowsDirectoryW(ptr long)
 @ stdcall GetWriteWatch(long ptr long ptr ptr ptr)
-@ stdcall GetWsChanges(long ptr long)
-@ stdcall GetWsChangesEx(long ptr ptr)
+# @ stub GetWsChanges
+# @ stub GetWsChangesEx
 @ stdcall -arch=i386,x86_64 GetXStateFeaturesMask(ptr ptr)
 @ stdcall GlobalAlloc(long long)
 @ stdcall GlobalFree(long)
@@ -809,7 +808,7 @@
 @ stdcall InitializeCriticalSectionEx(ptr long long)
 # @ stub InitializeEnclave
 @ stdcall InitializeProcThreadAttributeList(ptr long long ptr)
-@ stdcall InitializeProcessForWsWatch(long)
+# @ stub InitializeProcessForWsWatch
 @ stdcall InitializeSListHead(ptr) ntdll.RtlInitializeSListHead
 @ stdcall InitializeSRWLock(ptr) ntdll.RtlInitializeSRWLock
 @ stdcall InitializeSecurityDescriptor(ptr long)
@@ -889,33 +888,33 @@
 @ stdcall IsWellKnownSid(ptr long)
 @ stdcall IsWow64Process(ptr ptr)
 @ stdcall IsWow64Process2(ptr ptr ptr)
-@ stdcall K32EmptyWorkingSet(long) EmptyWorkingSet
-@ stdcall K32EnumDeviceDrivers(ptr long ptr) EnumDeviceDrivers
-@ stdcall K32EnumPageFilesA(ptr ptr) EnumPageFilesA
-@ stdcall K32EnumPageFilesW(ptr ptr) EnumPageFilesW
-@ stdcall K32EnumProcessModules(long ptr long ptr) EnumProcessModules
-@ stdcall K32EnumProcessModulesEx(long ptr long ptr long) EnumProcessModulesEx
-@ stdcall K32EnumProcesses(ptr long ptr) EnumProcesses
-@ stdcall K32GetDeviceDriverBaseNameA(ptr ptr long) GetDeviceDriverBaseNameA
-@ stdcall K32GetDeviceDriverBaseNameW(ptr ptr long) GetDeviceDriverBaseNameW
-@ stdcall K32GetDeviceDriverFileNameA(ptr ptr long) GetDeviceDriverFileNameA
-@ stdcall K32GetDeviceDriverFileNameW(ptr ptr long) GetDeviceDriverFileNameW
-@ stdcall K32GetMappedFileNameA(long ptr ptr long) GetMappedFileNameA
-@ stdcall K32GetMappedFileNameW(long ptr ptr long) GetMappedFileNameW
-@ stdcall K32GetModuleBaseNameA(long long ptr long) GetModuleBaseNameA
-@ stdcall K32GetModuleBaseNameW(long long ptr long) GetModuleBaseNameW
-@ stdcall K32GetModuleFileNameExA(long long ptr long) GetModuleFileNameExA
-@ stdcall K32GetModuleFileNameExW(long long ptr long) GetModuleFileNameExW
-@ stdcall K32GetModuleInformation(long long ptr long) GetModuleInformation
-@ stdcall K32GetPerformanceInfo(ptr long) GetPerformanceInfo
-@ stdcall K32GetProcessImageFileNameA(long ptr long) GetProcessImageFileNameA
-@ stdcall K32GetProcessImageFileNameW(long ptr long) GetProcessImageFileNameW
-@ stdcall K32GetProcessMemoryInfo(long ptr long) GetProcessMemoryInfo
-@ stdcall K32GetWsChanges(long ptr long) GetWsChanges
-@ stdcall K32GetWsChangesEx(long ptr ptr) GetWsChangesEx
-@ stdcall K32InitializeProcessForWsWatch(long) InitializeProcessForWsWatch
-@ stdcall K32QueryWorkingSet(long ptr long) QueryWorkingSet
-@ stdcall K32QueryWorkingSetEx(long ptr long) QueryWorkingSetEx
+@ stdcall K32EmptyWorkingSet(long)
+@ stdcall K32EnumDeviceDrivers(ptr long ptr)
+@ stdcall K32EnumPageFilesA(ptr ptr)
+@ stdcall K32EnumPageFilesW(ptr ptr)
+@ stdcall K32EnumProcessModules(long ptr long ptr)
+@ stdcall K32EnumProcessModulesEx(long ptr long ptr long)
+@ stdcall K32EnumProcesses(ptr long ptr)
+@ stdcall K32GetDeviceDriverBaseNameA(ptr ptr long)
+@ stdcall K32GetDeviceDriverBaseNameW(ptr ptr long)
+@ stdcall K32GetDeviceDriverFileNameA(ptr ptr long)
+@ stdcall K32GetDeviceDriverFileNameW(ptr ptr long)
+@ stdcall K32GetMappedFileNameA(long ptr ptr long)
+@ stdcall K32GetMappedFileNameW(long ptr ptr long)
+@ stdcall K32GetModuleBaseNameA(long long ptr long)
+@ stdcall K32GetModuleBaseNameW(long long ptr long)
+@ stdcall K32GetModuleFileNameExA(long long ptr long)
+@ stdcall K32GetModuleFileNameExW(long long ptr long)
+@ stdcall K32GetModuleInformation(long long ptr long)
+@ stdcall K32GetPerformanceInfo(ptr long)
+@ stdcall K32GetProcessImageFileNameA(long ptr long)
+@ stdcall K32GetProcessImageFileNameW(long ptr long)
+@ stdcall K32GetProcessMemoryInfo(long ptr long)
+@ stdcall K32GetWsChanges(long ptr long)
+@ stdcall K32GetWsChangesEx(long ptr ptr)
+@ stdcall K32InitializeProcessForWsWatch(long)
+@ stdcall K32QueryWorkingSet(long ptr long)
+@ stdcall K32QueryWorkingSetEx(long ptr long)
 @ stub KernelBaseGetGlobalData
 @ stdcall LCIDToLocaleName(long ptr long long)
 @ stdcall LCMapStringA(long long str long ptr long)
@@ -1012,9 +1011,9 @@
 # @ stub PackageFamilyNameFromFullName
 # @ stub PackageFamilyNameFromId
 # @ stub PackageFamilyNameFromProductId
-@ stdcall PackageFullNameFromId(ptr ptr ptr)
+# @ stub PackageFullNameFromId
 # @ stub PackageFullNameFromProductId
-@ stdcall PackageIdFromFullName(wstr long ptr ptr)
+# @ stub PackageIdFromFullName
 # @ stub PackageIdFromProductId
 # @ stub PackageNameAndPublisherIdFromFamilyName
 # @ stub PackageRelativeApplicationIdFromProductId
@@ -1221,8 +1220,8 @@
 @ stdcall QueryUnbiasedInterruptTime(ptr) ntdll.RtlQueryUnbiasedInterruptTime
 # @ stub QueryUnbiasedInterruptTimePrecise
 # @ stub QueryVirtualMemoryInformation
-@ stdcall QueryWorkingSet(long ptr long)
-@ stdcall QueryWorkingSetEx(long ptr long)
+# @ stub QueryWorkingSet
+# @ stub QueryWorkingSetEx
 @ stdcall QueueUserAPC(ptr long long)
 @ stdcall QueueUserWorkItem(ptr ptr long)
 # @ stub QuirkGetData
@@ -1494,7 +1493,7 @@
 @ stdcall SetThreadPreferredUILanguages(long ptr ptr)
 @ stdcall SetThreadPriority(long long)
 @ stdcall SetThreadPriorityBoost(long long)
-@ stdcall SetThreadSelectedCpuSets(ptr ptr long)
+# @ stub SetThreadSelectedCpuSets
 @ stdcall SetThreadStackGuarantee(ptr)
 @ stdcall SetThreadToken(ptr ptr)
 @ stdcall SetThreadUILanguage(long)
@@ -1509,7 +1508,6 @@
 @ stdcall SetTokenInformation(long long ptr long)
 @ stdcall SetUnhandledExceptionFilter(ptr)
 @ stdcall SetUserGeoID(long)
-@ stdcall SetUserGeoName(wstr)
 @ stdcall SetWaitableTimer(long ptr long ptr ptr long)
 @ stdcall SetWaitableTimerEx(long ptr long ptr ptr ptr long)
 @ stdcall -arch=i386,x86_64 SetXStateFeaturesMask(ptr int64)
@@ -1678,7 +1676,7 @@
 @ stdcall VirtualAlloc(ptr long long long)
 @ stdcall VirtualAllocEx(long ptr long long long)
 @ stdcall VirtualAllocExNuma(long ptr long long long long)
-@ stdcall VirtualAllocFromApp(ptr long long long)
+# @ stub VirtualAllocFromApp
 @ stdcall VirtualFree(ptr long long)
 @ stdcall VirtualFreeEx(long ptr long long)
 @ stdcall VirtualLock(ptr long)

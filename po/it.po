@@ -13,33 +13,6 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: dlls/aclui/aclui.rc:29 dlls/inetcpl.cpl/inetcpl.rc:90
-#: programs/winefile/winefile.rc:114
-msgid "Security"
-msgstr "Sicurezza"
-
-#: dlls/aclui/aclui.rc:32
-#, fuzzy
-#| msgid "&User name:"
-msgid "&Group or user names:"
-msgstr "&Nome Utente:"
-
-#: dlls/aclui/aclui.rc:38
-#, fuzzy
-#| msgid "Yellow"
-msgid "Allow"
-msgstr "Giallo"
-
-#: dlls/aclui/aclui.rc:39
-msgid "Deny"
-msgstr ""
-
-#: dlls/aclui/aclui.rc:47
-#, fuzzy
-#| msgid "Access denied.\n"
-msgid "Permissions for %1"
-msgstr "Accesso negato.\n"
-
 #: dlls/appwiz.cpl/appwiz.rc:58
 msgid "Install/Uninstall"
 msgstr "Installa/Disinstalla"
@@ -1117,8 +1090,7 @@ msgstr "Verde cedro"
 msgid "Yellow"
 msgstr "Giallo"
 
-#: dlls/comdlg32/comdlg32.rc:134 dlls/light.msstyles/light.rc:29
-#: dlls/light.msstyles/light.rc:36 programs/wordpad/wordpad.rc:137
+#: dlls/comdlg32/comdlg32.rc:134 programs/wordpad/wordpad.rc:137
 msgid "Blue"
 msgstr "Blu"
 
@@ -3683,6 +3655,10 @@ msgstr ""
 msgid "Delete"
 msgstr "Elimina"
 
+#: dlls/inetcpl.cpl/inetcpl.rc:90 programs/winefile/winefile.rc:114
+msgid "Security"
+msgstr "Sicurezza"
+
 #: dlls/inetcpl.cpl/inetcpl.rc:112
 msgid ""
 "Certificates are used for your personal identification and to identify "
@@ -3955,15 +3931,15 @@ msgstr "Compilazione condizionale disattivata"
 msgid "Expected '@'"
 msgstr "Richiesto ';'"
 
-#: dlls/jscript/jscript.rc:80
+#: dlls/jscript/jscript.rc:78
 msgid "Microsoft JScript compilation error"
 msgstr ""
 
-#: dlls/jscript/jscript.rc:81
+#: dlls/jscript/jscript.rc:79
 msgid "Microsoft JScript runtime error"
 msgstr ""
 
-#: dlls/jscript/jscript.rc:82 dlls/vbscript/vbscript.rc:64
+#: dlls/jscript/jscript.rc:80 dlls/vbscript/vbscript.rc:64
 #, fuzzy
 #| msgid "Unknown error"
 msgid "Unknown runtime error"
@@ -4064,24 +4040,14 @@ msgid ""
 msgstr ""
 
 #: dlls/jscript/jscript.rc:74
-msgid "Cannot define property '|': object is not extensible"
-msgstr ""
-
-#: dlls/jscript/jscript.rc:75
 msgid "Cannot redefine non-configurable property '|'"
 msgstr ""
 
-#: dlls/jscript/jscript.rc:76
+#: dlls/jscript/jscript.rc:75
 msgid "Cannot modify non-writable property '|'"
 msgstr ""
 
-#: dlls/jscript/jscript.rc:77
-#, fuzzy
-#| msgid "'[object]' is not a date object"
-msgid "'this' is not a Map object"
-msgstr "'[oggetto]' non è un oggetto data"
-
-#: dlls/jscript/jscript.rc:78
+#: dlls/jscript/jscript.rc:76
 msgid "Property cannot have both accessors and a value"
 msgstr ""
 
@@ -7091,570 +7057,6 @@ msgstr "Livello non valido.\n"
 msgid "Resource is not currently available.\n"
 msgstr "Guida non disponibile."
 
-#: dlls/light.msstyles/light.rc:30 dlls/light.msstyles/light.rc:37
-#, fuzzy
-#| msgid "Class Name:"
-msgid "Classic Blue"
-msgstr "Nome della classe:"
-
-#: dlls/light.msstyles/light.rc:43 dlls/light.msstyles/light.rc:49
-#: programs/winhlp32/winhlp32.rc:53 programs/winhlp32/winhlp32.rc:73
-msgid "Normal"
-msgstr "Normali"
-
-#: dlls/localspl/localspl.rc:37
-#, fuzzy
-#| msgctxt "Drive letter"
-#| msgid "Letter"
-msgid "Letter"
-msgstr "Lettera"
-
-#: dlls/localspl/localspl.rc:38
-#, fuzzy
-#| msgctxt "Drive letter"
-#| msgid "Letter"
-msgid "Letter Small"
-msgstr "Lettera"
-
-#: dlls/localspl/localspl.rc:39
-#, fuzzy
-#| msgid "&Table"
-msgid "Tabloid"
-msgstr "&Tabella"
-
-#: dlls/localspl/localspl.rc:40
-msgid "Ledger"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:41
-msgid "Legal"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:42
-#, fuzzy
-#| msgid "Status"
-msgid "Statement"
-msgstr "Stato"
-
-#: dlls/localspl/localspl.rc:43
-#, fuzzy
-#| msgid "&Execute..."
-msgid "Executive"
-msgstr "&Esegui..."
-
-#: dlls/localspl/localspl.rc:44
-#, fuzzy
-#| msgctxt "All key"
-#| msgid "A"
-msgid "A3"
-msgstr "T"
-
-#: dlls/localspl/localspl.rc:45
-#, fuzzy
-#| msgctxt "All key"
-#| msgid "A"
-msgid "A4"
-msgstr "T"
-
-#: dlls/localspl/localspl.rc:46
-#, fuzzy
-#| msgid "Small"
-msgid "A4 Small"
-msgstr "Piccoli"
-
-#: dlls/localspl/localspl.rc:47
-#, fuzzy
-#| msgctxt "All key"
-#| msgid "A"
-msgid "A5"
-msgstr "T"
-
-#: dlls/localspl/localspl.rc:48
-msgid "B4 (JIS)"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:49
-msgid "B5 (JIS)"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:50
-msgid "Folio"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:51
-msgid "Quarto"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:52
-msgid "10x14"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:53
-msgid "11x17"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:54
-#, fuzzy
-#| msgid "Notepad"
-msgid "Note"
-msgstr "Blocco Note"
-
-#: dlls/localspl/localspl.rc:55
-msgid "Envelope #9"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:56
-msgid "Envelope #10"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:57
-msgid "Envelope #11"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:58
-msgid "Envelope #12"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:59
-msgid "Envelope #14"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:60
-msgid "C size sheet"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:61
-msgid "D size sheet"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:62
-msgid "E size sheet"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:63
-msgid "Envelope DL"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:64
-msgid "Envelope C5"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:65
-msgid "Envelope C3"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:66
-msgid "Envelope C4"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:67
-msgid "Envelope C6"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:68
-msgid "Envelope C65"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:69
-msgid "Envelope B4"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:70
-msgid "Envelope B5"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:71
-msgid "Envelope B6"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:72
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "Envelope"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:73
-msgid "Envelope Monarch"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:74
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "6 3/4 Envelope"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:75
-msgid "US Std Fanfold"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:76
-msgid "German Std Fanfold"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:77
-msgid "German Legal Fanfold"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:78
-msgid "B4 (ISO)"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:79
-#, fuzzy
-#| msgid "Japanese"
-msgid "Japanese Postcard"
-msgstr "Giapponese"
-
-#: dlls/localspl/localspl.rc:80
-msgid "9x11"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:81
-msgid "10x11"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:82
-msgid "15x11"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:83
-msgid "Envelope Invite"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:84
-#, fuzzy
-#| msgctxt "Drive letter"
-#| msgid "Letter"
-msgid "Letter Extra"
-msgstr "Lettera"
-
-#: dlls/localspl/localspl.rc:85
-msgid "Legal Extra"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:86
-msgid "Tabloid Extra"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:87
-#, fuzzy
-#| msgid "E&xtras"
-msgid "A4 Extra"
-msgstr "E&xtra"
-
-#: dlls/localspl/localspl.rc:88
-msgid "Letter Transverse"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:89
-msgid "A4 Transverse"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:90
-msgid "Letter Extra Transverse"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:91
-msgid "Super A"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:92
-msgid "Super B"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:93
-#, fuzzy
-#| msgctxt "Drive letter"
-#| msgid "Letter"
-msgid "Letter Plus"
-msgstr "Lettera"
-
-#: dlls/localspl/localspl.rc:94
-msgid "A4 Plus"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:95
-msgid "A5 Transverse"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:96
-msgid "B5 (JIS) Transverse"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:97
-#, fuzzy
-#| msgid "E&xtras"
-msgid "A3 Extra"
-msgstr "E&xtra"
-
-#: dlls/localspl/localspl.rc:98
-#, fuzzy
-#| msgid "E&xtras"
-msgid "A5 Extra"
-msgstr "E&xtra"
-
-#: dlls/localspl/localspl.rc:99
-msgid "B5 (ISO) Extra"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:100
-#, fuzzy
-#| msgctxt "All key"
-#| msgid "A"
-msgid "A2"
-msgstr "T"
-
-#: dlls/localspl/localspl.rc:101
-msgid "A3 Transverse"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:102
-msgid "A3 Extra Transverse"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:103
-msgid "Japanese Double Postcard"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:104
-#, fuzzy
-#| msgctxt "All key"
-#| msgid "A"
-msgid "A6"
-msgstr "T"
-
-#: dlls/localspl/localspl.rc:105
-msgid "Japanese Envelope Kaku #2"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:106
-msgid "Japanese Envelope Kaku #3"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:107
-msgid "Japanese Envelope Chou #3"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:108
-msgid "Japanese Envelope Chou #4"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:109
-msgid "Letter Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:110
-msgid "A3 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:111
-msgid "A4 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:112
-msgid "A5 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:113
-msgid "B4 (JIS) Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:114
-msgid "B5 (JIS) Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:115
-msgid "Japanese Postcard Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:116
-msgid "Double Japan Postcard Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:117
-msgid "A6 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:118
-msgid "Japan Envelope Kaku #2 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:119
-msgid "Japan Envelope Kaku #3 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:120
-msgid "Japan Envelope Chou #3 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:121
-msgid "Japan Envelope Chou #4 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:122
-msgid "B6 (JIS)"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:123
-msgid "B6 (JIS) Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:124
-msgid "12x11"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:125
-msgid "Japan Envelope You #4"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:126
-msgid "Japan Envelope You #4 Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:127
-msgid "PRC 16K"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:128
-msgid "PRC 32K"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:129
-msgid "PRC 32K(Big)"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:130
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #1"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:131
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #2"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:132
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #3"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:133
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #4"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:134
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #5"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:135
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #6"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:136
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #7"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:137
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #8"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:138
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #9"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:139
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #10"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:140
-msgid "PRC 16K Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:141
-msgid "PRC 32K Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:142
-msgid "PRC 32K(Big) Rotated"
-msgstr ""
-
-#: dlls/localspl/localspl.rc:143
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #1 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:144
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #2 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:145
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #3 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:146
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #4 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:147
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #5 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:148
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #6 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:149
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #7 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:150
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #8 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:151
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #9 Rotated"
-msgstr "PKCS 7 preparato"
-
-#: dlls/localspl/localspl.rc:152
-#, fuzzy
-#| msgid "PKCS 7 Enveloped"
-msgid "PRC Envelope #10 Rotated"
-msgstr "PKCS 7 preparato"
-
 #: dlls/localspl/localspl.rc:31 dlls/localui/localui.rc:31
 #: dlls/winspool.drv/winspool.rc:30
 msgid "Local Port"
@@ -10433,7 +9835,7 @@ msgid "File type:"
 msgstr "Tipo di file"
 
 #: dlls/shell32/shell32.rc:359 dlls/shell32/shell32.rc:392
-#: dlls/urlmon/urlmon.rc:37 programs/explorer/explorer.rc:33
+#: dlls/urlmon/urlmon.rc:37 programs/explorer/explorer.rc:32
 msgid "Location:"
 msgstr "Locazione:"
 
@@ -10568,9 +9970,8 @@ msgstr "Vuoi terminare la sessione di Wine?"
 msgid "Programs"
 msgstr "Programmi"
 
-#: dlls/shell32/shell32.rc:204 dlls/shell32/shell32.rc:219
-#: dlls/shell32/shell32.rc:150 dlls/shell32/shell32.rc:235
-msgid "Documents"
+#: dlls/shell32/shell32.rc:204
+msgid "My Documents"
 msgstr "Documenti"
 
 #: dlls/shell32/shell32.rc:205
@@ -10585,12 +9986,12 @@ msgstr "Esecuzione automatica"
 msgid "Start Menu"
 msgstr "Menu Start"
 
-#: dlls/shell32/shell32.rc:208 dlls/shell32/shell32.rc:221
-msgid "Music"
+#: dlls/shell32/shell32.rc:208
+msgid "My Music"
 msgstr "Musica"
 
-#: dlls/shell32/shell32.rc:209 dlls/shell32/shell32.rc:223
-msgid "Videos"
+#: dlls/shell32/shell32.rc:209
+msgid "My Videos"
 msgstr "Video"
 
 #: dlls/shell32/shell32.rc:210
@@ -10618,17 +10019,34 @@ msgstr "Cronologia"
 msgid "Program Files"
 msgstr "Programmi"
 
-#: dlls/shell32/shell32.rc:217 dlls/shell32/shell32.rc:222
-msgid "Pictures"
+#: dlls/shell32/shell32.rc:217
+msgid "My Pictures"
 msgstr "Immagini"
 
 #: dlls/shell32/shell32.rc:218
 msgid "Common Files"
 msgstr "File Comuni"
 
+#: dlls/shell32/shell32.rc:219 dlls/shell32/shell32.rc:150
+#: dlls/shell32/shell32.rc:235
+msgid "Documents"
+msgstr "Documenti"
+
 #: dlls/shell32/shell32.rc:220
 msgid "Administrative Tools"
 msgstr "Strumenti di amministrazione"
+
+#: dlls/shell32/shell32.rc:221
+msgid "Music"
+msgstr "Musica"
+
+#: dlls/shell32/shell32.rc:222
+msgid "Pictures"
+msgstr "Immagini"
+
+#: dlls/shell32/shell32.rc:223
+msgid "Videos"
+msgstr "Video"
 
 #: dlls/shell32/shell32.rc:216
 msgid "Program Files (x86)"
@@ -13658,7 +13076,7 @@ msgstr ""
 "lista, perciò il parametro 2 diventa parametro 1 e così via. Non ha effetto\n"
 "se chiamato dalla linea di comando.\n"
 
-#: programs/cmd/cmd.rc:212
+#: programs/cmd/cmd.rc:212 programs/start/start.rc:56
 msgid ""
 "Start a program, or open a document in the program normally used for files\n"
 "with that suffix.\n"
@@ -13986,12 +13404,12 @@ msgstr ""
 msgid "Are you sure?"
 msgstr "Sei sicuro?"
 
-#: programs/cmd/cmd.rc:366 programs/reg/reg.rc:126 programs/xcopy/xcopy.rc:43
+#: programs/cmd/cmd.rc:366 programs/reg/reg.rc:50 programs/xcopy/xcopy.rc:43
 msgctxt "Yes key"
 msgid "Y"
 msgstr "S"
 
-#: programs/cmd/cmd.rc:367 programs/reg/reg.rc:127 programs/xcopy/xcopy.rc:44
+#: programs/cmd/cmd.rc:367 programs/reg/reg.rc:51 programs/xcopy/xcopy.rc:44
 msgctxt "No key"
 msgid "N"
 msgstr "N"
@@ -14060,7 +13478,7 @@ msgstr "Impossibile aprire '%1'\n"
 msgid "Cannot call batch label outside of a batch script\n"
 msgstr "Impossibile chiamare un'etichetta batch fuori da uno script batch\n"
 
-#: programs/cmd/cmd.rc:386 programs/reg/reg.rc:128 programs/xcopy/xcopy.rc:45
+#: programs/cmd/cmd.rc:386 programs/xcopy/xcopy.rc:45
 msgctxt "All key"
 msgid "A"
 msgstr "T"
@@ -14129,11 +13547,11 @@ msgstr "Il volume nell'unità %1!c! è %2\n"
 msgid "Volume in drive %1!c! has no label.\n"
 msgstr "Il volume nell'unità %1!c! non ha etichetta.\n"
 
-#: programs/cmd/cmd.rc:402 programs/reg/reg.rc:129
+#: programs/cmd/cmd.rc:402 programs/reg/reg.rc:49
 msgid " (Yes|No)"
 msgstr " (Sì|No)"
 
-#: programs/cmd/cmd.rc:403 programs/reg/reg.rc:130
+#: programs/cmd/cmd.rc:403
 msgid " (Yes|No|All)"
 msgstr " (Sì|No|Tutti)"
 
@@ -14352,17 +13770,17 @@ msgstr "Strumento di Diagnostica DirectX"
 msgid "Usage: dxdiag [/whql:off | /whql:on] [/t filename | /x filename]"
 msgstr "Uso: dxdiag [/whql:off | /whql:on] [/t nome_file | /x nome_file]"
 
-#: programs/explorer/explorer.rc:32
+#: programs/explorer/explorer.rc:31
 msgid "Wine Explorer"
 msgstr "Explorer di Wine"
 
-#: programs/explorer/explorer.rc:34
+#: programs/explorer/explorer.rc:33
 #, fuzzy
 #| msgid "StartUp"
 msgid "Start"
 msgstr "Esecuzione automatica"
 
-#: programs/explorer/explorer.rc:35 programs/winefile/winefile.rc:36
+#: programs/explorer/explorer.rc:34 programs/winefile/winefile.rc:36
 msgid "&Run..."
 msgstr "&Esegui..."
 
@@ -15557,410 +14975,198 @@ msgstr "File icona"
 msgid "Icons (*.ico)"
 msgstr "Icone (*.ico)"
 
-#: programs/reg/reg.rc:139
-#, fuzzy
-#| msgid "Error: Invalid key name\n"
-msgid "reg: Invalid syntax. "
-msgstr "Errore: nome della chiave non valido\n"
-
-#: programs/reg/reg.rc:142
-msgid "Type \"REG %1 /?\" for help.\n"
-msgstr ""
-
-#: programs/reg/reg.rc:181
-#, fuzzy
-#| msgid ""
-#| "Error: The system was unable to find the specified registry key or value\n"
-msgid "reg: Unable to access or create the specified registry key\n"
-msgstr ""
-"Errore: il sistema non è riuscito a trovare la chiave di registro o il "
-"valore specificati\n"
-
-#: programs/reg/reg.rc:116
-#, fuzzy
-#| msgid "The operation completed successfully\n"
-msgid "reg: The operation completed successfully\n"
-msgstr "Operazione completata con successo\n"
-
-#: programs/reg/reg.rc:131
-#, fuzzy
-#| msgid "Operation canceled by user.\n"
-msgid "reg: The registry operation was cancelled\n"
-msgstr "Operazione annullata dall'utente.\n"
-
-#: programs/reg/reg.rc:174
-#, fuzzy
-#| msgid ""
-#| "Error: The system was unable to find the specified registry key or value\n"
-msgid "reg: Unable to find the specified registry key\n"
-msgstr ""
-"Errore: il sistema non è riuscito a trovare la chiave di registro o il "
-"valore specificati\n"
-
-#: programs/reg/reg.rc:120
-#, fuzzy
-#| msgid ""
-#| "Error: The system was unable to find the specified registry key or value\n"
-msgid "reg: Unable to find the specified registry value\n"
-msgstr ""
-"Errore: il sistema non è riuscito a trovare la chiave di registro o il "
-"valore specificati\n"
-
-#: programs/reg/reg.rc:132 programs/regedit/regedit.rc:239
-msgid "(Default)"
-msgstr "(Predefinito)"
-
-#: programs/reg/reg.rc:141
-msgid "Type \"REG /?\" for help.\n"
-msgstr ""
-
 #: programs/reg/reg.rc:35
 msgid ""
 "Usage:\n"
 "  REG [operation] [parameters]\n"
 "\n"
 "Supported operations:\n"
-"  ADD | COPY | DELETE | EXPORT | IMPORT | QUERY\n"
+"  ADD | DELETE | IMPORT | EXPORT | QUERY\n"
 "\n"
 "For help on a specific operation, type:\n"
 "  REG [operation] /?\n"
 "\n"
 msgstr ""
 
-#: programs/reg/reg.rc:67
+#: programs/reg/reg.rc:36
 msgid ""
-"REG ADD <key> [/v value_name | /ve] [/t type] [/s separator] [/d data] [/f]\n"
-"\n"
-"  Adds a key to the registry or adds a new value to a given registry key.\n"
-"\n"
-"  <key>\n"
-"     The registry key to add or, if either [/v] or [/ve] is specified,\n"
-"     the key in which to add the new registry data.\n"
-"\n"
-"     Format: ROOT\\Subkey\n"
-"\n"
-"     ROOT: A predefined registry key. This must be one of the following:\n"
-"\n"
-"         HKEY_LOCAL_MACHINE  | HKLM\n"
-"         HKEY_CURRENT_USER   | HKCU\n"
-"         HKEY_CLASSES_ROOT   | HKCR\n"
-"         HKEY_USERS          | HKU\n"
-"         HKEY_CURRENT_CONFIG | HKCC\n"
-"\n"
-"     Subkey: The full path to a registry key under a given ROOT key.\n"
-"\n"
-"  /v <value_name>\n"
-"     The name of the registry value to add.\n"
-"\n"
-"  /ve\n"
-"     Add an unnamed registry value. This option modifies the (Default)\n"
-"     registry value.\n"
-"\n"
-"  /t <type>\n"
-"     The type of data to add to the registry. If [/t] is specified,\n"
-"     <type> must be one of the following:\n"
-"\n"
-"         REG_SZ    | REG_MULTI_SZ | REG_EXPAND_SZ\n"
-"         REG_DWORD | REG_BINARY   | REG_NONE\n"
-"\n"
-"     If [/t] is not specified, the default data type is REG_SZ.\n"
-"\n"
-"  /s <separator>\n"
-"     The character used to separate strings in REG_MULTI_SZ data.\n"
-"     If [/s] is not specified, the default separator is \\0.\n"
-"\n"
-"  /d <data>\n"
-"     The data to add to the new registry value.\n"
-"\n"
-"  /f\n"
-"     Modify the registry without prompting for confirmation.\n"
-"\n"
+"REG ADD key_name [/v value_name | /ve] [/t type] [/s separator] [/d data] [/"
+"f]\n"
 msgstr ""
+"REG ADD nome_della_chiave [/v nome_del_valore | /ve] [/t tipo] [/s "
+"separatore] [/d dati] [/f]\n"
 
-#: programs/reg/reg.rc:202
-msgid ""
-"REG COPY <key1> <key2> [/s] [/f]\n"
-"\n"
-"  Copies the contents of a specified registry key to another location.\n"
-"  By default, this operation only copies registry values. Use [/s] to\n"
-"  recursively copy all subkeys and values.\n"
-"\n"
-"  <key1>, <key2>\n"
-"     Registry keys specifying the source (<key1>) and destination (<key2>)\n"
-"     of the data. If <key2> does not exist, it is created.\n"
-"\n"
-"     Format: ROOT\\Subkey\n"
-"\n"
-"     ROOT: A predefined registry key. This must be one of the following:\n"
-"\n"
-"         HKEY_LOCAL_MACHINE  | HKLM\n"
-"         HKEY_CURRENT_USER   | HKCU\n"
-"         HKEY_CLASSES_ROOT   | HKCR\n"
-"         HKEY_USERS          | HKU\n"
-"         HKEY_CURRENT_CONFIG | HKCC\n"
-"\n"
-"     Subkey: The full path to a registry key under a given ROOT key.\n"
-"\n"
-"  /s\n"
-"     Copy all subkeys and values from <key1> to <key2>.\n"
-"\n"
-"  /f\n"
-"     Overwrite all registry data in <key2> without prompting for "
-"confirmation.\n"
-"     This option does not modify subkeys and values that only exist in "
-"<key2>.\n"
-"\n"
-msgstr ""
+#: programs/reg/reg.rc:37
+msgid "REG DELETE key_name [/v value_name | /ve | /va] [/f]\n"
+msgstr "REG DELETE nome_della_chiave [/v nome_del_valore | /ve | /va] [/f]\n"
 
-#: programs/reg/reg.rc:92
-msgid ""
-"REG DELETE <key> [/v value_name | /ve | /va] [/f]\n"
-"\n"
-"  Deletes a registry key (including all subkeys and values), or deletes\n"
-"  one or more values from a given registry key.\n"
-"\n"
-"  <key>\n"
-"     The registry key to delete or, if one of [/v], [/ve] or [/va] is\n"
-"     specified, the registry key in which to delete one or more values.\n"
-"\n"
-"     Format: ROOT\\Subkey\n"
-"\n"
-"     ROOT: A predefined registry key. This must be one of the following:\n"
-"\n"
-"         HKEY_LOCAL_MACHINE  | HKLM\n"
-"         HKEY_CURRENT_USER   | HKCU\n"
-"         HKEY_CLASSES_ROOT   | HKCR\n"
-"         HKEY_USERS          | HKU\n"
-"         HKEY_CURRENT_CONFIG | HKCC\n"
-"\n"
-"     Subkey: The full path to a registry key under a given ROOT key.\n"
-"\n"
-"  /v <value_name>\n"
-"     The name of the registry value to delete.\n"
-"\n"
-"  /ve\n"
-"     Delete an unnamed registry value. This option deletes the (Default)\n"
-"     registry value.\n"
-"\n"
-"  /va\n"
-"     Delete all values from a registry key.\n"
-"\n"
-"  /f\n"
-"     Delete a registry key (including all subkeys and values) without\n"
-"     prompting for confirmation.\n"
-"\n"
-msgstr ""
+#: programs/reg/reg.rc:38
+msgid "REG QUERY key_name [/v value_name | /ve] [/s]\n"
+msgstr "REG QUERY nome_della_chiave [/v nome_del_valore | /ve] [/s]\n"
 
-#: programs/reg/reg.rc:170
-msgid ""
-"REG EXPORT <key> <file> [/y]\n"
-"\n"
-"  Exports a specified registry key (including all subkeys and values)\n"
-"  to a file.\n"
-"\n"
-"  <key>\n"
-"     The registry key to export.\n"
-"\n"
-"     Format: ROOT\\Subkey\n"
-"\n"
-"     ROOT: A predefined registry key. This must be one of the following:\n"
-"\n"
-"         HKEY_LOCAL_MACHINE  | HKLM\n"
-"         HKEY_CURRENT_USER   | HKCU\n"
-"         HKEY_CLASSES_ROOT   | HKCR\n"
-"         HKEY_USERS          | HKU\n"
-"         HKEY_CURRENT_CONFIG | HKCC\n"
-"\n"
-"     Subkey: The full path to a registry key under a given ROOT key.\n"
-"\n"
-"  <file>\n"
-"     The name and path of the registry file that will be created.\n"
-"     This file must have a .reg extension.\n"
-"\n"
-"  /y\n"
-"     Overwrite <file> without prompting for confirmation.\n"
-"\n"
-msgstr ""
+#: programs/reg/reg.rc:39
+msgid "The operation completed successfully\n"
+msgstr "Operazione completata con successo\n"
 
-#: programs/reg/reg.rc:148
-msgid ""
-"REG IMPORT <file>\n"
-"\n"
-"  Imports keys, values and data from a given file into the registry.\n"
-"\n"
-"  <file>\n"
-"     The name and path of the registry file to import.\n"
-"\n"
-msgstr ""
-
-#: programs/reg/reg.rc:114
-msgid ""
-"REG QUERY <key> [/v value_name | /ve] [/s]\n"
-"\n"
-"  Queries a specified registry key and lists all immediate subkeys, values\n"
-"  and data within that key. Use [/s] to recursively query each subkey.\n"
-"\n"
-"  <key>\n"
-"     The registry key to query.\n"
-"\n"
-"     Format: ROOT\\Subkey\n"
-"\n"
-"     ROOT: A predefined registry key. This must be one of the following:\n"
-"\n"
-"         HKEY_LOCAL_MACHINE  | HKLM\n"
-"         HKEY_CURRENT_USER   | HKCU\n"
-"         HKEY_CLASSES_ROOT   | HKCR\n"
-"         HKEY_USERS          | HKU\n"
-"         HKEY_CURRENT_CONFIG | HKCC\n"
-"\n"
-"     Subkey: The full path to a registry key under a given ROOT key.\n"
-"\n"
-"  /v <value_name>\n"
-"     The name of the registry value to query. If neither [/v] nor [/ve] is\n"
-"     specified, all values under <key> are listed.\n"
-"\n"
-"  /ve\n"
-"     Query an unnamed registry value. This option queries the (Default)\n"
-"     registry value.\n"
-"\n"
-"  /s\n"
-"     List all registry entries under <key> and its subkeys.\n"
-"\n"
-msgstr ""
-
-#: programs/reg/reg.rc:180
-msgid ""
-"  /reg:32\n"
-"     Access the registry using the 32-bit view.\n"
-"\n"
-"  /reg:64\n"
-"     Access the registry using the 64-bit view.\n"
-"\n"
-msgstr ""
-
-#: programs/reg/reg.rc:117
+#: programs/reg/reg.rc:40
 #, fuzzy
 #| msgid "Error: Invalid key name\n"
-msgid "reg: Invalid registry key\n"
+msgid "reg: Invalid key name\n"
 msgstr "Errore: nome della chiave non valido\n"
 
-#: programs/reg/reg.rc:119
-#, fuzzy
-#| msgid "Error: Unable to add keys to remote machine\n"
-msgid "reg: Unable to access remote machine\n"
-msgstr "Errore: impossibile aggiungere chiavi alla macchina remota\n"
-
-#: programs/reg/reg.rc:172
-#, fuzzy
-#| msgid "Error: Invalid key name\n"
-msgid "reg: Invalid system key\n"
-msgstr "Errore: nome della chiave non valido\n"
-
-#: programs/reg/reg.rc:140
-#, fuzzy
-#| msgid "Error: Invalid option '%c'.\n"
-msgid "reg: Invalid option [%1]. "
-msgstr "Errore: opzione non valida '%c'.\n"
-
-#: programs/reg/reg.rc:122
-msgid "reg: The option [/d] must be followed by a valid numeric value\n"
-msgstr ""
-
-#: programs/reg/reg.rc:123
-msgid "reg: The option [/d] must be followed by a valid hexadecimal value\n"
-msgstr ""
-
-#: programs/reg/reg.rc:136
-msgid "reg: The option [/d] must be followed by a valid string\n"
-msgstr ""
-
-#: programs/reg/reg.rc:124
-msgid "reg: Unhandled registry data type [/t 0x%1!x!, /d %2]\n"
-msgstr ""
-
-#: programs/reg/reg.rc:121
-#, fuzzy
-#| msgid "Unsupported type.\n"
-msgid "reg: Unsupported registry data type [%1]\n"
-msgstr "Tipo non supportato.\n"
-
-#: programs/reg/reg.rc:125
-#, fuzzy
-#| msgid "The specified file already exists. Do you want to replace it?"
-msgid "The registry value '%1' already exists. Do you want to overwrite it?"
-msgstr "Il file specificato esiste già. Vuoi sostituirlo?"
-
-#: programs/reg/reg.rc:118
+#: programs/reg/reg.rc:41
 #, fuzzy
 #| msgid "Error: Invalid command line parameters\n"
 msgid "reg: Invalid command line parameters\n"
 msgstr "Errore: parametri della linea di comando non validi\n"
 
-#: programs/reg/reg.rc:204
-msgid "reg: The source and destination keys cannot be the same\n"
+#: programs/reg/reg.rc:42
+#, fuzzy
+#| msgid "Error: Unable to add keys to remote machine\n"
+msgid "reg: Unable to access remote machine\n"
+msgstr "Errore: impossibile aggiungere chiavi alla macchina remota\n"
+
+#: programs/reg/reg.rc:43
+#, fuzzy
+#| msgid ""
+#| "Error: The system was unable to find the specified registry key or value\n"
+msgid ""
+"reg: The system was unable to find the specified registry key or value\n"
+msgstr ""
+"Errore: il sistema non è riuscito a trovare la chiave di registro o il "
+"valore specificati\n"
+
+#: programs/reg/reg.rc:44
+#, fuzzy
+#| msgid "Unsupported type.\n"
+msgid "reg: Unsupported registry data type [%1]\n"
+msgstr "Tipo non supportato.\n"
+
+#: programs/reg/reg.rc:45
+msgid "reg: The option [/d] must be followed by a valid integer\n"
 msgstr ""
 
-#: programs/reg/reg.rc:205
+#: programs/reg/reg.rc:46
+msgid "reg: The option [/d] must be followed by a valid hexadecimal value\n"
+msgstr ""
+
+#: programs/reg/reg.rc:47
+msgid "reg: Unhandled registry data type [/t 0x%1!x!, /d %2]\n"
+msgstr ""
+
+#: programs/reg/reg.rc:48
 #, fuzzy
 #| msgid "The specified file already exists. Do you want to replace it?"
-msgid ""
-"The value '%1\\%2' already exists in the destination key. Do you want to "
-"overwrite it?"
+msgid "The registry value '%1' already exists. Do you want to overwrite it?"
 msgstr "Il file specificato esiste già. Vuoi sostituirlo?"
 
-#: programs/reg/reg.rc:133
+#: programs/reg/reg.rc:52
+msgid "The registry operation was cancelled\n"
+msgstr ""
+
+#: programs/reg/reg.rc:53 programs/regedit/regedit.rc:239
+msgid "(Default)"
+msgstr "(Predefinito)"
+
+#: programs/reg/reg.rc:54
 #, fuzzy
 #| msgid "Are you sure you want to delete these values?"
 msgid "Are you sure you want to delete the registry value '%1'?"
 msgstr "Sei sicuro di volere eliminare questi valori?"
 
-#: programs/reg/reg.rc:134
+#: programs/reg/reg.rc:55
 #, fuzzy
 #| msgid "Are you sure you want to delete value '%s'?"
 msgid "Are you sure you want to delete all registry values in '%1'?"
 msgstr "Sei sicuro di volere eliminare il valore '%s'?"
 
-#: programs/reg/reg.rc:135
+#: programs/reg/reg.rc:56
 #, fuzzy
 #| msgid "Are you sure you want to delete '%1'?"
 msgid "Are you sure you want to delete the registry key '%1'?"
 msgstr "Sei sicuro di voler cancellare '%1'?"
 
-#: programs/reg/reg.rc:137
-#, fuzzy
-#| msgid "Error: Unable to add keys to remote machine\n"
-msgid "reg: Unable to delete all registry values in '%1'\n"
-msgstr "Errore: impossibile aggiungere chiavi alla macchina remota\n"
-
-#: programs/reg/reg.rc:173
-#, fuzzy
-#| msgid "The specified file already exists. Do you want to replace it?"
-msgid "The file '%1' already exists. Do you want to overwrite it?"
-msgstr "Il file specificato esiste già. Vuoi sostituirlo?"
-
-#: programs/reg/reg.rc:151
-msgid "reg: Unrecognized escape sequence [\\%1!c!]\n"
+#: programs/reg/reg.rc:57
+msgid "reg: The option [/d] must be followed by a valid string\n"
 msgstr ""
 
-#: programs/reg/reg.rc:175
-#, fuzzy
-#| msgid "Error: Unable to add keys to remote machine\n"
-msgid "reg: Unable to import the registry key '%1'\n"
-msgstr "Errore: impossibile aggiungere chiavi alla macchina remota\n"
+#: programs/reg/reg.rc:58
+msgid ""
+"reg: Unable to delete all registry values in '%1'. An unexpected error "
+"occurred.\n"
+msgstr ""
 
-#: programs/reg/reg.rc:150
+#: programs/reg/reg.rc:59
+msgid ""
+"reg: Unable to complete the specified operation. An unexpected error "
+"occurred.\n"
+msgstr ""
+
+#: programs/reg/reg.rc:60
+msgid "Search complete. Number of matches found: %1!d!\n"
+msgstr ""
+
+#: programs/reg/reg.rc:61
+#, fuzzy
+#| msgid "Error: Invalid key name\n"
+msgid "reg: Invalid syntax. "
+msgstr "Errore: nome della chiave non valido\n"
+
+#: programs/reg/reg.rc:62
+#, fuzzy
+#| msgid "Error: Invalid option '%c'.\n"
+msgid "reg: Invalid option [%1]. "
+msgstr "Errore: opzione non valida '%c'.\n"
+
+#: programs/reg/reg.rc:63
+msgid "Type \"REG /?\" for help.\n"
+msgstr ""
+
+#: programs/reg/reg.rc:64
+msgid "Type \"REG %1 /?\" for help.\n"
+msgstr ""
+
+#: programs/reg/reg.rc:65 programs/regedit/regedit.rc:240
+msgid "(value not set)"
+msgstr "(valore non immesso)"
+
+#: programs/reg/reg.rc:66
+msgid "REG IMPORT file.reg\n"
+msgstr ""
+
+#: programs/reg/reg.rc:67
 #, fuzzy
 #| msgid "No command was specified."
 msgid "reg: The file '%1' was not found.\n"
 msgstr "Non è stato specificato nessun comando."
 
-#: programs/reg/reg.rc:143 programs/regedit/regedit.rc:240
-msgid "(value not set)"
-msgstr "(valore non immesso)"
+#: programs/reg/reg.rc:68
+#, fuzzy
+#| msgid "Error: Unable to add keys to remote machine\n"
+msgid "reg: Unable to open the registry key '%1'.\n"
+msgstr "Errore: impossibile aggiungere chiavi alla macchina remota\n"
 
-#: programs/reg/reg.rc:138
-msgid "Search complete. Number of matches found: %1!d!\n"
+#: programs/reg/reg.rc:69
+msgid "reg: Unrecognized escape sequence [\\%1!c!]\n"
 msgstr ""
+
+#: programs/reg/reg.rc:70
+#, fuzzy
+#| msgid "REG QUERY key_name [/v value_name | /ve] [/s]\n"
+msgid "REG EXPORT key_name file.reg [/y]\n"
+msgstr "REG QUERY nome_della_chiave [/v nome_del_valore | /ve] [/s]\n"
+
+#: programs/reg/reg.rc:71
+#, fuzzy
+#| msgid "Error: Invalid key name\n"
+msgid "reg: Invalid system key [%1]\n"
+msgstr "Errore: nome della chiave non valido\n"
+
+#: programs/reg/reg.rc:72
+#, fuzzy
+#| msgid "The specified file already exists. Do you want to replace it?"
+msgid "The file '%1' already exists. Do you want to overwrite it?"
+msgstr "Il file specificato esiste già. Vuoi sostituirlo?"
 
 #: programs/regedit/regedit.rc:34
 msgid "&Registry"
@@ -16670,39 +15876,7 @@ msgstr ""
 msgid "regsvr32: Successfully uninstalled DLL '%1'\n"
 msgstr ""
 
-#: programs/start/start.rc:57
-msgid ""
-"Start a program, or open a document in the program normally used for files\n"
-"with that suffix.\n"
-"Usage:\n"
-"start [options] program_filename [...]\n"
-"start [options] document_filename\n"
-"\n"
-"Options:\n"
-"\"title\"        Specifies the title of the child windows.\n"
-"/d directory   Start the program in the specified directory.\n"
-"/b             Don't create a new console for the program.\n"
-"/i             Start the program with fresh environment variables.\n"
-"/min           Start the program minimized.\n"
-"/max           Start the program maximized.\n"
-"/low           Start the program in the idle priority class.\n"
-"/normal        Start the program in the normal priority class.\n"
-"/high          Start the program in the high priority class.\n"
-"/realtime      Start the program in the realtime priority class.\n"
-"/abovenormal   Start the program in the abovenormal priority class.\n"
-"/belownormal   Start the program in the belownormal priority class.\n"
-"/node n        Start the program on the specified NUMA node.\n"
-"/affinity mask Start the program with the specified affinity mask.\n"
-"/wait          Wait for the started program to finish, then exit with its\n"
-"exit code.\n"
-"/unix          Use a Unix filename and start the file like Windows\n"
-"Explorer.\n"
-"/exec          Exec the specified file (for internal Wine usage).\n"
-"/ProgIDOpen    Open a document using the specified progID.\n"
-"/?             Display this help and exit.\n"
-msgstr ""
-
-#: programs/start/start.rc:59
+#: programs/start/start.rc:58
 msgid ""
 "Application could not be started, or no application associated with the "
 "specified file.\n"
@@ -16712,7 +15886,7 @@ msgstr ""
 "associata con il file specificato.\n"
 "ShellExecuteEx fallito"
 
-#: programs/start/start.rc:61
+#: programs/start/start.rc:60
 msgid "Could not translate the specified Unix filename to a DOS filename."
 msgstr "Non è stato possibile tradurre il nome file Unix in un nome file DOS."
 
@@ -18691,6 +17865,10 @@ msgstr "Caratteri"
 #: programs/winhlp32/winhlp32.rc:52 programs/winhlp32/winhlp32.rc:72
 msgid "Small"
 msgstr "Piccoli"
+
+#: programs/winhlp32/winhlp32.rc:53 programs/winhlp32/winhlp32.rc:73
+msgid "Normal"
+msgstr "Normali"
 
 #: programs/winhlp32/winhlp32.rc:54 programs/winhlp32/winhlp32.rc:74
 msgid "Large"

@@ -56,8 +56,8 @@ static BOOL ddraw_gdi_is_front(struct ddraw *ddraw)
 HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
         const RECT *rect, BOOL read, unsigned int swap_interval)
 {
-    struct wined3d_texture *dst_texture, *wined3d_texture;
     struct ddraw *ddraw = surface->ddraw;
+    struct wined3d_texture *dst_texture;
     HDC surface_dc, screen_dc;
     int x, y, w, h;
     HRESULT hr;
@@ -112,9 +112,8 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
         else
             dst_texture = ddraw->wined3d_frontbuffer;
 
-        if (SUCCEEDED(hr = wined3d_device_context_blt(ddraw->immediate_context, dst_texture, 0, rect,
-                ddraw_surface_get_any_texture(surface, DDRAW_SURFACE_READ), surface->sub_resource_idx, rect, 0,
-                NULL, WINED3D_TEXF_POINT)) && swap_interval)
+        if (SUCCEEDED(hr = wined3d_texture_blt(dst_texture, 0, rect, surface->wined3d_texture,
+                surface->sub_resource_idx, rect, 0, NULL, WINED3D_TEXF_POINT)) && swap_interval)
         {
             hr = wined3d_swapchain_present(ddraw->wined3d_swapchain, rect, rect, NULL, swap_interval, 0);
             ddraw->flags |= DDRAW_SWAPPED;
@@ -122,10 +121,7 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
         return hr;
     }
 
-    wined3d_texture = ddraw_surface_get_default_texture(surface, read ? (rect ? DDRAW_SURFACE_RW : DDRAW_SURFACE_WRITE)
-            : DDRAW_SURFACE_READ);
-
-    if (FAILED(hr = wined3d_texture_get_dc(wined3d_texture, surface->sub_resource_idx, &surface_dc)))
+    if (FAILED(hr = wined3d_texture_get_dc(surface->wined3d_texture, surface->sub_resource_idx, &surface_dc)))
     {
         ERR("Failed to get surface DC, hr %#x.\n", hr);
         return hr;
@@ -135,7 +131,7 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
 
     if (!(screen_dc = GetDC(NULL)))
     {
-        wined3d_texture_release_dc(wined3d_texture, surface->sub_resource_idx, surface_dc);
+        wined3d_texture_release_dc(surface->wined3d_texture, surface->sub_resource_idx, surface_dc);
         ERR("Failed to get screen DC.\n");
         return E_FAIL;
     }
@@ -148,7 +144,7 @@ HRESULT ddraw_surface_update_frontbuffer(struct ddraw_surface *surface,
                 surface_dc, x, y, SRCCOPY);
 
     ReleaseDC(NULL, screen_dc);
-    wined3d_texture_release_dc(wined3d_texture, surface->sub_resource_idx, surface_dc);
+    wined3d_texture_release_dc(surface->wined3d_texture, surface->sub_resource_idx, surface_dc);
 
     if (!ret)
     {
@@ -260,7 +256,7 @@ static HRESULT WINAPI ddraw_surface7_QueryInterface(IDirectDrawSurface7 *iface, 
             {
                 HRESULT hr;
 
-                if (FAILED(hr = d3d_device_create(This->ddraw, riid, This, (IUnknown *)&This->IDirectDrawSurface_iface,
+                if (FAILED(hr = d3d_device_create(This->ddraw, This, (IUnknown *)&This->IDirectDrawSurface_iface,
                         1, &This->device1, (IUnknown *)&This->IDirectDrawSurface_iface)))
                 {
                     This->device1 = NULL;
@@ -375,7 +371,7 @@ static void ddraw_surface_add_iface(struct ddraw_surface *surface)
         wined3d_mutex_lock();
         if (surface->wined3d_rtv)
             wined3d_rendertarget_view_incref(surface->wined3d_rtv);
-        wined3d_texture_incref(surface->draw_texture ? surface->draw_texture : surface->wined3d_texture);
+        wined3d_texture_incref(surface->wined3d_texture);
         wined3d_mutex_unlock();
     }
 }
@@ -587,7 +583,7 @@ static void ddraw_surface_cleanup(struct ddraw_surface *surface)
 
     if (surface->wined3d_rtv)
         wined3d_rendertarget_view_decref(surface->wined3d_rtv);
-    wined3d_texture_decref(surface->draw_texture ? surface->draw_texture : surface->wined3d_texture);
+    wined3d_texture_decref(surface->wined3d_texture);
 }
 
 static ULONG ddraw_surface_release_iface(struct ddraw_surface *This)
@@ -1027,7 +1023,6 @@ static HRESULT surface_lock(struct ddraw_surface *surface,
         DWORD flags, HANDLE h)
 {
     struct wined3d_map_desc map_desc;
-    unsigned int wined3d_flags;
     struct wined3d_box box;
     HRESULT hr = DD_OK;
 
@@ -1062,12 +1057,9 @@ static HRESULT surface_lock(struct ddraw_surface *surface,
     if (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
         hr = ddraw_surface_update_frontbuffer(surface, rect, TRUE, 0);
     if (SUCCEEDED(hr))
-    {
-        wined3d_flags = wined3dmapflags_from_ddrawmapflags(flags);
-        hr = wined3d_resource_map(wined3d_texture_get_resource
-                (ddraw_surface_get_default_texture(surface, wined3d_flags & WINED3D_MAP_WRITE ? DDRAW_SURFACE_RW
-                : DDRAW_SURFACE_READ)), surface->sub_resource_idx, &map_desc, rect ? &box : NULL, wined3d_flags);
-    }
+        hr = wined3d_resource_map(wined3d_texture_get_resource(surface->wined3d_texture),
+                surface->sub_resource_idx, &map_desc, rect ? &box : NULL,
+                wined3dmapflags_from_ddrawmapflags(flags));
     if (FAILED(hr))
     {
         wined3d_mutex_unlock();
@@ -1243,8 +1235,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Unlock(IDirectDrawSurface
     TRACE("iface %p, data %p.\n", iface, data);
 
     wined3d_mutex_lock();
-    hr = wined3d_resource_unmap(wined3d_texture_get_resource
-            (ddraw_surface_get_default_texture(surface, 0)), surface->sub_resource_idx);
+    hr = wined3d_resource_unmap(wined3d_texture_get_resource(surface->wined3d_texture), surface->sub_resource_idx);
     if (SUCCEEDED(hr) && surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
         hr = ddraw_surface_update_frontbuffer(surface, &surface->ddraw->primary_lock, FALSE, 0);
     wined3d_mutex_unlock();
@@ -1316,7 +1307,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Flip(IDirectDrawSurface *
     struct ddraw_texture *dst_ddraw_texture, *src_ddraw_texture;
     struct wined3d_rendertarget_view *tmp_rtv, *src_rtv, *rtv;
     DDSCAPS caps = {DDSCAPS_FLIP};
-    struct wined3d_texture *texture, *draw_texture;
+    struct wined3d_texture *texture;
     IDirectDrawSurface *current;
     void *texture_memory;
     HRESULT hr;
@@ -1343,10 +1334,9 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Flip(IDirectDrawSurface *
     if (dst_impl->sub_resource_idx)
         ERR("Invalid sub-resource index %u on surface %p.\n", dst_impl->sub_resource_idx, dst_impl);
     texture = dst_impl->wined3d_texture;
-    rtv = wined3d_device_context_get_rendertarget_view(dst_impl->ddraw->immediate_context, 0);
+    rtv = wined3d_device_get_rendertarget_view(dst_impl->ddraw->wined3d_device, 0);
     dst_ddraw_texture = wined3d_texture_get_parent(dst_impl->wined3d_texture);
     texture_memory = dst_ddraw_texture->texture_memory;
-    draw_texture = dst_impl->draw_texture;
 
     if (src_impl)
     {
@@ -1369,22 +1359,17 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Flip(IDirectDrawSurface *
 
         src_rtv = ddraw_surface_get_rendertarget_view(src_impl);
         if (rtv == dst_impl->wined3d_rtv)
-            wined3d_device_context_set_rendertarget_views(dst_impl->ddraw->immediate_context, 0, 1, &src_rtv, FALSE);
+            wined3d_device_set_rendertarget_view(dst_impl->ddraw->wined3d_device, 0, src_rtv, FALSE);
         wined3d_rendertarget_view_set_parent(src_rtv, dst_impl);
         dst_impl->wined3d_rtv = src_rtv;
         wined3d_texture_set_sub_resource_parent(src_impl->wined3d_texture, 0, dst_impl);
-        if (src_impl->draw_texture)
-            wined3d_texture_set_sub_resource_parent(src_impl->draw_texture, 0, dst_impl);
         src_ddraw_texture = wined3d_texture_get_parent(src_impl->wined3d_texture);
         dst_ddraw_texture->texture_memory = src_ddraw_texture->texture_memory;
         wined3d_resource_set_parent(wined3d_texture_get_resource(src_impl->wined3d_texture), dst_ddraw_texture);
-        if (src_impl->draw_texture)
-            wined3d_resource_set_parent(wined3d_texture_get_resource(src_impl->draw_texture), dst_ddraw_texture);
         dst_ddraw_texture = src_ddraw_texture;
         if (src_impl->sub_resource_idx)
             ERR("Invalid sub-resource index %u on surface %p.\n", src_impl->sub_resource_idx, src_impl);
         dst_impl->wined3d_texture = src_impl->wined3d_texture;
-        dst_impl->draw_texture = src_impl->draw_texture;
     }
     else
     {
@@ -1406,23 +1391,17 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Flip(IDirectDrawSurface *
             src_impl = impl_from_IDirectDrawSurface(current);
             src_rtv = ddraw_surface_get_rendertarget_view(src_impl);
             if (rtv == dst_impl->wined3d_rtv)
-                wined3d_device_context_set_rendertarget_views(dst_impl->ddraw->immediate_context,
-                        0, 1, &src_rtv, FALSE);
+                wined3d_device_set_rendertarget_view(dst_impl->ddraw->wined3d_device, 0, src_rtv, FALSE);
             wined3d_rendertarget_view_set_parent(src_rtv, dst_impl);
             dst_impl->wined3d_rtv = src_rtv;
             wined3d_texture_set_sub_resource_parent(src_impl->wined3d_texture, 0, dst_impl);
-            if (src_impl->draw_texture)
-                wined3d_texture_set_sub_resource_parent(src_impl->draw_texture, 0, dst_impl);
             src_ddraw_texture = wined3d_texture_get_parent(src_impl->wined3d_texture);
             dst_ddraw_texture->texture_memory = src_ddraw_texture->texture_memory;
             wined3d_resource_set_parent(wined3d_texture_get_resource(src_impl->wined3d_texture), dst_ddraw_texture);
-            if (src_impl->draw_texture)
-                wined3d_resource_set_parent(wined3d_texture_get_resource(src_impl->draw_texture), dst_ddraw_texture);
             dst_ddraw_texture = src_ddraw_texture;
             if (src_impl->sub_resource_idx)
                 ERR("Invalid sub-resource index %u on surface %p.\n", src_impl->sub_resource_idx, src_impl);
             dst_impl->wined3d_texture = src_impl->wined3d_texture;
-            dst_impl->draw_texture = src_impl->draw_texture;
             dst_impl = src_impl;
         }
     }
@@ -1430,18 +1409,13 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Flip(IDirectDrawSurface *
     /* We don't have to worry about potential texture bindings, since
      * flippable surfaces can never be textures. */
     if (rtv == src_impl->wined3d_rtv)
-        wined3d_device_context_set_rendertarget_views(dst_impl->ddraw->immediate_context, 0, 1, &tmp_rtv, FALSE);
+        wined3d_device_set_rendertarget_view(dst_impl->ddraw->wined3d_device, 0, tmp_rtv, FALSE);
     wined3d_rendertarget_view_set_parent(tmp_rtv, src_impl);
     src_impl->wined3d_rtv = tmp_rtv;
     wined3d_texture_set_sub_resource_parent(texture, 0, src_impl);
-    if (draw_texture)
-        wined3d_texture_set_sub_resource_parent(draw_texture, 0, src_impl);
     dst_ddraw_texture->texture_memory = texture_memory;
     wined3d_resource_set_parent(wined3d_texture_get_resource(texture), dst_ddraw_texture);
-    if (draw_texture)
-        wined3d_resource_set_parent(wined3d_texture_get_resource(draw_texture), dst_ddraw_texture);
     src_impl->wined3d_texture = texture;
-    src_impl->draw_texture = draw_texture;
 
     if (flags & ~(DDFLIP_NOVSYNC | DDFLIP_INTERVAL2 | DDFLIP_INTERVAL3 | DDFLIP_INTERVAL4))
     {
@@ -1514,8 +1488,7 @@ static HRESULT ddraw_surface_blt(struct ddraw_surface *dst_surface, const RECT *
         struct ddraw_surface *src_surface, const RECT *src_rect, DWORD flags, DWORD fill_colour,
         const struct wined3d_blt_fx *fx, enum wined3d_texture_filter_type filter)
 {
-    struct ddraw *ddraw = dst_surface->ddraw;
-    struct wined3d_device *wined3d_device = ddraw->wined3d_device;
+    struct wined3d_device *wined3d_device = dst_surface->ddraw->wined3d_device;
     struct wined3d_color colour;
     DWORD wined3d_flags;
 
@@ -1529,9 +1502,8 @@ static HRESULT ddraw_surface_blt(struct ddraw_surface *dst_surface, const RECT *
                 dst_surface->palette, fill_colour, &colour))
             return DDERR_INVALIDPARAMS;
 
-        wined3d_device_apply_stateblock(wined3d_device, ddraw->state);
-        ddraw_surface_get_draw_texture(dst_surface, dst_rect ? DDRAW_SURFACE_RW : DDRAW_SURFACE_WRITE);
-        return wined3d_device_context_clear_rendertarget_view(ddraw->immediate_context,
+        wined3d_device_apply_stateblock(wined3d_device, dst_surface->ddraw->state);
+        return wined3d_device_clear_rendertarget_view(wined3d_device,
                 ddraw_surface_get_rendertarget_view(dst_surface),
                 dst_rect, wined3d_flags, &colour, 0.0f, 0);
     }
@@ -1546,9 +1518,8 @@ static HRESULT ddraw_surface_blt(struct ddraw_surface *dst_surface, const RECT *
                 dst_surface->palette, fill_colour, &colour))
             return DDERR_INVALIDPARAMS;
 
-        wined3d_device_apply_stateblock(wined3d_device, ddraw->state);
-        ddraw_surface_get_draw_texture(dst_surface, dst_rect ? DDRAW_SURFACE_RW : DDRAW_SURFACE_WRITE);
-        return wined3d_device_context_clear_rendertarget_view(ddraw->immediate_context,
+        wined3d_device_apply_stateblock(wined3d_device, dst_surface->ddraw->state);
+        return wined3d_device_clear_rendertarget_view(wined3d_device,
                 ddraw_surface_get_rendertarget_view(dst_surface),
                 dst_rect, wined3d_flags, NULL, colour.r, 0);
     }
@@ -1563,10 +1534,8 @@ static HRESULT ddraw_surface_blt(struct ddraw_surface *dst_surface, const RECT *
     if (!(flags & DDBLT_ASYNC))
         wined3d_flags |= WINED3D_BLT_SYNCHRONOUS;
 
-    return wined3d_device_context_blt(ddraw->immediate_context,
-            ddraw_surface_get_any_texture(dst_surface, DDRAW_SURFACE_RW), dst_surface->sub_resource_idx, dst_rect,
-            ddraw_surface_get_any_texture(src_surface, DDRAW_SURFACE_READ), src_surface->sub_resource_idx, src_rect,
-            wined3d_flags, fx, filter);
+    return wined3d_texture_blt(dst_surface->wined3d_texture, dst_surface->sub_resource_idx, dst_rect,
+            src_surface->wined3d_texture, src_surface->sub_resource_idx, src_rect, wined3d_flags, fx, filter);
 }
 
 static HRESULT ddraw_surface_blt_clipped(struct ddraw_surface *dst_surface, const RECT *dst_rect_in,
@@ -1689,7 +1658,7 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface1_Blt(IDirectDrawSurface *i
 {
     struct ddraw_surface *dst_impl = impl_from_IDirectDrawSurface(iface);
     struct ddraw_surface *src_impl = unsafe_impl_from_IDirectDrawSurface(src_surface);
-    struct wined3d_blt_fx wined3d_fx = {0};
+    struct wined3d_blt_fx wined3d_fx;
     DWORD unsupported_flags;
     DWORD fill_colour = 0;
     HRESULT hr = DD_OK;
@@ -2137,7 +2106,6 @@ static HRESULT WINAPI ddraw_surface1_AddAttachedSurface(IDirectDrawSurface *ifac
 static HRESULT ddraw_surface_delete_attached_surface(struct ddraw_surface *surface,
         struct ddraw_surface *attachment, IUnknown *detach_iface)
 {
-    struct wined3d_rendertarget_view *dsv;
     struct ddraw_surface *prev = surface;
 
     TRACE("surface %p, attachment %p, detach_iface %p.\n", surface, attachment, detach_iface);
@@ -2185,9 +2153,9 @@ static HRESULT ddraw_surface_delete_attached_surface(struct ddraw_surface *surfa
      * QueryInterface(). Some applications, SCP - Containment Breach in
      * particular, modify the QueryInterface() pointer in the surface vtbl
      * but don't cleanup properly after the relevant dll is unloaded. */
-    dsv = wined3d_device_context_get_depth_stencil_view(surface->ddraw->immediate_context);
-    if (attachment->surface_desc.ddsCaps.dwCaps & DDSCAPS_ZBUFFER && dsv == attachment->wined3d_rtv)
-        wined3d_device_context_set_depth_stencil_view(surface->ddraw->immediate_context, NULL);
+    if (attachment->surface_desc.ddsCaps.dwCaps & DDSCAPS_ZBUFFER
+            && wined3d_device_get_depth_stencil_view(surface->ddraw->wined3d_device) == attachment->wined3d_rtv)
+        wined3d_device_set_depth_stencil_view(surface->ddraw->wined3d_device, NULL);
     wined3d_mutex_unlock();
 
     /* Set attached_iface to NULL before releasing it, the surface may go
@@ -2337,7 +2305,7 @@ static HRESULT WINAPI ddraw_surface7_GetDC(IDirectDrawSurface7 *iface, HDC *dc)
     else if (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
         hr = ddraw_surface_update_frontbuffer(surface, NULL, TRUE, 0);
     if (SUCCEEDED(hr))
-        hr = wined3d_texture_get_dc(ddraw_surface_get_default_texture(surface, DDRAW_SURFACE_RW), surface->sub_resource_idx, dc);
+        hr = wined3d_texture_get_dc(surface->wined3d_texture, surface->sub_resource_idx, dc);
 
     if (SUCCEEDED(hr))
     {
@@ -2433,8 +2401,7 @@ static HRESULT WINAPI ddraw_surface7_ReleaseDC(IDirectDrawSurface7 *iface, HDC h
     {
         hr = DDERR_NODC;
     }
-    else if (SUCCEEDED(hr = wined3d_texture_release_dc(ddraw_surface_get_default_texture(surface, 0),
-            surface->sub_resource_idx, hdc)))
+    else if (SUCCEEDED(hr = wined3d_texture_release_dc(surface->wined3d_texture, surface->sub_resource_idx, hdc)))
     {
         surface->dc = NULL;
         if (surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
@@ -2584,9 +2551,6 @@ static HRESULT WINAPI ddraw_surface7_SetPriority(IDirectDrawSurface7 *iface, DWO
     {
         resource = wined3d_texture_get_resource(surface->wined3d_texture);
         wined3d_resource_set_priority(resource, priority);
-        if (surface->draw_texture)
-            wined3d_resource_set_priority(wined3d_texture_get_resource(surface->draw_texture), priority);
-
         hr = DD_OK;
     }
     wined3d_mutex_unlock();
@@ -4303,8 +4267,6 @@ static HRESULT WINAPI ddraw_surface7_SetLOD(IDirectDrawSurface7 *iface, DWORD Ma
     }
 
     hr = wined3d_texture_set_lod(surface->wined3d_texture, MaxLOD);
-    if (SUCCEEDED(hr) && surface->draw_texture)
-        hr = wined3d_texture_set_lod(surface->draw_texture, MaxLOD);
     wined3d_mutex_unlock();
 
     return hr;
@@ -4414,10 +4376,8 @@ static HRESULT WINAPI DECLSPEC_HOTPATCH ddraw_surface7_BltFast(IDirectDrawSurfac
     if (src_impl->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE)
         hr = ddraw_surface_update_frontbuffer(src_impl, src_rect, TRUE, 0);
     if (SUCCEEDED(hr))
-        hr = wined3d_device_context_blt(dst_impl->ddraw->immediate_context,
-                ddraw_surface_get_any_texture(dst_impl, DDRAW_SURFACE_RW), dst_impl->sub_resource_idx, &dst_rect,
-                ddraw_surface_get_any_texture(src_impl,DDRAW_SURFACE_READ), src_impl->sub_resource_idx, src_rect,
-                flags, NULL, WINED3D_TEXF_POINT);
+        hr = wined3d_texture_blt(dst_impl->wined3d_texture, dst_impl->sub_resource_idx, &dst_rect,
+                src_impl->wined3d_texture, src_impl->sub_resource_idx, src_rect, flags, NULL, WINED3D_TEXF_POINT);
     if (SUCCEEDED(hr) && (dst_impl->surface_desc.ddsCaps.dwCaps & DDSCAPS_PRIMARYSURFACE))
         hr = ddraw_surface_update_frontbuffer(dst_impl, &dst_rect, FALSE, 0);
     wined3d_mutex_unlock();
@@ -4776,14 +4736,6 @@ static HRESULT WINAPI ddraw_surface7_SetSurfaceDesc(IDirectDrawSurface7 *iface, 
         return hr_ddraw_from_wined3d(hr);
     }
 
-    if (surface->draw_texture && FAILED(hr = wined3d_texture_update_desc(surface->draw_texture,
-            surface->sub_resource_idx, width, height, format_id, WINED3D_MULTISAMPLE_NONE, 0, NULL, 0)))
-    {
-        ERR("Failed to update surface desc for draw_texture, hr %#x.\n", hr);
-        wined3d_mutex_unlock();
-        return hr_ddraw_from_wined3d(hr);
-    }
-
     if (DDSD->dwFlags & DDSD_WIDTH)
         surface->surface_desc.dwWidth = width;
     if (DDSD->dwFlags & DDSD_PITCH)
@@ -4890,18 +4842,6 @@ static HRESULT WINAPI ddraw_surface1_GetPalette(IDirectDrawSurface *iface, IDire
     return ddraw_surface7_GetPalette(&surface->IDirectDrawSurface7_iface, palette);
 }
 
-static HRESULT ddraw_surface_set_wined3d_textures_colour_key(struct ddraw_surface *surface, DWORD flags,
-        struct wined3d_color_key *color_key)
-{
-    HRESULT hr;
-
-    hr = wined3d_texture_set_color_key(surface->wined3d_texture, flags, color_key);
-    if (surface->draw_texture && SUCCEEDED(hr))
-        hr = wined3d_texture_set_color_key(surface->draw_texture, flags, color_key);
-
-    return hr;
-}
-
 static HRESULT ddraw_surface_set_color_key(struct ddraw_surface *surface, DWORD flags, DDCOLORKEY *color_key)
 {
     DDCOLORKEY fixed_color_key;
@@ -4976,7 +4916,7 @@ static HRESULT ddraw_surface_set_color_key(struct ddraw_surface *surface, DWORD 
     }
 
     if (surface->is_complex_root)
-        hr = ddraw_surface_set_wined3d_textures_colour_key(surface, flags,
+        hr = wined3d_texture_set_color_key(surface->wined3d_texture, flags,
                 color_key ? (struct wined3d_color_key *)&fixed_color_key : NULL);
 
     wined3d_mutex_unlock();
@@ -5353,8 +5293,8 @@ static HRESULT WINAPI d3d_texture2_Load(IDirect3DTexture2 *iface, IDirect3DTextu
 
     wined3d_mutex_lock();
 
-    dst_resource = wined3d_texture_get_resource(ddraw_surface_get_default_texture(dst_surface, DDRAW_SURFACE_WRITE));
-    src_resource = wined3d_texture_get_resource(ddraw_surface_get_default_texture(src_surface, DDRAW_SURFACE_READ));
+    dst_resource = wined3d_texture_get_resource(dst_surface->wined3d_texture);
+    src_resource = wined3d_texture_get_resource(src_surface->wined3d_texture);
 
     if (((src_surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_MIPMAP)
             != (dst_surface->surface_desc.ddsCaps.dwCaps & DDSCAPS_MIPMAP))
@@ -5892,9 +5832,6 @@ static void STDMETHODCALLTYPE ddraw_surface_wined3d_object_destroyed(void *paren
 
     wined3d_private_store_cleanup(&surface->private_store);
 
-    if (surface->draw_texture)
-        wined3d_texture_decref(surface->wined3d_texture);
-
     heap_free(surface);
 }
 
@@ -5962,84 +5899,6 @@ static HRESULT ddraw_surface_reserve_memory(struct wined3d_texture *wined3d_text
         ++sub_resource_idx;
         offset += desc.size;
     }
-    return hr;
-}
-
-static HRESULT ddraw_surface_create_wined3d_texture(DDSURFACEDESC2 *desc, struct wined3d_device *wined3d_device,
-        const struct wined3d_resource_desc *wined3d_desc, unsigned int layers, unsigned int levels,
-        struct ddraw_texture *texture, struct wined3d_texture **wined3d_texture)
-{
-    struct wined3d_resource_desc draw_texture_desc;
-    struct wined3d_texture *draw_texture;
-    struct ddraw_surface *parent;
-    unsigned int bind_flags;
-    unsigned int i;
-    HRESULT hr;
-
-    bind_flags = 0;
-    if ((desc->ddsCaps.dwCaps2 & DDSCAPS2_CUBEMAP)
-            || (desc->ddsCaps.dwCaps & DDSCAPS_TEXTURE))
-        bind_flags |= WINED3D_BIND_SHADER_RESOURCE;
-
-    if (desc->ddsCaps.dwCaps & DDSCAPS_ZBUFFER)
-        bind_flags |= WINED3D_BIND_DEPTH_STENCIL;
-    else if (desc->ddsCaps.dwCaps & DDSCAPS_3DDEVICE)
-        bind_flags |= WINED3D_BIND_RENDER_TARGET;
-
-    if (!bind_flags || (wined3d_desc->access & WINED3D_RESOURCE_ACCESS_GPU && !(bind_flags & ~wined3d_desc->bind_flags)))
-        goto no_draw_texture;
-
-    draw_texture_desc = *wined3d_desc;
-    draw_texture_desc.bind_flags = bind_flags;
-    draw_texture_desc.access = WINED3D_RESOURCE_ACCESS_GPU;
-
-    if (FAILED(hr = wined3d_texture_create(wined3d_device, &draw_texture_desc, layers,
-            levels, 0, NULL, texture, &ddraw_texture_wined3d_parent_ops, &draw_texture)))
-    {
-        WARN("Failed to create draw texture, hr %#x.\n", hr);
-        goto no_draw_texture;
-    }
-    wined3d_texture_decref(draw_texture);
-
-    /* Some applications assume surfaces will always be mapped at the same
-     * address. Some of those also assume that this address is valid even when
-     * the surface isn't mapped, and that updates done this way will be
-     * visible on the screen. The game Nox is such an application,
-     * Commandos: Behind Enemy Lines is another. Setting
-     * WINED3D_TEXTURE_CREATE_GET_DC_LENIENT will ensure this. */
-    if (FAILED(hr = wined3d_texture_create(wined3d_device, wined3d_desc, layers, levels,
-            WINED3D_TEXTURE_CREATE_GET_DC_LENIENT, NULL, NULL, &ddraw_null_wined3d_parent_ops,
-            wined3d_texture)))
-    {
-        parent = wined3d_texture_get_sub_resource_parent(draw_texture, 0);
-        if (texture->version == 7)
-            IDirectDrawSurface7_Release(&parent->IDirectDrawSurface7_iface);
-        else if (texture->version == 4)
-            IDirectDrawSurface4_Release(&parent->IDirectDrawSurface4_iface);
-        else
-            IDirectDrawSurface_Release(&parent->IDirectDrawSurface_iface);
-        return hr;
-    }
-    wined3d_resource_set_parent(wined3d_texture_get_resource(*wined3d_texture), texture);
-    for (i = 0; i < layers * levels; ++i)
-    {
-        parent = wined3d_texture_get_sub_resource_parent(draw_texture, i);
-        assert(parent->wined3d_texture == draw_texture);
-        parent->draw_texture = draw_texture;
-        parent->wined3d_texture = *wined3d_texture;
-        wined3d_texture_set_sub_resource_parent(*wined3d_texture, i, parent);
-        wined3d_texture_incref(*wined3d_texture);
-    }
-    wined3d_texture_decref(*wined3d_texture);
-    TRACE("Surface %p, created draw_texture %p, wined3d_texture %p.\n",
-            wined3d_texture_get_sub_resource_parent(draw_texture, 0), draw_texture, wined3d_texture);
-    return D3D_OK;
-
-no_draw_texture:
-    if (SUCCEEDED(hr = wined3d_texture_create(wined3d_device, wined3d_desc, layers, levels,
-            WINED3D_TEXTURE_CREATE_GET_DC_LENIENT, NULL, texture, &ddraw_texture_wined3d_parent_ops,
-            wined3d_texture)))
-        wined3d_texture_decref(*wined3d_texture);
     return hr;
 }
 
@@ -6540,8 +6399,15 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
         layers = 6;
     }
 
-    if (FAILED(hr = ddraw_surface_create_wined3d_texture(desc, ddraw->wined3d_device, &wined3d_desc, layers, levels,
-            texture, &wined3d_texture)))
+    /* Some applications assume surfaces will always be mapped at the same
+     * address. Some of those also assume that this address is valid even when
+     * the surface isn't mapped, and that updates done this way will be
+     * visible on the screen. The game Nox is such an application,
+     * Commandos: Behind Enemy Lines is another. Setting
+     * WINED3D_TEXTURE_CREATE_GET_DC_LENIENT will ensure this. */
+    if (FAILED(hr = wined3d_texture_create(ddraw->wined3d_device, &wined3d_desc, layers, levels,
+            WINED3D_TEXTURE_CREATE_GET_DC_LENIENT, NULL, texture,
+            &ddraw_texture_wined3d_parent_ops, &wined3d_texture)))
     {
         WARN("Failed to create wined3d texture, hr %#x.\n", hr);
         heap_free(texture);
@@ -6549,23 +6415,23 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
     }
 
     root = wined3d_texture_get_sub_resource_parent(wined3d_texture, 0);
-
+    wined3d_texture_decref(wined3d_texture);
     root->is_complex_root = TRUE;
     root->sysmem_fallback = sysmem_fallback;
     texture->root = root;
     wined3d_device_incref(texture->wined3d_device = ddraw->wined3d_device);
 
     if (desc->dwFlags & DDSD_CKDESTOVERLAY)
-        ddraw_surface_set_wined3d_textures_colour_key(root, DDCKEY_DESTOVERLAY,
+        wined3d_texture_set_color_key(wined3d_texture, DDCKEY_DESTOVERLAY,
                 (struct wined3d_color_key *)&desc->u3.ddckCKDestOverlay);
     if (desc->dwFlags & DDSD_CKDESTBLT)
-        ddraw_surface_set_wined3d_textures_colour_key(root, DDCKEY_DESTBLT,
+        wined3d_texture_set_color_key(wined3d_texture, DDCKEY_DESTBLT,
                 (struct wined3d_color_key *)&desc->ddckCKDestBlt);
     if (desc->dwFlags & DDSD_CKSRCOVERLAY)
-        ddraw_surface_set_wined3d_textures_colour_key(root, DDCKEY_SRCOVERLAY,
+        wined3d_texture_set_color_key(wined3d_texture, DDCKEY_SRCOVERLAY,
                 (struct wined3d_color_key *)&desc->ddckCKSrcOverlay);
     if (desc->dwFlags & DDSD_CKSRCBLT)
-        ddraw_surface_set_wined3d_textures_colour_key(root, DDCKEY_SRCBLT,
+        wined3d_texture_set_color_key(wined3d_texture, DDCKEY_SRCBLT,
                 (struct wined3d_color_key *)&desc->ddckCKSrcBlt);
 
     for (i = 0; i < layers; ++i)
@@ -6674,8 +6540,9 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
                 desc->ddsCaps.dwCaps |= DDSCAPS_BACKBUFFER;
             desc->u5.dwBackBufferCount = 0;
 
-            if (FAILED(hr = ddraw_surface_create_wined3d_texture(desc, ddraw->wined3d_device, &wined3d_desc, 1, 1,
-                    texture, &wined3d_texture)))
+            if (FAILED(hr = wined3d_texture_create(ddraw->wined3d_device, &wined3d_desc, 1, 1,
+                    WINED3D_TEXTURE_CREATE_GET_DC_LENIENT, NULL, texture,
+                    &ddraw_texture_wined3d_parent_ops, &wined3d_texture)))
             {
                 heap_free(texture);
                 hr = hr_ddraw_from_wined3d(hr);
@@ -6684,6 +6551,7 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
 
             last = wined3d_texture_get_sub_resource_parent(wined3d_texture, 0);
             last->sysmem_fallback = sysmem_fallback;
+            wined3d_texture_decref(wined3d_texture);
             texture->root = last;
             wined3d_device_incref(texture->wined3d_device = ddraw->wined3d_device);
 
@@ -6705,6 +6573,7 @@ HRESULT ddraw_surface_create(struct ddraw *ddraw, const DDSURFACEDESC2 *surface_
                 hr = hr_ddraw_from_wined3d(hr);
                 goto fail;
             }
+
             *attach = last;
             attach = &last->complex_array[0];
         }
@@ -6794,7 +6663,6 @@ void ddraw_surface_init(struct ddraw_surface *surface, struct ddraw *ddraw,
     wined3d_texture_incref(surface->wined3d_texture = wined3d_texture);
     surface->sub_resource_idx = sub_resource_idx;
     *parent_ops = &ddraw_surface_wined3d_parent_ops;
-    surface->texture_location = DDRAW_SURFACE_LOCATION_DEFAULT;
 
     wined3d_private_store_init(&surface->private_store);
 }
@@ -6822,14 +6690,12 @@ static const struct wined3d_parent_ops ddraw_view_wined3d_parent_ops =
 
 struct wined3d_rendertarget_view *ddraw_surface_get_rendertarget_view(struct ddraw_surface *surface)
 {
-    struct wined3d_texture *wined3d_texture;
     HRESULT hr;
 
     if (surface->wined3d_rtv)
         return surface->wined3d_rtv;
 
-    wined3d_texture = surface->draw_texture ? surface->draw_texture : surface->wined3d_texture;
-    if (FAILED(hr = wined3d_rendertarget_view_create_from_sub_resource(wined3d_texture,
+    if (FAILED(hr = wined3d_rendertarget_view_create_from_sub_resource(surface->wined3d_texture,
             surface->sub_resource_idx, surface, &ddraw_view_wined3d_parent_ops, &surface->wined3d_rtv)))
     {
         ERR("Failed to create rendertarget view, hr %#x.\n", hr);

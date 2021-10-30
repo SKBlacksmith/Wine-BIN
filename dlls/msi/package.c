@@ -737,7 +737,6 @@ static VOID set_installer_properties(MSIPACKAGE *package)
     /* in a wine environment the user is always admin and privileged */
     msi_set_property( package->db, L"AdminUser", L"1", -1 );
     msi_set_property( package->db, L"Privileged", L"1", -1 );
-    msi_set_property( package->db, L"MsiRunningElevated", L"1", -1 );
 
     /* set the os things */
     OSVersion.dwOSVersionInfoSize = sizeof(OSVersion);
@@ -964,8 +963,6 @@ void msi_adjust_privilege_properties( MSIPACKAGE *package )
         msi_set_property( package->db, L"ALLUSERS", L"1", -1 );
     }
     msi_set_property( package->db, L"AdminUser", L"1", -1 );
-    msi_set_property( package->db, L"Privileged", L"1", -1 );
-    msi_set_property( package->db, L"MsiRunningElevated", L"1", -1 );
 }
 
 MSIPACKAGE *MSI_CreatePackage( MSIDATABASE *db )
@@ -1371,8 +1368,6 @@ UINT MSI_OpenPackageW(LPCWSTR szPackage, DWORD dwOptions, MSIPACKAGE **pPackage)
         r = get_local_package( db, localfile );
         if (r != ERROR_SUCCESS || GetFileAttributesW( localfile ) == INVALID_FILE_ATTRIBUTES)
         {
-            DWORD localfile_attr;
-
             r = msi_create_empty_local_file( localfile, L".msi" );
             if (r != ERROR_SUCCESS)
             {
@@ -1389,11 +1384,6 @@ UINT MSI_OpenPackageW(LPCWSTR szPackage, DWORD dwOptions, MSIPACKAGE **pPackage)
                 return r;
             }
             delete_on_close = TRUE;
-
-            /* Remove read-only bit, we are opening it with write access in MSI_OpenDatabaseW below. */
-            localfile_attr = GetFileAttributesW( localfile );
-            if (localfile_attr & FILE_ATTRIBUTE_READONLY)
-                SetFileAttributesW( localfile, localfile_attr & ~FILE_ATTRIBUTE_READONLY);
         }
         else if (dwOptions & WINE_OPENPACKAGEFLAGS_RECACHE)
         {
@@ -1806,7 +1796,7 @@ INT MSI_ProcessMessageVerbatim(MSIPACKAGE *package, INSTALLMESSAGE eMessageType,
         MSI_FormatRecordW(package, record, message, &len);
     }
 
-    /* convert it to ANSI */
+    /* convert it to ASCII */
     len = WideCharToMultiByte( CP_ACP, 0, message, -1, NULL, 0, NULL, NULL );
     msg = msi_alloc( len );
     WideCharToMultiByte( CP_ACP, 0, message, -1, msg, len, NULL, NULL );

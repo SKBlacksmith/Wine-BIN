@@ -18,290 +18,278 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
-#include "windef.h"
-#include "winbase.h"
-#include "winternl.h"
-#include "winnls.h"
+#include <pcap/pcap.h>
+
+/* pcap.h might define those: */
+#undef SOCKET
+#undef INVALID_SOCKET
+
 #define USE_WS_PREFIX
 #include "winsock2.h"
-
+#include "windef.h"
+#include "winbase.h"
+#include "wine/heap.h"
 #include "wine/debug.h"
-#include "unixlib.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(wpcap);
+WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
-const struct pcap_funcs *pcap_funcs = NULL;
+#ifndef PCAP_SRC_FILE_STRING
+#define PCAP_SRC_FILE_STRING    "file://"
+#endif
+#ifndef PCAP_SRC_FILE
+#define PCAP_SRC_FILE           2
+#endif
+#ifndef PCAP_SRC_IF_STRING
+#define PCAP_SRC_IF_STRING      "rpcap://"
+#endif
+#ifndef PCAP_SRC_IFLOCAL
+#define PCAP_SRC_IFLOCAL        3
+#endif
 
-int CDECL pcap_activate( void *handle )
+static inline WCHAR *heap_strdupAtoW(const char *str)
 {
-    TRACE( "%p\n", handle );
-    return pcap_funcs->activate( handle );
-}
+    LPWSTR ret = NULL;
 
-void CDECL pcap_breakloop( void *handle )
-{
-    TRACE( "%p\n", handle );
-    pcap_funcs->breakloop( handle );
-}
+    if(str) {
+        DWORD len;
 
-int CDECL pcap_can_set_rfmon( void *handle )
-{
-    TRACE( "%p\n", handle );
-    return pcap_funcs->can_set_rfmon( handle );
-}
-
-void CDECL pcap_close( void *handle )
-{
-    TRACE( "%p\n", handle );
-    pcap_funcs->close( handle );
-}
-
-int CDECL pcap_compile( void *handle, void *program, const char *buf, int optimize, unsigned int mask )
-{
-    TRACE( "%p, %p, %s, %d, %u\n", handle, program, debugstr_a(buf), optimize, mask );
-    return pcap_funcs->compile( handle, program, buf, optimize, mask );
-}
-
-void * CDECL pcap_create( const char *src, char *errbuf )
-{
-    TRACE( "%s, %p\n", src, errbuf );
-    return pcap_funcs->create( src, errbuf );
-}
-
-int CDECL pcap_datalink( void *handle )
-{
-    TRACE( "%p\n", handle );
-    return pcap_funcs->datalink( handle );
-}
-
-int CDECL pcap_datalink_name_to_val( const char *name )
-{
-    TRACE( "%s\n", debugstr_a(name) );
-    return pcap_funcs->datalink_name_to_val( name );
-}
-
-const char * CDECL pcap_datalink_val_to_description( int link )
-{
-    TRACE( "%d\n", link );
-    return pcap_funcs->datalink_val_to_description( link );
-}
-
-const char * CDECL pcap_datalink_val_to_name( int link )
-{
-    TRACE( "%d\n", link );
-    return pcap_funcs->datalink_val_to_name( link );
-}
-
-int CDECL pcap_dispatch( void *handle, int count,
-                         void (CALLBACK *callback)(unsigned char *, const void *, const unsigned char *),
-                         unsigned char *user )
-{
-    TRACE( "%p, %d, %p, %p\n", handle, count, callback, user );
-    return pcap_funcs->dispatch( handle, count, callback, user );
-}
-
-void CDECL pcap_dump( unsigned char *user, const void *hdr, const unsigned char *packet )
-{
-    TRACE( "%p, %p, %p\n", user, hdr, packet );
-    pcap_funcs->dump( user, hdr, packet );
-}
-
-static inline WCHAR *strdupAW( const char *str )
-{
-    WCHAR *ret = NULL;
-    if (str)
-    {
-        int len = MultiByteToWideChar( CP_ACP, 0, str, -1, NULL, 0 );
-        if ((ret = malloc( len * sizeof(WCHAR) ))) MultiByteToWideChar( CP_ACP, 0, str, -1, ret, len );
+        len = MultiByteToWideChar(CP_ACP, 0, str, -1, NULL, 0);
+        ret = heap_alloc(len*sizeof(WCHAR));
+        if(ret)
+            MultiByteToWideChar(CP_ACP, 0, str, -1, ret, len);
     }
+
     return ret;
 }
 
-void * CDECL pcap_dump_open( void *handle, const char *filename )
+void CDECL wine_pcap_breakloop(pcap_t *p)
 {
-    void *dumper;
-    WCHAR *filenameW;
-    char *unix_path;
-
-    TRACE( "%p, %s\n", handle, debugstr_a(filename) );
-
-    if (!(filenameW = strdupAW( filename ))) return NULL;
-    unix_path = wine_get_unix_file_name( filenameW );
-    free( filenameW );
-    if (!unix_path) return NULL;
-
-    TRACE( "unix_path %s\n", debugstr_a(unix_path) );
-
-    dumper = pcap_funcs->dump_open( handle, unix_path );
-    RtlFreeHeap( GetProcessHeap(), 0, unix_path );
-    return dumper;
+    TRACE("(%p)\n", p);
+    return pcap_breakloop(p);
 }
 
-int CDECL pcap_findalldevs( struct pcap_if_hdr **devs, char *errbuf )
+void CDECL wine_pcap_close(pcap_t *p)
 {
-    TRACE( "%p, %p\n", devs, errbuf );
-    return pcap_funcs->findalldevs( devs, errbuf );
+    TRACE("(%p)\n", p);
+    pcap_close(p);
 }
 
-int CDECL pcap_findalldevs_ex( char *source, void *auth, struct pcap_if_hdr **devs, char *errbuf )
+int CDECL wine_pcap_compile(pcap_t *p, struct bpf_program *program, const char *buf, int optimize,
+                            unsigned int mask)
 {
-    FIXME( "%s, %p, %p, %p: partial stub\n", debugstr_a(source), auth, devs, errbuf );
-    return pcap_funcs->findalldevs( devs, errbuf );
+    TRACE("(%p %p %s %i %u)\n", p, program, debugstr_a(buf), optimize, mask);
+    return pcap_compile(p, program, buf, optimize, mask);
 }
 
-void CDECL pcap_free_datalinks( int *links )
+int CDECL wine_pcap_datalink(pcap_t *p)
 {
-    TRACE( "%p\n", links );
-    pcap_funcs->free_datalinks( links );
+    TRACE("(%p)\n", p);
+    return pcap_datalink(p);
 }
 
-void CDECL pcap_free_tstamp_types( int *types )
+int CDECL wine_pcap_datalink_name_to_val(const char *name)
 {
-    TRACE( "%p\n", types );
-    pcap_funcs->free_tstamp_types( types );
+    TRACE("(%s)\n", debugstr_a(name));
+    return pcap_datalink_name_to_val(name);
 }
 
-void CDECL pcap_freealldevs( struct pcap_if_hdr *devs )
+const char* CDECL wine_pcap_datalink_val_to_description(int dlt)
 {
-    TRACE( "%p\n", devs );
-    pcap_funcs->freealldevs( devs );
+    TRACE("(%i)\n", dlt);
+    return pcap_datalink_val_to_description(dlt);
 }
 
-void CDECL pcap_freecode( void *program )
+const char* CDECL wine_pcap_datalink_val_to_name(int dlt)
 {
-    TRACE( "%p\n", program );
-    pcap_funcs->freecode( program );
+    TRACE("(%i)\n", dlt);
+    return pcap_datalink_val_to_name(dlt);
 }
 
-void * CDECL pcap_get_airpcap_handle( void *handle )
+typedef struct
 {
-    TRACE( "%p\n", handle );
+    void (CALLBACK *pfn_cb)(u_char *, const struct pcap_pkthdr *, const u_char *);
+    void *user_data;
+} PCAP_HANDLER_CALLBACK;
+
+static void pcap_handler_callback(u_char *user_data, const struct pcap_pkthdr *h, const u_char *p)
+{
+    PCAP_HANDLER_CALLBACK *pcb;
+    TRACE("(%p %p %p)\n", user_data, h, p);
+    pcb = (PCAP_HANDLER_CALLBACK *)user_data;
+    pcb->pfn_cb(pcb->user_data, h, p);
+    TRACE("Callback COMPLETED\n");
+}
+
+int CDECL wine_pcap_dispatch(pcap_t *p, int cnt,
+                             void (CALLBACK *callback)(u_char *, const struct pcap_pkthdr *, const u_char *),
+                             unsigned char *user)
+{
+    TRACE("(%p %i %p %p)\n", p, cnt, callback, user);
+
+    if (callback)
+    {
+        PCAP_HANDLER_CALLBACK pcb;
+        pcb.pfn_cb = callback;
+        pcb.user_data = user;
+        return pcap_dispatch(p, cnt, pcap_handler_callback, (unsigned char *)&pcb);
+    }
+
+    return pcap_dispatch(p, cnt, NULL, user);
+}
+
+int CDECL wine_pcap_findalldevs(pcap_if_t **alldevsp, char *errbuf)
+{
+    int ret;
+
+    TRACE("(%p %p)\n", alldevsp, errbuf);
+    ret = pcap_findalldevs(alldevsp, errbuf);
+    if(alldevsp && !*alldevsp)
+        ERR_(winediag)("Failed to access raw network (pcap), this requires special permissions.\n");
+
+    return ret;
+}
+
+int CDECL wine_pcap_findalldevs_ex(char *source, void *auth, pcap_if_t **alldevs, char *errbuf)
+{
+    FIXME("(%s %p %p %p): partial stub\n", debugstr_a(source), auth, alldevs, errbuf);
+    return wine_pcap_findalldevs(alldevs, errbuf);
+}
+
+void CDECL wine_pcap_freealldevs(pcap_if_t *alldevs)
+{
+    TRACE("(%p)\n", alldevs);
+    pcap_freealldevs(alldevs);
+}
+
+void CDECL wine_pcap_freecode(struct bpf_program *fp)
+{
+    TRACE("(%p)\n", fp);
+    return pcap_freecode(fp);
+}
+
+typedef struct _AirpcapHandle *PAirpcapHandle;
+PAirpcapHandle CDECL wine_pcap_get_airpcap_handle(pcap_t *p)
+{
+    TRACE("(%p)\n", p);
     return NULL;
 }
 
-int CDECL pcap_get_tstamp_precision( void *handle )
+char* CDECL wine_pcap_geterr(pcap_t *p)
 {
-    TRACE( "%p\n", handle );
-    return pcap_funcs->get_tstamp_precision( handle );
+    TRACE("(%p)\n", p);
+    return pcap_geterr(p);
 }
 
-char * CDECL pcap_geterr( void *handle )
+int CDECL wine_pcap_getnonblock(pcap_t *p, char *errbuf)
 {
-    TRACE( "%p\n", handle );
-    return pcap_funcs->geterr( handle );
+    TRACE("(%p %p)\n", p, errbuf);
+    return pcap_getnonblock(p, errbuf);
 }
 
-int CDECL pcap_getnonblock( void *handle, char *errbuf )
+const char* CDECL wine_pcap_lib_version(void)
 {
-    TRACE( "%p, %p\n", handle, errbuf );
-    return pcap_funcs->getnonblock( handle, errbuf );
+    const char* ret = pcap_lib_version();
+    TRACE("%s\n", debugstr_a(ret));
+    return ret;
 }
 
-static char lib_version[256];
-static BOOL WINAPI init_lib_version( INIT_ONCE *once, void *param, void **ctx )
+int CDECL wine_pcap_list_datalinks(pcap_t *p, int **dlt_buffer)
 {
-    const char *str = pcap_funcs->lib_version();
-    if (strlen( str ) < sizeof(lib_version)) strcpy( lib_version, str );
-    return TRUE;
+    TRACE("(%p %p)\n", p, dlt_buffer);
+    return pcap_list_datalinks(p, dlt_buffer);
 }
 
-const char * CDECL pcap_lib_version( void )
-{
-    static INIT_ONCE once = INIT_ONCE_STATIC_INIT;
-    if (!lib_version[0]) InitOnceExecuteOnce( &once, init_lib_version, NULL, NULL );
-    TRACE( "%s\n", debugstr_a(lib_version) );
-    return lib_version;
-}
-
-int CDECL pcap_list_datalinks( void *handle, int **buf )
-{
-    TRACE( "%p, %p\n", handle, buf );
-    return pcap_funcs->list_datalinks( handle, buf );
-}
-
-int CDECL pcap_list_tstamp_types( void *handle, int **types )
-{
-    TRACE( "%p, %p\n", handle, types );
-    return pcap_funcs->list_tstamp_types( handle, types );
-}
-
-char * CDECL pcap_lookupdev( char *errbuf )
+char* CDECL wine_pcap_lookupdev(char *errbuf)
 {
     static char *ret;
-    struct pcap_if_hdr *devs;
+    pcap_if_t *devs;
 
-    TRACE( "%p\n", errbuf );
+    TRACE("(%p)\n", errbuf);
     if (!ret)
     {
-        if (pcap_funcs->findalldevs( &devs, errbuf ) == -1) return NULL;
+        if (pcap_findalldevs( &devs, errbuf ) == -1) return NULL;
         if (!devs) return NULL;
-        if ((ret = malloc( strlen(devs->name) + 1 ))) strcpy( ret, devs->name );
-        pcap_funcs->freealldevs( devs );
+        if ((ret = heap_alloc( strlen(devs->name) + 1 ))) strcpy( ret, devs->name );
+        pcap_freealldevs( devs );
     }
     return ret;
 }
 
-int CDECL pcap_lookupnet( const char *device, unsigned int *net, unsigned int *mask, char *errbuf )
+int CDECL wine_pcap_lookupnet(const char *device, unsigned int *netp, unsigned int *maskp,
+                              char *errbuf)
 {
-    TRACE( "%s, %p, %p, %p\n", debugstr_a(device), net, mask, errbuf );
-    return pcap_funcs->lookupnet( device, net, mask, errbuf );
+    TRACE("(%s %p %p %p)\n", debugstr_a(device), netp, maskp, errbuf);
+    return pcap_lookupnet(device, netp, maskp, errbuf);
 }
 
-int CDECL pcap_loop( void *handle, int count,
-                     void (CALLBACK *callback)(unsigned char *, const void *, const unsigned char *),
-                     unsigned char *user)
+int CDECL wine_pcap_loop(pcap_t *p, int cnt,
+                         void (CALLBACK *callback)(u_char *, const struct pcap_pkthdr *, const u_char *),
+                         unsigned char *user)
 {
-    TRACE( "%p, %d, %p, %p\n", handle, count, callback, user );
-    return pcap_funcs->loop( handle, count, callback, user );
+    TRACE("(%p %i %p %p)\n", p, cnt, callback, user);
+
+    if (callback)
+    {
+        PCAP_HANDLER_CALLBACK pcb;
+        pcb.pfn_cb = callback;
+        pcb.user_data = user;
+        return pcap_loop(p, cnt, pcap_handler_callback, (unsigned char *)&pcb);
+    }
+
+    return pcap_loop(p, cnt, NULL, user);
 }
 
-int CDECL pcap_major_version( void *handle )
+int CDECL wine_pcap_major_version(pcap_t *p)
 {
-    TRACE( "%p\n", handle );
-    return pcap_funcs->major_version( handle );
+    TRACE("(%p)\n", p);
+    return pcap_major_version(p);
 }
 
-int CDECL pcap_minor_version( void *handle )
+int CDECL wine_pcap_minor_version(pcap_t *p)
 {
-    TRACE( "%p\n", handle );
-    return pcap_funcs->minor_version( handle );
+    TRACE("(%p)\n", p);
+    return pcap_minor_version(p);
 }
 
-const unsigned char * CDECL pcap_next( void *handle, void *hdr )
+const unsigned char* CDECL wine_pcap_next(pcap_t *p, struct pcap_pkthdr *h)
 {
-    TRACE( "%p, %p\n", handle, hdr );
-    return pcap_funcs->next( handle, hdr );
+    TRACE("(%p %p)\n", p, h);
+    return pcap_next(p, h);
 }
 
-int CDECL pcap_next_ex( void *handle, void **hdr, const unsigned char **data )
+int CDECL wine_pcap_next_ex(pcap_t *p, struct pcap_pkthdr **pkt_header, const unsigned char **pkt_data)
 {
-    TRACE( "%p, %p, %p\n", handle, hdr, data );
-    return pcap_funcs->next_ex( handle, hdr, data );
+    TRACE("(%p %p %p)\n", p, pkt_header, pkt_data);
+    return pcap_next_ex(p, pkt_header, pkt_data);
 }
 
+#ifndef PCAP_OPENFLAG_PROMISCUOUS
 #define PCAP_OPENFLAG_PROMISCUOUS 1
-void * CDECL pcap_open( const char *source, int snaplen, int flags, int timeout, void *auth, char *errbuf )
+#endif
+
+pcap_t* CDECL wine_pcap_open(const char *source, int snaplen, int flags, int read_timeout,
+                             void *auth, char *errbuf)
 {
-    FIXME( "%s, %d, %d, %d, %p, %p: partial stub\n", debugstr_a(source), snaplen, flags, timeout, auth, errbuf );
-    return pcap_funcs->open_live( source, snaplen, flags & PCAP_OPENFLAG_PROMISCUOUS, timeout, errbuf );
+    int promisc = flags & PCAP_OPENFLAG_PROMISCUOUS;
+    FIXME("(%s %i %i %i %p %p): partial stub\n", debugstr_a(source), snaplen, flags, read_timeout,
+                                                 auth, errbuf);
+    return pcap_open_live(source, snaplen, promisc, read_timeout, errbuf);
 }
 
-void * CDECL pcap_open_live( const char *source, int snaplen, int promisc, int to_ms, char *errbuf )
+pcap_t* CDECL wine_pcap_open_live(const char *source, int snaplen, int promisc, int to_ms,
+                                  char *errbuf)
 {
-    TRACE( "%s, %d, %d, %d, %p\n", debugstr_a(source), snaplen, promisc, to_ms, errbuf );
-    return pcap_funcs->open_live( source, snaplen, promisc, to_ms, errbuf );
+    TRACE("(%s %i %i %i %p)\n", debugstr_a(source), snaplen, promisc, to_ms, errbuf);
+    return pcap_open_live(source, snaplen, promisc, to_ms, errbuf);
 }
 
-#define PCAP_SRC_FILE    2
-#define PCAP_SRC_IFLOCAL 3
-
-int CDECL pcap_parsesrcstr( const char *source, int *type, char *host, char *port, char *name, char *errbuf )
+int CDECL wine_pcap_parsesrcstr(const char *source, int *type, char *host, char *port, char *name, char *errbuf)
 {
     int t = PCAP_SRC_IFLOCAL;
     const char *p = source;
 
-    FIXME( "%s, %p, %p, %p, %p, %p: partial stub\n", debugstr_a(source), type, host, port, name, errbuf );
+    FIXME("(%s %p %p %p %p %p): partial stub\n", debugstr_a(source), type, host, port, name, errbuf);
 
     if (host)
         *host = '\0';
@@ -310,11 +298,11 @@ int CDECL pcap_parsesrcstr( const char *source, int *type, char *host, char *por
     if (name)
         *name = '\0';
 
-    if (!strncmp(p, "rpcap://", strlen("rpcap://")))
-        p += strlen("rpcap://");
-    else if (!strncmp(p, "file://", strlen("file://")))
+    if (!strncmp(p, PCAP_SRC_IF_STRING, strlen(PCAP_SRC_IF_STRING)))
+        p += strlen(PCAP_SRC_IF_STRING);
+    else if (!strncmp(p, PCAP_SRC_FILE_STRING, strlen(PCAP_SRC_FILE_STRING)))
     {
-        p += strlen("file://");
+        p += strlen(PCAP_SRC_FILE_STRING);
         t = PCAP_SRC_FILE;
     }
 
@@ -334,145 +322,79 @@ int CDECL pcap_parsesrcstr( const char *source, int *type, char *host, char *por
     return 0;
 }
 
-int CDECL pcap_sendpacket( void *handle, const unsigned char *buf, int size )
+int CDECL wine_pcap_sendpacket(pcap_t *p, const unsigned char *buf, int size)
 {
-    TRACE( "%p, %p, %d\n", handle, buf, size );
-    return pcap_funcs->sendpacket( handle, buf, size );
+    TRACE("(%p %p %i)\n", p, buf, size);
+    return pcap_sendpacket(p, buf, size);
 }
 
-int CDECL pcap_set_buffer_size( void *handle, int size )
+int CDECL wine_pcap_set_datalink(pcap_t *p, int dlt)
 {
-    TRACE( "%p, %d\n", handle, size );
-    return pcap_funcs->set_buffer_size( handle, size );
+    TRACE("(%p %i)\n", p, dlt);
+    return pcap_set_datalink(p, dlt);
 }
 
-int CDECL pcap_set_datalink( void *handle, int link )
+int CDECL wine_pcap_setbuff(pcap_t * p, int dim)
 {
-    TRACE( "%p, %d\n", handle, link );
-    return pcap_funcs->set_datalink( handle, link );
-}
-
-int CDECL pcap_set_promisc( void *handle, int enable )
-{
-    TRACE( "%p, %d\n", handle, enable );
-    return pcap_funcs->set_promisc( handle, enable );
-}
-
-int CDECL pcap_set_rfmon( void *handle, int enable )
-{
-    TRACE( "%p, %d\n", handle, enable );
-    return pcap_funcs->set_rfmon( handle, enable );
-}
-
-int CDECL pcap_set_snaplen( void *handle, int len )
-{
-    TRACE( "%p, %d\n", handle, len );
-    return pcap_funcs->set_snaplen( handle, len );
-}
-
-int CDECL pcap_set_timeout( void *handle, int timeout )
-{
-    TRACE( "%p, %d\n", handle, timeout );
-    return pcap_funcs->set_timeout( handle, timeout );
-}
-
-int CDECL pcap_set_tstamp_precision( void *handle, int precision )
-{
-    TRACE( "%p, %d\n", handle, precision );
-    return pcap_funcs->set_tstamp_precision( handle, precision );
-}
-
-int CDECL pcap_set_tstamp_type( void *handle, int type )
-{
-    TRACE( "%p, %d\n", handle, type );
-    return pcap_funcs->set_tstamp_type( handle, type );
-}
-
-int CDECL pcap_setbuff( void *handle, int size )
-{
-    FIXME( "%p, %d\n", handle, size );
+    FIXME("(%p %i) stub\n", p, dim);
     return 0;
 }
 
-int CDECL pcap_setfilter( void *handle, void *program )
+int CDECL wine_pcap_setfilter(pcap_t *p, struct bpf_program *fp)
 {
-    TRACE( "%p, %p\n", handle, program );
-    return pcap_funcs->setfilter( handle, program );
+    TRACE("(%p %p)\n", p, fp);
+    return pcap_setfilter(p, fp);
 }
 
-int CDECL pcap_setnonblock( void *handle, int nonblock, char *errbuf )
+int CDECL wine_pcap_setnonblock(pcap_t *p, int nonblock, char *errbuf)
 {
-    TRACE( "%p, %d, %p\n", handle, nonblock, errbuf );
-    return pcap_funcs->setnonblock( handle, nonblock, errbuf );
+    TRACE("(%p %i %p)\n", p, nonblock, errbuf);
+    return pcap_setnonblock(p, nonblock, errbuf);
 }
 
-int CDECL pcap_snapshot( void *handle )
+int CDECL wine_pcap_snapshot(pcap_t *p)
 {
-    TRACE( "%p\n", handle );
-    return pcap_funcs->snapshot( handle );
+    TRACE("(%p)\n", p);
+    return pcap_snapshot(p);
 }
 
-int CDECL pcap_stats( void *handle, void *stats )
+int CDECL wine_pcap_stats(pcap_t *p, struct pcap_stat *ps)
 {
-    TRACE( "%p, %p\n", handle, stats );
-    return pcap_funcs->stats( handle, stats );
+    TRACE("(%p %p)\n", p, ps);
+    return pcap_stats(p, ps);
 }
 
-const char * CDECL pcap_statustostr( int status )
-{
-    TRACE( "%d\n", status );
-    return pcap_funcs->statustostr( status );
-}
-
-int CDECL pcap_tstamp_type_name_to_val( const char *name )
-{
-    TRACE( "%s\n", debugstr_a(name) );
-    return pcap_funcs->tstamp_type_name_to_val( name );
-}
-
-const char * CDECL pcap_tstamp_type_val_to_description( int val )
-{
-    TRACE( "%d\n", val );
-    return pcap_funcs->tstamp_type_val_to_description( val );
-}
-
-const char * CDECL pcap_tstamp_type_val_to_name( int val )
-{
-    TRACE( "%d\n", val );
-    return pcap_funcs->tstamp_type_val_to_name( val );
-}
-
-int CDECL wsockinit( void )
+int CDECL wine_wsockinit(void)
 {
     WSADATA wsadata;
-    TRACE( "\n" );
-    if (WSAStartup( MAKEWORD(1, 1), &wsadata )) return -1;
+    TRACE("()\n");
+    if (WSAStartup(MAKEWORD(1,1), &wsadata)) return -1;
     return 0;
 }
 
-static void CDECL pcap_handler_cb( struct handler_callback *cb, const void *hdr, const unsigned char *packet )
+pcap_dumper_t* CDECL wine_pcap_dump_open(pcap_t *p, const char *fname)
 {
-    TRACE( "%p, %p, %p\n", cb, hdr, packet );
-    cb->callback( cb->user, hdr, packet );
-    TRACE( "callback completed\n" );
+    pcap_dumper_t *dumper;
+    WCHAR *fnameW = heap_strdupAtoW(fname);
+    char *unix_path;
+
+    TRACE("(%p %s)\n", p, debugstr_a(fname));
+
+    unix_path = wine_get_unix_file_name(fnameW);
+    heap_free(fnameW);
+    if(!unix_path)
+        return NULL;
+
+    TRACE("unix_path %s\n", debugstr_a(unix_path));
+
+    dumper = pcap_dump_open(p, unix_path);
+    heap_free(unix_path);
+
+    return dumper;
 }
 
-const struct pcap_callbacks pcap_callbacks =
+void CDECL wine_pcap_dump(u_char *user, const struct pcap_pkthdr *h, const u_char *sp)
 {
-    pcap_handler_cb
-};
-
-BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, void *reserved )
-{
-    switch (reason)
-    {
-    case DLL_PROCESS_ATTACH:
-        DisableThreadLibraryCalls( hinst );
-        if (__wine_init_unix_lib( hinst, reason, &pcap_callbacks, &pcap_funcs ))
-            ERR( "No pcap support, expect problems\n" );
-        break;
-    case DLL_PROCESS_DETACH:
-        break;
-    }
-    return TRUE;
+    TRACE("(%p %p %p)\n", user, h, sp);
+    return pcap_dump(user, h, sp);
 }

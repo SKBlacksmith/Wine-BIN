@@ -50,6 +50,7 @@ struct dsound_render
 
     struct strmbase_sink sink;
 
+    CRITICAL_SECTION stream_cs;
     /* Signaled when the filter has completed a state change. The filter waits
      * for this event in IBaseFilter::GetState(). */
     HANDLE state_event;
@@ -63,6 +64,8 @@ struct dsound_render
     LPDIRECTSOUNDBUFFER dsbuffer;
     DWORD buf_size;
     DWORD last_playpos, writepos;
+
+    REFERENCE_TIME play_time;
 
     LONG volume;
     LONG pan;
@@ -120,9 +123,10 @@ static void DSoundRender_UpdatePositions(struct dsound_render *This, DWORD *seqw
         old_writepos += This->buf_size;
 
     IDirectSoundBuffer_GetCurrentPosition(This->dsbuffer, &playpos, &writepos);
-    if (old_playpos > playpos)
+    if (old_playpos > playpos) {
         adv = This->buf_size + playpos - old_playpos;
-    else
+        This->play_time += time_from_pos(This, This->buf_size);
+    } else
         adv = playpos - old_playpos;
     This->last_playpos = playpos;
     if (adv) {
@@ -146,6 +150,7 @@ static void DSoundRender_UpdatePositions(struct dsound_render *This, DWORD *seqw
 static HRESULT DSoundRender_GetWritePos(struct dsound_render *This,
         DWORD *ret_writepos, REFERENCE_TIME write_at, DWORD *pfree, DWORD *skip)
 {
+    WAVEFORMATEX *wfx = (WAVEFORMATEX *)This->sink.pin.mt.pbFormat;
     DWORD writepos, min_writepos, playpos;
     REFERENCE_TIME max_lag = 50 * 10000;
     REFERENCE_TIME cur, writepos_t, delta_t;
@@ -208,8 +213,10 @@ static HRESULT DSoundRender_GetWritePos(struct dsound_render *This,
         *ret_writepos = (min_writepos + aheadbytes) % This->buf_size;
     }
 end:
-    if (playpos >= *ret_writepos)
+    if (playpos > *ret_writepos)
         *pfree = playpos - *ret_writepos;
+    else if (playpos == *ret_writepos)
+        *pfree = This->buf_size - wfx->nBlockAlign;
     else
         *pfree = This->buf_size + playpos - *ret_writepos;
     if (time_from_pos(This, This->buf_size - *pfree) >= DSoundRenderer_Max_Fill) {
@@ -367,13 +374,18 @@ static HRESULT WINAPI dsound_render_sink_Receive(struct strmbase_sink *iface, IM
     if (FAILED(hr = DSoundRender_PrepareReceive(filter, sample)))
         return hr;
 
+    EnterCriticalSection(&filter->stream_cs);
+
     if (filter->filter.clock && SUCCEEDED(IMediaSample_GetTime(sample, &start, &stop)))
         strmbase_passthrough_update_time(&filter->passthrough, start);
 
     if (filter->filter.state == State_Paused)
         SetEvent(filter->state_event);
 
-    return DSoundRender_DoRenderSample(filter, sample);
+    hr = DSoundRender_DoRenderSample(filter, sample);
+
+    LeaveCriticalSection(&filter->stream_cs);
+    return hr;
 }
 
 static HRESULT dsound_render_sink_query_interface(struct strmbase_pin *iface, REFIID iid, void **out)
@@ -459,10 +471,11 @@ static HRESULT dsound_render_sink_eos(struct strmbase_sink *iface)
     void *buffer;
     DWORD size;
 
+    EnterCriticalSection(&filter->stream_cs);
+
     filter->eos = TRUE;
 
-    if (filter->filter.state == State_Running && graph
-            && SUCCEEDED(IFilterGraph_QueryInterface(graph,
+    if (graph && SUCCEEDED(IFilterGraph_QueryInterface(graph,
             &IID_IMediaEventSink, (void **)&event_sink)))
     {
         IMediaEventSink_Notify(event_sink, EC_COMPLETE, S_OK,
@@ -478,6 +491,7 @@ static HRESULT dsound_render_sink_eos(struct strmbase_sink *iface)
     memset(buffer, 0, size);
     IDirectSoundBuffer_Unlock(filter->dsbuffer, buffer, size, NULL, 0);
 
+    LeaveCriticalSection(&filter->stream_cs);
     return S_OK;
 }
 
@@ -493,7 +507,7 @@ static HRESULT dsound_render_sink_end_flush(struct strmbase_sink *iface)
 {
     struct dsound_render *filter = impl_from_strmbase_pin(&iface->pin);
 
-    EnterCriticalSection(&filter->filter.stream_cs);
+    EnterCriticalSection(&filter->stream_cs);
 
     filter->eos = FALSE;
     strmbase_passthrough_invalidate_time(&filter->passthrough);
@@ -511,7 +525,7 @@ static HRESULT dsound_render_sink_end_flush(struct strmbase_sink *iface)
         filter->writepos = filter->buf_size;
     }
 
-    LeaveCriticalSection(&filter->filter.stream_cs);
+    LeaveCriticalSection(&filter->stream_cs);
     return S_OK;
 }
 
@@ -543,12 +557,17 @@ static void dsound_render_destroy(struct strmbase_filter *iface)
     IPin_Disconnect(&filter->sink.pin.IPin_iface);
     strmbase_sink_cleanup(&filter->sink);
 
+    filter->stream_cs.DebugInfo->Spare[0] = 0;
+    DeleteCriticalSection(&filter->stream_cs);
+
     CloseHandle(filter->state_event);
     CloseHandle(filter->flush_event);
 
     strmbase_passthrough_cleanup(&filter->passthrough);
     strmbase_filter_cleanup(&filter->filter);
     free(filter);
+
+    InterlockedDecrement(&object_locks);
 }
 
 static struct strmbase_pin *dsound_render_get_pin(struct strmbase_filter *iface, unsigned int index)
@@ -598,23 +617,15 @@ static HRESULT dsound_render_init_stream(struct strmbase_filter *iface)
 static HRESULT dsound_render_start_stream(struct strmbase_filter *iface, REFERENCE_TIME start)
 {
     struct dsound_render *filter = impl_from_strmbase_filter(iface);
-    IFilterGraph *graph = filter->filter.graph;
-    IMediaEventSink *event_sink;
 
     filter->stream_start = start;
 
     SetEvent(filter->state_event);
 
     if (filter->sink.pin.peer)
-        IDirectSoundBuffer_Play(filter->dsbuffer, 0, 0, DSBPLAY_LOOPING);
-
-    if (filter->eos && graph
-            && SUCCEEDED(IFilterGraph_QueryInterface(graph,
-            &IID_IMediaEventSink, (void **)&event_sink)))
     {
-        IMediaEventSink_Notify(event_sink, EC_COMPLETE, S_OK,
-                (LONG_PTR)&filter->filter.IBaseFilter_iface);
-        IMediaEventSink_Release(event_sink);
+        filter->eos = FALSE;
+        IDirectSoundBuffer_Play(filter->dsbuffer, 0, 0, DSBPLAY_LOOPING);
     }
 
     return S_OK;
@@ -1040,6 +1051,8 @@ HRESULT dsound_render_create(IUnknown *outer, IUnknown **out)
 
     strmbase_sink_init(&object->sink, &object->filter, L"Audio Input pin (rendered)", &sink_ops, NULL);
 
+    InitializeCriticalSection(&object->stream_cs);
+    object->stream_cs.DebugInfo->Spare[0] = (DWORD_PTR)(__FILE__": dsound_render.stream_cs");
     object->state_event = CreateEventW(NULL, TRUE, TRUE, NULL);
     object->flush_event = CreateEventW(NULL, TRUE, TRUE, NULL);
 

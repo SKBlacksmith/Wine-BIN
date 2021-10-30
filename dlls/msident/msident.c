@@ -28,6 +28,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(msident);
 
+static HINSTANCE msident_instance;
+
 typedef struct {
     IEnumUserIdentity IEnumUserIdentity_iface;
     LONG ref;
@@ -272,6 +274,26 @@ static const IClassFactoryVtbl UserIdentityManagerCFVtbl = {
 
 static IClassFactory UserIdentityManagerCF = { &UserIdentityManagerCFVtbl };
 
+/******************************************************************
+ *              DllMain (msident.@)
+ */
+BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
+{
+    TRACE("(%p %d %p)\n", hInstDLL, fdwReason, lpv);
+
+    switch(fdwReason)
+    {
+    case DLL_WINE_PREATTACH:
+        return FALSE;  /* prefer native version */
+    case DLL_PROCESS_ATTACH:
+        msident_instance = hInstDLL;
+        DisableThreadLibraryCalls(hInstDLL);
+        break;
+    }
+
+    return TRUE;
+}
+
 /***********************************************************************
  *		DllGetClassObject	(msident.@)
  */
@@ -284,4 +306,30 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
 
     FIXME("%s %s %p\n", debugstr_guid(rclsid), debugstr_guid(riid), ppv);
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+/***********************************************************************
+ *          DllCanUnloadNow (msident.@)
+ */
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
+}
+
+/***********************************************************************
+ *          DllRegisterServer (msident.@)
+ */
+HRESULT WINAPI DllRegisterServer(void)
+{
+    TRACE("()\n");
+    return __wine_register_resources(msident_instance);
+}
+
+/***********************************************************************
+ *          DllUnregisterServer (msident.@)
+ */
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    TRACE("()\n");
+    return __wine_unregister_resources(msident_instance);
 }

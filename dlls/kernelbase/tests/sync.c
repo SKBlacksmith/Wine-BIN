@@ -19,14 +19,10 @@
  */
 
 #include <stdarg.h>
-#include <stdlib.h>
-
-#include <ntstatus.h>
-#define WIN32_NO_STATUS
 #include <windef.h>
 #include <winbase.h>
+#include <stdlib.h>
 #include <winerror.h>
-#include <winternl.h>
 
 #include "wine/test.h"
 
@@ -180,9 +176,7 @@ static void test_Sleep(void)
 {
     LARGE_INTEGER frequency;
     LARGE_INTEGER t1, t2;
-    double elapsed_time, min, max;
-    ULONG dummy, r1, r2;
-    NTSTATUS status;
+    double elapsed_time;
     BOOL ret;
     int i;
 
@@ -192,30 +186,15 @@ static void test_Sleep(void)
     ret = QueryPerformanceCounter(&t1);
     ok(ret, "QueryPerformanceCounter failed\n");
 
-    /* Get the timer resolution before... */
-    r1 = 156250;
-    status = NtQueryTimerResolution(&dummy, &dummy, &r1);
-    ok(status == STATUS_SUCCESS, "NtQueryTimerResolution() failed (%x)\n", status);
-
-    for (i = 0; i < 50; i++) {
+    for (i = 0; i < 100; i++) {
         Sleep(1);
     }
 
     ret = QueryPerformanceCounter(&t2);
     ok(ret, "QueryPerformanceCounter failed\n");
 
-    /* ...and after in case some other process changes it during this test */
-    r2 = 156250;
-    status = NtQueryTimerResolution(&dummy, &dummy, &r2);
-    ok(status == STATUS_SUCCESS, "NtQueryTimerResolution() failed (%x)\n", status);
-
     elapsed_time = (t2.QuadPart - t1.QuadPart) / (double)frequency.QuadPart;
-    min = 50.0 * (r1 < r2 ? r1 : r2) / 10000000.0;
-    max = 50.0 * (r1 < r2 ? r2 : r1) / 10000000.0;
-
-    /* Add an extra 1s to account for potential scheduling delays */
-    ok(0.9 * min <= elapsed_time && elapsed_time <= 1.0 + max,
-       "got %f, expected between %f and %f\n", elapsed_time, min, max);
+    todo_wine ok(elapsed_time >= 1.5 && elapsed_time <= 4.0, "got %f\n", elapsed_time);
 }
 
 START_TEST(sync)

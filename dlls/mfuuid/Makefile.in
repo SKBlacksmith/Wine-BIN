@@ -1,5 +1,4 @@
 MODULE    = libmfuuid.a
 
 C_SRCS = \
-	mfplay.c \
 	mfuuid.c

@@ -360,50 +360,9 @@ void spawn( struct strarray args )
     }
 }
 
-static const char *find_clang_tool( const struct strarray clang, const char *tool )
-{
-    const char *out = get_temp_file_name( "print_tool", ".out" );
-    struct strarray args;
-    int sout = -1;
-    char *path, *p;
-    struct stat st;
-    size_t cnt;
-
-    args = strarray_copy( clang );
-    strarray_add_one( &args, strmake( "-print-prog-name=%s", tool ) );
-    if (verbose) strarray_add_one( &args, "-v" );
-
-    sout = dup( fileno(stdout) );
-    freopen( out, "w", stdout );
-    spawn( args );
-    if (sout >= 0)
-    {
-        dup2( sout, fileno(stdout) );
-        close( sout );
-    }
-
-    if (stat(out, &st) || !st.st_size) return NULL;
-
-    path = xmalloc(st.st_size + 1);
-    sout = open(out, O_RDONLY);
-    if (sout == -1) return NULL;
-    cnt = read(sout, path, st.st_size);
-    close(sout);
-    path[cnt] = 0;
-    if ((p = strchr(path, '\n'))) *p = 0;
-    /* clang returns passed command instead of full path if the tool could not be found */
-    if (!strcmp(path, tool))
-    {
-        free( path );
-        return NULL;
-    }
-    return path;
-}
-
 /* find a build tool in the path, trying the various names */
 struct strarray find_tool( const char *name, const char * const *names )
 {
-    struct strarray ret = empty_strarray;
     const char *file;
     const char *alt_names[2];
 
@@ -416,44 +375,16 @@ struct strarray find_tool( const char *name, const char * const *names )
 
     while (*names)
     {
-        if ((file = find_binary( target_alias, *names ))) break;
+        if ((file = find_binary( target_alias, *names ))
+            || (names == alt_names && (file = find_binary( "llvm", *names ))))
+        {
+            struct strarray ret = empty_strarray;
+            strarray_add_one( &ret, file );
+            return ret;
+        }
         names++;
     }
-
-    if (!file && names == alt_names + 1)
-    {
-        if (cc_command.count) file = find_clang_tool( cc_command, "lld-link" );
-        if (!file && !(file = find_binary( "llvm", name )))
-        {
-            struct strarray clang = empty_strarray;
-            strarray_add_one( &clang, "clang" );
-            file = find_clang_tool( clang, strmake( "llvm-%s", name ));
-        }
-    }
-    if (!file) fatal_error( "cannot find the '%s' tool\n", name );
-
-    strarray_add_one( &ret, file );
-    return ret;
-}
-
-/* find a link tool in the path */
-struct strarray find_link_tool(void)
-{
-    struct strarray ret = empty_strarray;
-    const char *file = NULL;
-
-    if (cc_command.count) file = find_clang_tool( cc_command, "lld-link" );
-    if (!file) file = find_binary( NULL, "lld-link" );
-    if (!file)
-    {
-        struct strarray clang = empty_strarray;
-        strarray_add_one( &clang, "clang" );
-        file = find_clang_tool( clang, "lld-link" );
-    }
-
-    if (!file) fatal_error( "cannot find the 'lld-link' tool\n" );
-    strarray_add_one( &ret, file );
-    return ret;
+    fatal_error( "cannot find the '%s' tool\n", name );
 }
 
 struct strarray get_as_command(void)
@@ -531,7 +462,6 @@ struct strarray get_ld_command(void)
         case PLATFORM_FREEBSD:
             strarray_add( &args, "-m", (force_pointer_size == 8) ? "elf_x86_64_fbsd" : "elf_i386_fbsd", NULL );
             break;
-        case PLATFORM_MINGW:
         case PLATFORM_WINDOWS:
             strarray_add( &args, "-m", (force_pointer_size == 8) ? "i386pep" : "i386pe", NULL );
             break;
@@ -549,7 +479,7 @@ struct strarray get_ld_command(void)
         }
     }
 
-    if (target_cpu == CPU_ARM && !is_pe())
+    if (target_cpu == CPU_ARM && target_platform != PLATFORM_WINDOWS)
         strarray_add( &args, "--no-wchar-size-warning", NULL );
 
     return args;
@@ -759,11 +689,6 @@ void output_standard_file_header(void)
         output( "\t.def    @feat.00\n\t.scl 3\n\t.type 0\n\t.endef\n" );
         output( "\t.globl  @feat.00\n" );
         output( ".set @feat.00, 1\n" );
-    }
-    if (thumb_mode)
-    {
-        output( "\t.syntax unified\n" );
-        output( "\t.thumb\n" );
     }
 }
 
@@ -1001,7 +926,7 @@ const char *get_link_name( const ORDDEF *odp )
     switch (odp->type)
     {
     case TYPE_STDCALL:
-        if (is_pe())
+        if (target_platform == PLATFORM_WINDOWS)
         {
             if (odp->flags & FLAG_THISCALL) return odp->link_name;
             if (odp->flags & FLAG_FASTCALL) ret = strmake( "@%s@%u", odp->link_name, get_args_size( odp ));
@@ -1017,7 +942,7 @@ const char *get_link_name( const ORDDEF *odp )
         break;
 
     case TYPE_PASCAL:
-        if (is_pe() && !kill_at)
+        if (target_platform == PLATFORM_WINDOWS && !kill_at)
         {
             int args = get_args_size( odp );
             if (odp->flags & FLAG_REGISTER) args += get_ptr_size();  /* context argument */
@@ -1144,7 +1069,6 @@ unsigned int get_args_size( const ORDDEF *odp )
         {
         case ARG_INT64:
         case ARG_DOUBLE:
-            if (target_cpu == CPU_ARM) size = (size + 7) & ~7;
             size += 8;
             break;
         case ARG_INT128:
@@ -1170,7 +1094,6 @@ const char *asm_name( const char *sym )
 
     switch (target_platform)
     {
-    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         if (target_cpu != CPU_x86) return sym;
         if (sym[0] == '@') return sym;  /* fastcall */
@@ -1194,20 +1117,15 @@ const char *func_declaration( const char *func )
     {
     case PLATFORM_APPLE:
         return "";
-    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         free( buffer );
-        buffer = strmake( ".def %s\n\t.scl 2\n\t.type 32\n\t.endef%s", asm_name(func),
-                          thumb_mode ? "\n\t.thumb_func" : "" );
+        buffer = strmake( ".def %s\n\t.scl 2\n\t.type 32\n\t.endef", asm_name(func) );
         break;
     default:
         free( buffer );
         switch(target_cpu)
         {
         case CPU_ARM:
-            buffer = strmake( ".type %s,%%function%s", func,
-                              thumb_mode ? "\n\t.thumb_func" : "" );
-            break;
         case CPU_ARM64:
             buffer = strmake( ".type %s,%%function", func );
             break;
@@ -1226,7 +1144,6 @@ void output_function_size( const char *name )
     switch (target_platform)
     {
     case PLATFORM_APPLE:
-    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         break;
     default:
@@ -1256,7 +1173,6 @@ void output_rva( const char *format, ... )
     va_start( valist, format );
     switch (target_platform)
     {
-    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         output( "\t.rva " );
         vfprintf( output_file, format, valist );
@@ -1276,7 +1192,6 @@ void output_gnu_stack_note(void)
 {
     switch (target_platform)
     {
-    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
     case PLATFORM_APPLE:
         break;
@@ -1306,7 +1221,6 @@ const char *asm_globl( const char *func )
     case PLATFORM_APPLE:
         buffer = strmake( "\t.globl _%s\n\t.private_extern _%s\n_%s:", func, func, func );
         break;
-    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         buffer = strmake( "\t.globl %s%s\n%s%s:", target_cpu == CPU_x86 ? "_" : "", func,
                           target_cpu == CPU_x86 ? "_" : "", func );
@@ -1345,7 +1259,6 @@ const char *get_asm_export_section(void)
     switch (target_platform)
     {
     case PLATFORM_APPLE:   return ".data";
-    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS: return ".section .edata";
     default:               return ".section .data";
     }
@@ -1365,7 +1278,6 @@ const char *get_asm_rsrc_section(void)
     switch (target_platform)
     {
     case PLATFORM_APPLE:   return ".data";
-    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS: return ".section .rsrc";
     default:               return ".section .data";
     }

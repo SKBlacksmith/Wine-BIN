@@ -45,13 +45,7 @@
 #include "winbase.h"
 #include "winedump.h"
 
-#define IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE 0x0010 /* Wine extension */
-
 static const IMAGE_NT_HEADERS32*        PE_nt_headers;
-
-static const char builtin_signature[] = "Wine builtin DLL";
-static const char fakedll_signature[] = "Wine placeholder DLL";
-static int is_builtin;
 
 const char *get_machine_str(int mach)
 {
@@ -101,13 +95,13 @@ static const IMAGE_NT_HEADERS32 *get_nt_header( void )
     const IMAGE_DOS_HEADER *dos;
     dos = PRD(0, sizeof(*dos));
     if (!dos) return NULL;
-    is_builtin = (dos->e_lfanew >= sizeof(*dos) + 32 &&
-                  !memcmp( dos + 1, builtin_signature, sizeof(builtin_signature) ));
     return PRD(dos->e_lfanew, sizeof(DWORD) + sizeof(IMAGE_FILE_HEADER));
 }
 
 void print_fake_dll( void )
 {
+    static const char builtin_signature[] = "Wine builtin DLL";
+    static const char fakedll_signature[] = "Wine placeholder DLL";
     const IMAGE_DOS_HEADER *dos;
 
     dos = PRD(0, sizeof(*dos) + 32);
@@ -182,7 +176,7 @@ static inline void print_dword(const char *title, DWORD value)
 static inline void print_longlong(const char *title, ULONGLONG value)
 {
     printf("  %-34s 0x", title);
-    if (sizeof(value) > sizeof(unsigned long) && value >> 32)
+    if(value >> 32)
         printf("%lx%08lx\n", (unsigned long)(value >> 32), (unsigned long)value);
     else
         printf("%lx\n", (unsigned long)value);
@@ -219,19 +213,15 @@ static inline void print_subsys(const char *title, WORD value)
 
 static inline void print_dllflags(const char *title, WORD value)
 {
-    printf("  %-34s 0x%04X\n", title, value);
-#define X(f,s) do { if (value & f) printf("    %s\n", s); } while(0)
-    if (is_builtin) X(IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE, "PREFER_NATIVE (Wine extension)");
-    X(IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA,       "HIGH_ENTROPY_VA");
+    printf("  %-34s 0x%X\n", title, value);
+#define X(f,s) if (value & f) printf("    %s\n", s)
     X(IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE,          "DYNAMIC_BASE");
     X(IMAGE_DLLCHARACTERISTICS_FORCE_INTEGRITY,       "FORCE_INTEGRITY");
     X(IMAGE_DLLCHARACTERISTICS_NX_COMPAT,             "NX_COMPAT");
     X(IMAGE_DLLCHARACTERISTICS_NO_ISOLATION,          "NO_ISOLATION");
     X(IMAGE_DLLCHARACTERISTICS_NO_SEH,                "NO_SEH");
     X(IMAGE_DLLCHARACTERISTICS_NO_BIND,               "NO_BIND");
-    X(IMAGE_DLLCHARACTERISTICS_APPCONTAINER,          "APPCONTAINER");
     X(IMAGE_DLLCHARACTERISTICS_WDM_DRIVER,            "WDM_DRIVER");
-    X(IMAGE_DLLCHARACTERISTICS_GUARD_CF,              "GUARD_CF");
     X(IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE, "TERMINAL_SERVER_AWARE");
 #undef X
 }

@@ -87,17 +87,16 @@ struct serial
 static const struct object_ops serial_ops =
 {
     sizeof(struct serial),        /* size */
-    &file_type,                   /* type */
     serial_dump,                  /* dump */
+    no_get_type,                  /* get_type */
     add_queue,                    /* add_queue */
     remove_queue,                 /* remove_queue */
     default_fd_signaled,          /* signaled */
     NULL,                         /* get_esync_fd */
-    NULL,                         /* get_fsync_idx */
     no_satisfied,                 /* satisfied */
     no_signal,                    /* signal */
     serial_get_fd,                /* get_fd */
-    default_map_access,           /* map_access */
+    default_fd_map_access,        /* map_access */
     default_get_sd,               /* get_sd */
     default_set_sd,               /* set_sd */
     no_get_full_name,             /* get_full_name */
@@ -106,7 +105,7 @@ static const struct object_ops serial_ops =
     NULL,                         /* unlink_name */
     no_open_file,                 /* open_file */
     no_kernel_obj_list,           /* get_kernel_obj_list */
-    no_close_handle,              /* close_handle */
+    fd_close_handle,              /* close_handle */
     serial_destroy                /* destroy */
 };
 

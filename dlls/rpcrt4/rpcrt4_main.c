@@ -670,6 +670,16 @@ RPC_STATUS WINAPI UuidFromStringW(RPC_WSTR s, UUID *uuid)
     return RPC_S_OK;
 }
 
+/***********************************************************************
+ *              DllRegisterServer (RPCRT4.@)
+ */
+
+HRESULT WINAPI DllRegisterServer( void )
+{
+    FIXME( "(): stub\n" );
+    return S_OK;
+}
+
 #define MAX_RPC_ERROR_TEXT 256
 
 /******************************************************************************

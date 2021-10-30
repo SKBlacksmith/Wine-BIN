@@ -23,7 +23,7 @@
 
 #include "windef.h"
 #include "winbase.h"
-#include "ntgdi.h"
+#include "wingdi.h"
 #include "winuser.h"
 #include "winnls.h"
 #include "usp10.h"
@@ -89,16 +89,13 @@ extern const unsigned short indic_syllabic_table[] DECLSPEC_HIDDEN;
 extern const unsigned short wine_shaping_table[] DECLSPEC_HIDDEN;
 extern const unsigned short wine_shaping_forms[LAST_ARABIC_CHAR - FIRST_ARABIC_CHAR + 1][4] DECLSPEC_HIDDEN;
 
-enum joining_types
-{
-    jtU = 0,
-    jtL = 1,
-    jtR = 2,
-    jtD = 3,
-    jtC = jtD,
-    jgALAPH = 4,
-    jgDALATH_RISH = 5,
-    jtT = 6,
+enum joining_types {
+    jtU,
+    jtT,
+    jtR,
+    jtL,
+    jtD,
+    jtC
 };
 
 enum joined_forms {
@@ -594,7 +591,7 @@ static OPENTYPE_TAG get_opentype_script(HDC hdc, const SCRIPT_ANALYSIS *psa,
     /*
      * fall back to the font charset
      */
-    charset = NtGdiGetTextCharsetInfo(hdc, NULL, 0x0);
+    charset = GetTextCharsetInfo(hdc, NULL, 0x0);
     switch (charset)
     {
         case ANSI_CHARSET:
@@ -669,11 +666,11 @@ static INT apply_GSUB_feature_to_glyph(HDC hdc, SCRIPT_ANALYSIS *psa, ScriptCach
 static VOID *load_gsub_table(HDC hdc)
 {
     VOID* GSUB_Table = NULL;
-    int length = NtGdiGetFontData(hdc, MS_MAKE_TAG('G', 'S', 'U', 'B'), 0, NULL, 0);
+    int length = GetFontData(hdc, MS_MAKE_TAG('G', 'S', 'U', 'B'), 0, NULL, 0);
     if (length != GDI_ERROR)
     {
         GSUB_Table = heap_alloc(length);
-        NtGdiGetFontData(hdc, MS_MAKE_TAG('G', 'S', 'U', 'B'), 0, GSUB_Table, length);
+        GetFontData(hdc, MS_MAKE_TAG('G', 'S', 'U', 'B'), 0, GSUB_Table, length);
         TRACE("Loaded GSUB table of %i bytes\n",length);
     }
     return GSUB_Table;
@@ -682,11 +679,11 @@ static VOID *load_gsub_table(HDC hdc)
 static VOID *load_gpos_table(HDC hdc)
 {
     VOID* GPOS_Table = NULL;
-    int length = NtGdiGetFontData(hdc, MS_MAKE_TAG('G', 'P', 'O', 'S'), 0, NULL, 0);
+    int length = GetFontData(hdc, MS_MAKE_TAG('G', 'P', 'O', 'S'), 0, NULL, 0);
     if (length != GDI_ERROR)
     {
         GPOS_Table = heap_alloc(length);
-        NtGdiGetFontData(hdc, MS_MAKE_TAG('G', 'P', 'O', 'S'), 0, GPOS_Table, length);
+        GetFontData(hdc, MS_MAKE_TAG('G', 'P', 'O', 'S'), 0, GPOS_Table, length);
         TRACE("Loaded GPOS table of %i bytes\n",length);
     }
     return GPOS_Table;
@@ -695,11 +692,11 @@ static VOID *load_gpos_table(HDC hdc)
 static VOID *load_gdef_table(HDC hdc)
 {
     VOID* GDEF_Table = NULL;
-    int length = NtGdiGetFontData(hdc, MS_MAKE_TAG('G', 'D', 'E', 'F'), 0, NULL, 0);
+    int length = GetFontData(hdc, MS_MAKE_TAG('G', 'D', 'E', 'F'), 0, NULL, 0);
     if (length != GDI_ERROR)
     {
         GDEF_Table = heap_alloc(length);
-        NtGdiGetFontData(hdc, MS_MAKE_TAG('G', 'D', 'E', 'F'), 0, GDEF_Table, length);
+        GetFontData(hdc, MS_MAKE_TAG('G', 'D', 'E', 'F'), 0, GDEF_Table, length);
         TRACE("Loaded GDEF table of %i bytes\n",length);
     }
     return GDEF_Table;
@@ -991,12 +988,12 @@ static CHAR neighbour_joining_type(int i, int delta, const CHAR* context_type, I
 
 static inline BOOL right_join_causing(CHAR joining_type)
 {
-    return joining_type == jtL || joining_type == jtD;
+    return (joining_type == jtL || joining_type == jtD || joining_type == jtC);
 }
 
 static inline BOOL left_join_causing(CHAR joining_type)
 {
-    return joining_type == jtR || joining_type == jtD;
+    return (joining_type == jtR || joining_type == jtD || joining_type == jtC);
 }
 
 static inline BOOL word_break_causing(WCHAR chr)

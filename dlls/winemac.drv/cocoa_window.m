@@ -685,7 +685,6 @@ static CVReturn WineDisplayLinkCallback(CVDisplayLinkRef displayLink, const CVTi
         frame.size.width *= scale;
         frame.size.height *= scale;
         [self setFrame:frame];
-        [self setWantsBestResolutionOpenGLSurface:mode];
         [self updateGLContexts];
 
         [super setRetinaMode:mode];
@@ -3576,7 +3575,6 @@ macdrv_view macdrv_create_view(CGRect rect)
         [view setAutoresizesSubviews:NO];
         [view setAutoresizingMask:NSViewNotSizable];
         [view setHidden:YES];
-        [view setWantsBestResolutionOpenGLSurface:retina_on];
         [nc addObserver:view
                selector:@selector(updateGLContexts)
                    name:NSViewGlobalFrameDidChangeNotification

@@ -257,7 +257,8 @@ static HRESULT WINAPI JScriptError_GetSourcePosition(IActiveScriptError *iface, 
 {
     JScriptError *This = impl_from_IActiveScriptError(iface);
     bytecode_t *code = This->ei.code;
-    unsigned line_pos, char_pos;
+    const WCHAR *nl, *p;
+    unsigned l;
 
     TRACE("(%p)->(%p %p %p)\n", This, source_context, line, character);
 
@@ -271,11 +272,16 @@ static HRESULT WINAPI JScriptError_GetSourcePosition(IActiveScriptError *iface, 
     if(!line && !character)
         return S_OK;
 
-    line_pos = get_location_line(code, This->ei.loc, &char_pos);
+    l = code->start_line;
+    for(nl = p = code->source; p < code->source + This->ei.loc; p++) {
+        if(*p != '\n') continue;
+        l++;
+        nl = p + 1;
+    }
     if(line)
-        *line = line_pos;
+        *line = l;
     if(character)
-        *character = char_pos;
+        *character = code->source + This->ei.loc - nl;
     return S_OK;
 }
 
@@ -481,21 +487,6 @@ static void decrease_state(JScript *This, SCRIPTSTATE state)
             if(This->ctx->site) {
                 IActiveScriptSite_Release(This->ctx->site);
                 This->ctx->site = NULL;
-            }
-
-            if(This->ctx->map_prototype) {
-                jsdisp_release(This->ctx->map_prototype);
-                This->ctx->map_prototype = NULL;
-            }
-
-            if(This->ctx->set_prototype) {
-                jsdisp_release(This->ctx->set_prototype);
-                This->ctx->set_prototype = NULL;
-            }
-
-            if(This->ctx->object_prototype) {
-                jsdisp_release(This->ctx->object_prototype);
-                This->ctx->object_prototype = NULL;
             }
 
             if(This->ctx->global) {

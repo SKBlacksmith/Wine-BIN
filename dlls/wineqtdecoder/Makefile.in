@@ -13,6 +13,7 @@ C_SRCS = \
 	qtsplitter.c \
 	qtutils.c \
 	qtvdecoder.c \
+	qualitycontrol.c \
 	seeking.c
 
 RC_SRCS = \

@@ -33,6 +33,8 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(scrrun);
 
+static HINSTANCE scrrun_instance;
+
 static inline struct provideclassinfo *impl_from_IProvideClassInfo(IProvideClassInfo *iface)
 {
     return CONTAINING_RECORD(iface, struct provideclassinfo, IProvideClassInfo_iface);
@@ -240,8 +242,11 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
 
     switch (reason)
     {
+        case DLL_WINE_PREATTACH:
+            return FALSE;    /* prefer native version */
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls( hinst );
+            scrrun_instance = hinst;
             break;
         case DLL_PROCESS_DETACH:
             if (reserved) break;
@@ -249,6 +254,24 @@ BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
             break;
     }
     return TRUE;
+}
+
+/***********************************************************************
+ *      DllRegisterServer (scrrun.@)
+ */
+HRESULT WINAPI DllRegisterServer(void)
+{
+    TRACE("()\n");
+    return __wine_register_resources(scrrun_instance);
+}
+
+/***********************************************************************
+ *      DllUnregisterServer (scrrun.@)
+ */
+HRESULT WINAPI DllUnregisterServer(void)
+{
+    TRACE("()\n");
+    return __wine_unregister_resources(scrrun_instance);
 }
 
 /***********************************************************************
@@ -268,4 +291,12 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID* ppv)
 
     FIXME("%s %s %p\n", debugstr_guid(rclsid), debugstr_guid(riid), ppv);
     return CLASS_E_CLASSNOTAVAILABLE;
+}
+
+/***********************************************************************
+ *      DllCanUnloadNow (scrrun.@)
+ */
+HRESULT WINAPI DllCanUnloadNow(void)
+{
+    return S_FALSE;
 }

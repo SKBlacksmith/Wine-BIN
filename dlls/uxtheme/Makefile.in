@@ -7,13 +7,11 @@ EXTRADLLFLAGS = -mno-cygwin
 
 C_SRCS = \
 	buffer.c \
-	dialog.c \
 	draw.c \
 	main.c \
 	metric.c \
 	msstyles.c \
 	property.c \
-	scrollbar.c \
 	stylemap.c \
 	system.c \
 	uxini.c

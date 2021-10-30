@@ -126,8 +126,7 @@ struct strmbase_filter
     IUnknown IUnknown_inner;
     IUnknown *outer_unk;
     LONG refcount;
-    CRITICAL_SECTION filter_cs;
-    CRITICAL_SECTION stream_cs;
+    CRITICAL_SECTION csFilter;
 
     FILTER_STATE state;
     IReferenceClock *clock;
@@ -272,48 +271,60 @@ void strmbase_passthrough_eos(struct strmbase_passthrough *passthrough);
 void strmbase_passthrough_invalidate_time(struct strmbase_passthrough *passthrough);
 void strmbase_passthrough_update_time(struct strmbase_passthrough *passthrough, REFERENCE_TIME time);
 
+struct strmbase_qc
+{
+    IQualityControl IQualityControl_iface;
+    struct strmbase_pin *pin;
+    IQualityControl *tonotify;
+
+    /* Render stuff */
+    REFERENCE_TIME last_in_time, last_left, avg_duration, avg_pt, avg_render, start, stop;
+    REFERENCE_TIME current_jitter, current_rstart, current_rstop, clockstart;
+    double avg_rate;
+    LONG64 rendered, dropped;
+    BOOL qos_handled, is_dropped;
+};
+
+void strmbase_qc_init(struct strmbase_qc *qc, struct strmbase_pin *pin);
+
 struct strmbase_renderer
 {
     struct strmbase_filter filter;
     struct strmbase_passthrough passthrough;
-    IQualityControl IQualityControl_iface;
+    struct strmbase_qc qc;
 
     struct strmbase_sink sink;
 
+    CRITICAL_SECTION csRenderLock;
     /* Signaled when the filter has completed a state change. The filter waits
      * for this event in IBaseFilter::GetState(). */
     HANDLE state_event;
     /* Signaled when the sample presentation time occurs. The streaming thread
      * waits for this event in Receive() if applicable. */
     HANDLE advise_event;
-    /* Signaled when the filter is running. The streaming thread waits for this
-     * event in Receive() while paused. */
-    HANDLE run_event;
     /* Signaled when a flush or state change occurs, i.e. anything that needs
      * to immediately unblock the streaming thread. */
     HANDLE flush_event;
     REFERENCE_TIME stream_start;
 
-    IMediaSample *current_sample;
-
-    IQualityControl *qc_sink;
-    REFERENCE_TIME last_left, avg_duration, avg_pt;
-    double avg_rate;
-
-    const struct strmbase_renderer_ops *ops;
+    const struct strmbase_renderer_ops *pFuncsTable;
 
     BOOL eos;
 };
 
+typedef HRESULT (WINAPI *BaseRenderer_CheckMediaType)(struct strmbase_renderer *iface, const AM_MEDIA_TYPE *mt);
+typedef HRESULT (WINAPI *BaseRenderer_DoRenderSample)(struct strmbase_renderer *iface, IMediaSample *sample);
+typedef HRESULT (WINAPI *BaseRenderer_BreakConnect) (struct strmbase_renderer *iface);
+
 struct strmbase_renderer_ops
 {
-    HRESULT (*renderer_query_accept)(struct strmbase_renderer *iface, const AM_MEDIA_TYPE *mt);
-    HRESULT (*renderer_render)(struct strmbase_renderer *iface, IMediaSample *sample);
+    BaseRenderer_CheckMediaType pfnCheckMediaType;
+    BaseRenderer_DoRenderSample pfnDoRenderSample;
     void (*renderer_init_stream)(struct strmbase_renderer *iface);
     void (*renderer_start_stream)(struct strmbase_renderer *iface);
     void (*renderer_stop_stream)(struct strmbase_renderer *iface);
     HRESULT (*renderer_connect)(struct strmbase_renderer *iface, const AM_MEDIA_TYPE *mt);
-    void (*renderer_disconnect)(struct strmbase_renderer *iface);
+    BaseRenderer_BreakConnect pfnBreakConnect;
     void (*renderer_destroy)(struct strmbase_renderer *iface);
     HRESULT (*renderer_query_interface)(struct strmbase_renderer *iface, REFIID iid, void **out);
     HRESULT (*renderer_pin_query_interface)(struct strmbase_renderer *iface, REFIID iid, void **out);

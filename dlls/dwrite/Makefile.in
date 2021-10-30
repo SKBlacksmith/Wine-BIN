@@ -3,8 +3,6 @@ IMPORTLIB = dwrite
 IMPORTS   = user32 gdi32 advapi32
 EXTRAINCL = $(FREETYPE_CFLAGS)
 
-EXTRADLLFLAGS = -mno-cygwin
-
 C_SRCS = \
 	analyzer.c \
 	bidi.c \
@@ -19,6 +17,4 @@ C_SRCS = \
 	mirror.c \
 	opentype.c \
 	scripts.c \
-	shape.c \
-	shapers/arabic.c \
-	shapers/arabic_table.c
+	shape.c

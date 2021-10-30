@@ -390,9 +390,6 @@ static inline BOOL call_event_handler( Display *display, XEvent *event )
         return FALSE;  /* no handler, ignore it */
     }
 
-#ifdef GenericEvent
-    if (event->type == GenericEvent) hwnd = 0; else
-#endif
     if (XFindContext( display, event->xany.window, winContext, (char **)&hwnd ) != 0)
         hwnd = 0;  /* not for a registered window */
     if (!hwnd && event->xany.window == root_window) hwnd = GetDesktopWindow();
@@ -1168,7 +1165,7 @@ static BOOL X11DRV_ConfigureNotify( HWND hwnd, XEvent *xev )
                data->window_rect.bottom - data->window_rect.top, cx, cy );
 
     style = GetWindowLongW( data->hwnd, GWL_STYLE );
-    if ((style & WS_CAPTION) == WS_CAPTION || !is_window_rect_full_screen( &data->whole_rect ))
+    if ((style & WS_CAPTION) == WS_CAPTION)
     {
         read_net_wm_states( event->display, data );
         if ((data->net_wm_state & (1 << NET_WM_STATE_MAXIMIZED)))

@@ -17,6 +17,7 @@
  */
 
 #include <stdarg.h>
+#include <assert.h>
 
 #define COBJMACROS
 
@@ -29,7 +30,6 @@
 
 #include "mshtml_private.h"
 #include "htmlevent.h"
-#include "mshtmdid.h"
 #include "initguid.h"
 #include "msxml6.h"
 #include "objsafe.h"
@@ -204,7 +204,7 @@ static nsresult NSAPI XMLHttpReqEventListener_HandleEvent(nsIDOMEventListener *i
     if(!This->xhr)
         return NS_OK;
 
-    hres = create_event_from_nsevent(nsevent, dispex_compat_mode(&This->xhr->event_target.dispex), &event);
+    hres = create_event_from_nsevent(nsevent, &event);
     if(SUCCEEDED(hres) ){
         dispatch_event(&This->xhr->event_target, event);
         IDOMEvent_Release(&event->IDOMEvent_iface);
@@ -473,29 +473,6 @@ static HRESULT WINAPI HTMLXMLHttpRequest_abort(IHTMLXMLHttpRequest *iface)
     }
 
     return S_OK;
-}
-
-static HRESULT HTMLXMLHttpRequest_open_hook(DispatchEx *dispex, LCID lcid, WORD flags,
-        DISPPARAMS *dp, VARIANT *res, EXCEPINFO *ei, IServiceProvider *caller)
-{
-    /* If only two arguments were given, implicitly set async to false */
-    if((flags & DISPATCH_METHOD) && dp->cArgs == 2 && !dp->cNamedArgs) {
-        VARIANT args[5];
-        DISPPARAMS new_dp = {args, NULL, ARRAY_SIZE(args), 0};
-        V_VT(args) = VT_EMPTY;
-        V_VT(args+1) = VT_EMPTY;
-        V_VT(args+2) = VT_BOOL;
-        V_BOOL(args+2) = VARIANT_TRUE;
-        args[3] = dp->rgvarg[0];
-        args[4] = dp->rgvarg[1];
-
-        TRACE("implicit async\n");
-
-        return IDispatchEx_InvokeEx(&dispex->IDispatchEx_iface, DISPID_IHTMLXMLHTTPREQUEST_OPEN,
-                                    lcid, flags, &new_dp, res, ei, caller);
-    }
-
-    return S_FALSE; /* fallback to default */
 }
 
 static HRESULT WINAPI HTMLXMLHttpRequest_open(IHTMLXMLHttpRequest *iface, BSTR bstrMethod, BSTR bstrUrl, VARIANT varAsync, VARIANT varUser, VARIANT varPassword)
@@ -870,17 +847,6 @@ static void HTMLXMLHttpRequest_bind_event(DispatchEx *dispex, eventid_t eid)
         This->event_listener->load_event = TRUE;
 }
 
-static void HTMLXMLHttpRequest_init_dispex_info(dispex_data_t *info, compat_mode_t compat_mode)
-{
-    static const dispex_hook_t xhr_hooks[] = {
-        {DISPID_IHTMLXMLHTTPREQUEST_OPEN, HTMLXMLHttpRequest_open_hook},
-        {DISPID_UNKNOWN}
-    };
-
-    EventTarget_init_dispex_info(info, compat_mode);
-    dispex_info_add_interface(info, IHTMLXMLHttpRequest_tid, compat_mode >= COMPAT_MODE_IE10 ? xhr_hooks : NULL);
-}
-
 static event_target_vtbl_t HTMLXMLHttpRequest_event_target_vtbl = {
     {
         NULL,
@@ -892,13 +858,14 @@ static event_target_vtbl_t HTMLXMLHttpRequest_event_target_vtbl = {
 };
 
 static const tid_t HTMLXMLHttpRequest_iface_tids[] = {
+    IHTMLXMLHttpRequest_tid,
     0
 };
 static dispex_static_data_t HTMLXMLHttpRequest_dispex = {
     &HTMLXMLHttpRequest_event_target_vtbl.dispex_vtbl,
     DispHTMLXMLHttpRequest_tid,
     HTMLXMLHttpRequest_iface_tids,
-    HTMLXMLHttpRequest_init_dispex_info
+    EventTarget_init_dispex_info
 };
 
 
@@ -1083,8 +1050,8 @@ HRESULT HTMLXMLHttpRequestFactory_Create(HTMLInnerWindow* window, HTMLXMLHttpReq
     ret->ref = 1;
     ret->window = window;
 
-    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLXMLHttpRequestFactory_iface,
-                  &HTMLXMLHttpRequestFactory_dispex, dispex_compat_mode(&window->event_target.dispex));
+    init_dispex(&ret->dispex, (IUnknown*)&ret->IHTMLXMLHttpRequestFactory_iface,
+            &HTMLXMLHttpRequestFactory_dispex);
 
     *ret_ptr = ret;
     return S_OK;

@@ -246,7 +246,7 @@ static void test_group_equal(HANDLE Handle, PSID expected, int line)
     HeapFree(GetProcessHeap(), 0, queriedSD);
 }
 
-static void test_ConvertStringSidToSid(void)
+static void test_sid(void)
 {
     struct sidRef refs[] = {
      { { {0x00,0x00,0x33,0x44,0x55,0x66} }, "S-1-860116326-1" },
@@ -265,7 +265,6 @@ static void test_ConvertStringSidToSid(void)
     str_to_sid_tests[] =
     {
         { "WD", "S-1-1-0" },
-        { "wD", "S-1-1-0" },
         { "CO", "S-1-3-0" },
         { "CG", "S-1-3-1" },
         { "OW", "S-1-3-4", 1 }, /* Vista+ */
@@ -305,8 +304,6 @@ static void test_ConvertStringSidToSid(void)
         { "PA", "", 1 },
         { "RS", "", 1 },
         { "SA", "", 1 },
-        { "s-1-12-1", "S-1-12-1" },
-        { "S-0x1-0XC-0x1a", "S-1-12-26" },
     };
 
     const char noSubAuthStr[] = "S-1-5";
@@ -337,20 +334,6 @@ static void test_ConvertStringSidToSid(void)
     r = ConvertStringSidToSidA( noSubAuthStr, &psid );
     ok( !r,
      "expected failure with no sub authorities\n" );
-    ok( GetLastError() == ERROR_INVALID_SID,
-     "expected GetLastError() is ERROR_INVALID_SID, got %d\n",
-     GetLastError() );
-
-    r = ConvertStringSidToSidA( "WDandmorecharacters", &psid );
-    ok( !r,
-     "expected failure with too many characters\n" );
-    ok( GetLastError() == ERROR_INVALID_SID,
-     "expected GetLastError() is ERROR_INVALID_SID, got %d\n",
-     GetLastError() );
-
-    r = ConvertStringSidToSidA( "WD)", &psid );
-    ok( !r,
-     "expected failure with too many characters\n" );
     ok( GetLastError() == ERROR_INVALID_SID,
      "expected GetLastError() is ERROR_INVALID_SID, got %d\n",
      GetLastError() );
@@ -786,6 +769,13 @@ static void test_lookupPrivilegeValue(void)
     }
 }
 
+static void test_luid(void)
+{
+    test_allocateLuid();
+    test_lookupPrivilegeName();
+    test_lookupPrivilegeValue();
+}
+
 static void test_FileSecurity(void)
 {
     char wintmpdir [MAX_PATH];
@@ -1093,25 +1083,10 @@ todo_wine {
     SetLastError(0xdeadbeef);
     rc = AccessCheck(sd, token, DELETE, &mapping, &priv_set, &priv_set_len, &granted, &status);
     ok(rc, "AccessCheck error %d\n", GetLastError());
+todo_wine {
     ok(status == 1, "expected 1, got %d\n", status);
     ok(granted == DELETE, "expected DELETE, got %#x\n", granted);
-
-    granted = 0xdeadbeef;
-    status = 0xdeadbeef;
-    SetLastError(0xdeadbeef);
-    rc = AccessCheck(sd, token, WRITE_OWNER, &mapping, &priv_set, &priv_set_len, &granted, &status);
-    ok(rc, "AccessCheck error %d\n", GetLastError());
-    ok(status == 1, "expected 1, got %d\n", status);
-    ok(granted == WRITE_OWNER, "expected WRITE_OWNER, got %#x\n", granted);
-
-    granted = 0xdeadbeef;
-    status = 0xdeadbeef;
-    SetLastError(0xdeadbeef);
-    rc = AccessCheck(sd, token, SYNCHRONIZE, &mapping, &priv_set, &priv_set_len, &granted, &status);
-    ok(rc, "AccessCheck error %d\n", GetLastError());
-    ok(status == 1, "expected 1, got %d\n", status);
-    ok(granted == SYNCHRONIZE, "expected SYNCHRONIZE, got %#x\n", granted);
-
+}
     granted = 0xdeadbeef;
     status = 0xdeadbeef;
     SetLastError(0xdeadbeef);
@@ -1369,7 +1344,7 @@ static void test_AccessCheck(void)
          "NtAccessCheck shouldn't set last error, got %d\n", err);
       ok(Access == 0x1abe11ed && ntAccessStatus == 0x1abe11ed,
          "Access and/or AccessStatus were changed!\n");
-      ok(ntPrivSetLen == 0, "PrivSetLen returns %d\n", ntPrivSetLen);
+      todo_wine ok(ntPrivSetLen == 0, "PrivSetLen returns %d\n", ntPrivSetLen);
 
       /* Generic access mask - insufficient returnlength */
       SetLastError(0xdeadbeef);
@@ -1384,7 +1359,7 @@ static void test_AccessCheck(void)
          "NtAccessCheck shouldn't set last error, got %d\n", err);
       ok(Access == 0x1abe11ed && ntAccessStatus == 0x1abe11ed,
          "Access and/or AccessStatus were changed!\n");
-      ok(ntPrivSetLen == sizeof(PRIVILEGE_SET)-1, "PrivSetLen returns %d\n", ntPrivSetLen);
+      todo_wine ok(ntPrivSetLen == sizeof(PRIVILEGE_SET)-1, "PrivSetLen returns %d\n", ntPrivSetLen);
 
       /* Key access mask - zero returnlength */
       SetLastError(0xdeadbeef);
@@ -1393,13 +1368,13 @@ static void test_AccessCheck(void)
       ntret = pNtAccessCheck(SecurityDescriptor, Token, KEY_READ, &Mapping,
                              PrivSet, &ntPrivSetLen, &Access, &ntAccessStatus);
       err = GetLastError();
-      ok(ntret == STATUS_BUFFER_TOO_SMALL,
+      todo_wine ok(ntret == STATUS_BUFFER_TOO_SMALL,
          "NtAccessCheck should have failed with STATUS_BUFFER_TOO_SMALL, got %x\n", ntret);
       ok(err == 0xdeadbeef,
          "NtAccessCheck shouldn't set last error, got %d\n", err);
-      ok(Access == 0x1abe11ed && ntAccessStatus == 0x1abe11ed,
+      todo_wine ok(Access == 0x1abe11ed && ntAccessStatus == 0x1abe11ed,
          "Access and/or AccessStatus were changed!\n");
-      ok(ntPrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", ntPrivSetLen);
+      todo_wine ok(ntPrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", ntPrivSetLen);
 
       /* Key access mask - insufficient returnlength */
       SetLastError(0xdeadbeef);
@@ -1408,13 +1383,13 @@ static void test_AccessCheck(void)
       ntret = pNtAccessCheck(SecurityDescriptor, Token, KEY_READ, &Mapping,
                              PrivSet, &ntPrivSetLen, &Access, &ntAccessStatus);
       err = GetLastError();
-      ok(ntret == STATUS_BUFFER_TOO_SMALL,
+      todo_wine ok(ntret == STATUS_BUFFER_TOO_SMALL,
          "NtAccessCheck should have failed with STATUS_BUFFER_TOO_SMALL, got %x\n", ntret);
       ok(err == 0xdeadbeef,
          "NtAccessCheck shouldn't set last error, got %d\n", err);
-      ok(Access == 0x1abe11ed && ntAccessStatus == 0x1abe11ed,
+      todo_wine ok(Access == 0x1abe11ed && ntAccessStatus == 0x1abe11ed,
          "Access and/or AccessStatus were changed!\n");
-      ok(ntPrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", ntPrivSetLen);
+      todo_wine ok(ntPrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", ntPrivSetLen);
     }
     else
        win_skip("NtAccessCheck unavailable. Skipping.\n");
@@ -1542,9 +1517,12 @@ todo_wine
     ret = AccessCheck(SecurityDescriptor, Token, KEY_READ, &Mapping,
                       PrivSet, &PrivSetLen, &Access, &AccessStatus);
     err = GetLastError();
+todo_wine
     ok(!ret && err == ERROR_INSUFFICIENT_BUFFER, "AccessCheck should have "
        "failed with ERROR_INSUFFICIENT_BUFFER, instead of %d\n", err);
+todo_wine
     ok(PrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", PrivSetLen);
+todo_wine
     ok(Access == 0x1abe11ed && AccessStatus == 0x1abe11ed,
        "Access and/or AccessStatus were changed!\n");
 
@@ -1555,9 +1533,12 @@ todo_wine
     ret = AccessCheck(SecurityDescriptor, Token, KEY_READ, &Mapping,
                       PrivSet, &PrivSetLen, &Access, &AccessStatus);
     err = GetLastError();
+todo_wine
     ok(!ret && err == ERROR_INSUFFICIENT_BUFFER, "AccessCheck should have "
        "failed with ERROR_INSUFFICIENT_BUFFER, instead of %d\n", err);
+todo_wine
     ok(PrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", PrivSetLen);
+todo_wine
     ok(Access == 0x1abe11ed && AccessStatus == 0x1abe11ed,
        "Access and/or AccessStatus were changed!\n");
 
@@ -1565,16 +1546,17 @@ todo_wine
     SetLastError(0xdeadbeef);
     Access = AccessStatus = 0x1abe11ed;
     PrivSetLen = sizeof(PRIVILEGE_SET) - 1;
-    PrivSet->PrivilegeCount = 0xdeadbeef;
     ret = AccessCheck(SecurityDescriptor, Token, KEY_READ, &Mapping,
                       PrivSet, &PrivSetLen, &Access, &AccessStatus);
     err = GetLastError();
+todo_wine
     ok(!ret && err == ERROR_INSUFFICIENT_BUFFER, "AccessCheck should have "
        "failed with ERROR_INSUFFICIENT_BUFFER, instead of %d\n", err);
+todo_wine
     ok(PrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", PrivSetLen);
+todo_wine
     ok(Access == 0x1abe11ed && AccessStatus == 0x1abe11ed,
        "Access and/or AccessStatus were changed!\n");
-    ok(PrivSet->PrivilegeCount == 0xdeadbeef, "buffer contents should not be changed\n");
 
     /* Valid PrivSet with minimal sufficient PrivSetLen */
     SetLastError(0xdeadbeef);
@@ -1585,6 +1567,7 @@ todo_wine
                       PrivSet, &PrivSetLen, &Access, &AccessStatus);
     err = GetLastError();
     ok(ret, "AccessCheck failed with error %d\n", GetLastError());
+todo_wine
     ok(PrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", PrivSetLen);
     ok(AccessStatus && (Access == KEY_READ),
         "AccessCheck failed to grant access with error %d\n", GetLastError());
@@ -1651,9 +1634,12 @@ todo_wine
         ret = AccessCheck(SecurityDescriptor, Token, KEY_READ, &Mapping,
                           PrivSet, &PrivSetLen, &Access, &AccessStatus);
         err = GetLastError();
+    todo_wine
         ok(!ret && err == ERROR_INSUFFICIENT_BUFFER, "AccessCheck should have "
            "failed with ERROR_INSUFFICIENT_BUFFER, instead of %d\n", err);
+    todo_wine
         ok(PrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", PrivSetLen);
+    todo_wine
         ok(Access == 0x1abe11ed && AccessStatus == 0x1abe11ed,
            "Access and/or AccessStatus were changed!\n");
 
@@ -1664,9 +1650,12 @@ todo_wine
         ret = AccessCheck(SecurityDescriptor, Token, KEY_READ, &Mapping,
                           PrivSet, &PrivSetLen, &Access, &AccessStatus);
         err = GetLastError();
+    todo_wine
         ok(!ret && err == ERROR_INSUFFICIENT_BUFFER, "AccessCheck should have "
            "failed with ERROR_INSUFFICIENT_BUFFER, instead of %d\n", err);
+    todo_wine
         ok(PrivSetLen == sizeof(PRIVILEGE_SET), "PrivSetLen returns %d\n", PrivSetLen);
+    todo_wine
         ok(Access == 0x1abe11ed && AccessStatus == 0x1abe11ed,
            "Access and/or AccessStatus were changed!\n");
 
@@ -4244,18 +4233,13 @@ static void test_ConvertStringSecurityDescriptor(void)
         { "D:(A;;KAKRKWKX;;;WD)",            SDDL_REVISION_1, TRUE },
         { "D:(A;;0xFFFFFFFF;;;WD)",          SDDL_REVISION_1, TRUE },
         { "S:(AU;;0xFFFFFFFF;;;WD)",         SDDL_REVISION_1, TRUE },
-        { "S:(AU;;0xDeAdBeEf;;;WD)",         SDDL_REVISION_1, TRUE },
-        { "S:(AU;;GR0xFFFFFFFF;;;WD)",       SDDL_REVISION_1, TRUE },
-        { "S:(AU;;0xFFFFFFFFGR;;;WD)",       SDDL_REVISION_1, TRUE },
-        { "S:(AU;;0xFFFFFGR;;;WD)",          SDDL_REVISION_1, TRUE },
         /* test ACE string access right error case */
         { "D:(A;;ROB;;;WD)",                 SDDL_REVISION_1, FALSE, ERROR_INVALID_ACL },
         /* test behaviour with empty strings */
         { "",                                SDDL_REVISION_1, TRUE },
         /* test ACE string SID */
         { "D:(D;;GA;;;S-1-0-0)",             SDDL_REVISION_1, TRUE },
-        { "D:(D;;GA;;;WDANDSUCH)",           SDDL_REVISION_1, FALSE, ERROR_INVALID_ACL },
-        { "D:(D;;GA;;;Nonexistent account)", SDDL_REVISION_1, FALSE, ERROR_INVALID_ACL, ERROR_INVALID_SID }, /* W2K */
+        { "D:(D;;GA;;;Nonexistent account)", SDDL_REVISION_1, FALSE, ERROR_INVALID_ACL, ERROR_INVALID_SID } /* W2K */
     };
 
     for (i = 0; i < ARRAY_SIZE(cssd); i++)
@@ -4631,7 +4615,7 @@ static void test_PrivateObjectSecurity(void)
 #undef CHECK_RESULT_AND_FREE
 #undef CHECK_ONE_OF_AND_FREE
 
-static void test_InitializeAcl(void)
+static void test_acls(void)
 {
     char buffer[256];
     PACL pAcl = (PACL)buffer;
@@ -6041,6 +6025,7 @@ static void test_thread_security(void)
                "%d: expected %#x, got %#x\n", i, map[i].mapped, access);
             break;
         case GENERIC_WRITE:
+todo_wine
             ok(access == map[i].mapped ||
                access == (map[i].mapped | THREAD_SET_LIMITED_INFORMATION) /* Vista+ */ ||
                access == (map[i].mapped | THREAD_SET_LIMITED_INFORMATION | THREAD_RESUME) /* win8 */,
@@ -6432,13 +6417,13 @@ static void test_AddMandatoryAce(void)
     static SID_IDENTIFIER_AUTHORITY sia_world = {SECURITY_WORLD_SID_AUTHORITY};
     char buffer_sd[SECURITY_DESCRIPTOR_MIN_LENGTH];
     SECURITY_DESCRIPTOR *sd2, *sd = (SECURITY_DESCRIPTOR *)&buffer_sd;
-    BOOL defaulted, present, ret;
+    BOOL defaulted, present, ret, found, found2;
     ACL_SIZE_INFORMATION acl_size_info;
     SYSTEM_MANDATORY_LABEL_ACE *ace;
     char buffer_acl[256];
     ACL *acl = (ACL *)&buffer_acl;
     SECURITY_ATTRIBUTES sa;
-    DWORD size;
+    DWORD index, size;
     HANDLE handle;
     SID *everyone;
     ACL *sacl;
@@ -6490,17 +6475,18 @@ static void test_AddMandatoryAce(void)
     ret = pAddMandatoryAce(acl, ACL_REVISION, 0, SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, &low_level);
     ok(ret, "AddMandatoryAce failed with %u\n", GetLastError());
 
-    ret = GetAce(acl, 0, (void **)&ace);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(ace->Header.AceType == SYSTEM_MANDATORY_LABEL_ACE_TYPE, "got type %#x\n", ace->Header.AceType);
-    ok(!ace->Header.AceFlags, "got flags %#x\n", ace->Header.AceFlags);
-    ok(ace->Mask == SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, "got mask %#x\n", ace->Mask);
-    ok(EqualSid(&ace->SidStart, &low_level), "wrong sid\n");
-
-    SetLastError(0xdeadbeef);
-    ret = GetAce(acl, 1, (void **)&ace);
-    ok(!ret, "expected failure\n");
-    ok(GetLastError() == ERROR_INVALID_PARAMETER, "got error %u\n", GetLastError());
+    index = 0;
+    found = FALSE;
+    while (GetAce(acl, index++, (void **)&ace))
+    {
+        if (ace->Header.AceType != SYSTEM_MANDATORY_LABEL_ACE_TYPE) continue;
+        ok(ace->Header.AceFlags == 0, "Expected flags 0, got %x\n", ace->Header.AceFlags);
+        ok(ace->Mask == SYSTEM_MANDATORY_LABEL_NO_WRITE_UP,
+           "Expected mask SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, got %x\n", ace->Mask);
+        ok(EqualSid(&ace->SidStart, &low_level), "Expected low integrity level\n");
+        found = TRUE;
+    }
+    ok(found, "Could not find mandatory label ace\n");
 
     ret = SetSecurityDescriptorSacl(sd, TRUE, acl, FALSE);
     ok(ret, "SetSecurityDescriptorSacl failed with error %u\n", GetLastError());
@@ -6561,24 +6547,30 @@ static void test_AddMandatoryAce(void)
     ok(sacl->AceCount == 2, "Expected 2 ACEs, got %d\n", sacl->AceCount);
     ok(!defaulted, "SACL defaulted\n");
 
-    ret = GetAce(acl, 0, (void **)&ace);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(ace->Header.AceType == SYSTEM_MANDATORY_LABEL_ACE_TYPE, "got type %#x\n", ace->Header.AceType);
-    ok(!ace->Header.AceFlags, "got flags %#x\n", ace->Header.AceFlags);
-    ok(ace->Mask == SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, "got mask %#x\n", ace->Mask);
-    ok(EqualSid(&ace->SidStart, &low_level), "wrong sid\n");
-
-    ret = GetAce(acl, 1, (void **)&ace);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(ace->Header.AceType == SYSTEM_MANDATORY_LABEL_ACE_TYPE, "got type %#x\n", ace->Header.AceType);
-    ok(!ace->Header.AceFlags, "got flags %#x\n", ace->Header.AceFlags);
-    ok(ace->Mask == SYSTEM_MANDATORY_LABEL_NO_EXECUTE_UP, "got mask %#x\n", ace->Mask);
-    ok(EqualSid(&ace->SidStart, &medium_level), "wrong sid\n");
-
-    SetLastError(0xdeadbeef);
-    ret = GetAce(acl, 2, (void **)&ace);
-    ok(!ret, "expected failure\n");
-    ok(GetLastError() == ERROR_INVALID_PARAMETER, "got error %u\n", GetLastError());
+    index = 0;
+    found = found2 = FALSE;
+    while (GetAce(sacl, index++, (void **)&ace))
+    {
+        if (ace->Header.AceType == SYSTEM_MANDATORY_LABEL_ACE_TYPE)
+        {
+            if (EqualSid(&ace->SidStart, &low_level))
+            {
+                found = TRUE;
+                ok(!ace->Header.AceFlags, "Expected 0 as flags, got %#x\n", ace->Header.AceFlags);
+                ok(ace->Mask == SYSTEM_MANDATORY_LABEL_NO_WRITE_UP,
+                   "Expected SYSTEM_MANDATORY_LABEL_NO_WRITE_UP as mask, got %#x\n", ace->Mask);
+            }
+            if (EqualSid(&ace->SidStart, &medium_level))
+            {
+                found2 = TRUE;
+                ok(!ace->Header.AceFlags, "Expected 0 as flags, got %#x\n", ace->Header.AceFlags);
+                ok(ace->Mask == SYSTEM_MANDATORY_LABEL_NO_EXECUTE_UP,
+                   "Expected SYSTEM_MANDATORY_LABEL_NO_EXECUTE_UP as mask, got %#x\n", ace->Mask);
+            }
+        }
+    }
+    ok(found, "Could not find low mandatory label\n");
+    ok(found2, "Could not find medium mandatory label\n");
 
     HeapFree(GetProcessHeap(), 0, sd2);
 
@@ -6992,12 +6984,6 @@ static void test_token_label(void)
     char *str;
     SID *sid;
 
-    if (!pAddMandatoryAce)
-    {
-        win_skip("Mandatory integrity control is not supported.\n");
-        return;
-    }
-
     ret = OpenProcessToken(GetCurrentProcess(), READ_CONTROL | WRITE_OWNER, &token);
     ok(ret, "OpenProcessToken failed with error %u\n", GetLastError());
 
@@ -7011,7 +6997,8 @@ static void test_token_label(void)
 
     ret = GetSecurityDescriptorControl(sd, &control, &revision);
     ok(ret, "GetSecurityDescriptorControl failed with error %u\n", GetLastError());
-    todo_wine ok(control == (SE_SELF_RELATIVE | SE_SACL_AUTO_INHERITED | SE_SACL_PRESENT),
+    todo_wine ok(control == (SE_SELF_RELATIVE | SE_SACL_AUTO_INHERITED | SE_SACL_PRESENT) ||
+                 broken(control == SE_SELF_RELATIVE) /* WinXP, Win2003 */,
                  "Unexpected security descriptor control %#x\n", control);
     ok(revision == 1, "Unexpected security descriptor revision %u\n", revision);
 
@@ -7031,24 +7018,28 @@ static void test_token_label(void)
 
     ret = GetSecurityDescriptorSacl(sd, &present, &sacl, &defaulted);
     ok(ret, "GetSecurityDescriptorSacl failed with error %u\n", GetLastError());
-    ok(present, "No SACL in the security descriptor\n");
-    ok(!!sacl, "NULL SACL in the security descriptor\n");
-    ok(!defaulted, "SACL defaulted\n");
-    ok(sacl->AceCount == 1, "SACL contains an unexpected ACE count %u\n", sacl->AceCount);
+    ok(present || broken(!present) /* WinXP, Win2003 */, "No SACL in the security descriptor\n");
+    ok(sacl || broken(!sacl) /* WinXP, Win2003 */, "NULL SACL in the security descriptor\n");
 
-    ret = GetAce(sacl, 0, (void **)&ace);
-    ok(ret, "GetAce failed with error %u\n", GetLastError());
+    if (present)
+    {
+        ok(!defaulted, "SACL defaulted\n");
+        ok(sacl->AceCount == 1, "SACL contains an unexpected ACE count %u\n", sacl->AceCount);
 
-    ok(ace->Header.AceType == SYSTEM_MANDATORY_LABEL_ACE_TYPE,
-       "Unexpected ACE type %#x\n", ace->Header.AceType);
-    ok(!ace->Header.AceFlags, "Unexpected ACE flags %#x\n", ace->Header.AceFlags);
-    ok(ace->Header.AceSize, "Unexpected ACE size %u\n", ace->Header.AceSize);
-    ok(ace->Mask == SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, "Unexpected ACE mask %#x\n", ace->Mask);
+        ret = GetAce(sacl, 0, (void **)&ace);
+        ok(ret, "GetAce failed with error %u\n", GetLastError());
 
-    sid = (SID *)&ace->SidStart;
-    ConvertSidToStringSidA(sid, &str);
-    ok(EqualSid(sid, &medium_sid) || EqualSid(sid, &high_sid), "Got unexpected SID %s\n", str);
-    LocalFree(str);
+        ok(ace->Header.AceType == SYSTEM_MANDATORY_LABEL_ACE_TYPE,
+           "Unexpected ACE type %#x\n", ace->Header.AceType);
+        ok(!ace->Header.AceFlags, "Unexpected ACE flags %#x\n", ace->Header.AceFlags);
+        ok(ace->Header.AceSize, "Unexpected ACE size %u\n", ace->Header.AceSize);
+        ok(ace->Mask == SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, "Unexpected ACE mask %#x\n", ace->Mask);
+
+        sid = (SID *)&ace->SidStart;
+        ConvertSidToStringSidA(sid, &str);
+        ok(EqualSid(sid, &medium_sid) || EqualSid(sid, &high_sid), "Got unexpected SID %s\n", str);
+        LocalFree(str);
+    }
 
     ret = GetSecurityDescriptorDacl(sd, &present, &dacl, &defaulted);
     ok(ret, "GetSecurityDescriptorDacl failed with error %u\n", GetLastError());
@@ -7474,32 +7465,6 @@ static void test_GetExplicitEntriesFromAclW(void)
     ok(access2 == NULL, "access2 was not NULL\n");
     LocalFree(new_acl);
 
-    /* Make the ACL both Allow and Deny Everyone. */
-    res = AddAccessAllowedAce(old_acl, ACL_REVISION, KEY_READ, everyone_sid);
-    ok(res, "AddAccessAllowedAce failed with error %d\n", GetLastError());
-    res = AddAccessDeniedAce(old_acl, ACL_REVISION, KEY_WRITE, everyone_sid);
-    ok(res, "AddAccessDeniedAce failed with error %d\n", GetLastError());
-    /* Revoke Everyone. */
-    access.Trustee.ptstrName = everyone_sid;
-    access.Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-    access.grfAccessPermissions = 0;
-    new_acl = NULL;
-    res = pSetEntriesInAclW(1, &access, old_acl, &new_acl);
-    ok(res == ERROR_SUCCESS, "SetEntriesInAclW failed: %u\n", res);
-    ok(new_acl != NULL, "returned acl was NULL\n");
-    /* Deny Everyone should remain (along with Grant Users from earlier). */
-    access2 = NULL;
-    res = pGetExplicitEntriesFromAclW(new_acl, &count, &access2);
-    ok(res == ERROR_SUCCESS, "GetExplicitEntriesFromAclW failed with error %d\n", GetLastError());
-    ok(count == 2, "Expected count == 2, got %d\n", count);
-    ok(access2[0].grfAccessMode == GRANT_ACCESS, "Expected GRANT_ACCESS, got %d\n", access2[0].grfAccessMode);
-    ok(access2[0].grfAccessPermissions == KEY_READ , "Expected KEY_READ, got %d\n", access2[0].grfAccessPermissions);
-    ok(EqualSid(access2[0].Trustee.ptstrName, users_sid), "Expected equal SIDs\n");
-    ok(access2[1].grfAccessMode == DENY_ACCESS, "Expected DENY_ACCESS, got %d\n", access2[1].grfAccessMode);
-    ok(access2[1].grfAccessPermissions == KEY_WRITE, "Expected KEY_WRITE, got %d\n", access2[1].grfAccessPermissions);
-    ok(EqualSid(access2[1].Trustee.ptstrName, everyone_sid), "Expected equal SIDs\n");
-    LocalFree(access2);
-
     FreeSid(users_sid);
     FreeSid(everyone_sid);
     HeapFree(GetProcessHeap(), 0, old_acl);
@@ -7913,524 +7878,6 @@ static void test_create_process_token_child(void)
     }
 }
 
-static void test_pseudo_handle_security(void)
-{
-    char buffer[200];
-    PSECURITY_DESCRIPTOR sd = buffer, sd_ptr;
-    unsigned int i;
-    DWORD size;
-    BOOL ret;
-
-    static const HKEY keys[] =
-    {
-        HKEY_CLASSES_ROOT,
-        HKEY_CURRENT_USER,
-        HKEY_LOCAL_MACHINE,
-        HKEY_USERS,
-        HKEY_PERFORMANCE_DATA,
-        HKEY_CURRENT_CONFIG,
-        HKEY_DYN_DATA,
-    };
-
-    ret = GetKernelObjectSecurity(GetCurrentProcess(), OWNER_SECURITY_INFORMATION, &sd, sizeof(buffer), &size);
-    ok(ret, "got error %u\n", GetLastError());
-
-    ret = GetKernelObjectSecurity(GetCurrentThread(), OWNER_SECURITY_INFORMATION, &sd, sizeof(buffer), &size);
-    ok(ret, "got error %u\n", GetLastError());
-
-    for (i = 0; i < ARRAY_SIZE(keys); ++i)
-    {
-        SetLastError(0xdeadbeef);
-        ret = GetKernelObjectSecurity(keys[i], OWNER_SECURITY_INFORMATION, &sd, sizeof(buffer), &size);
-        ok(!ret, "key %p: expected failure\n", keys[i]);
-        ok(GetLastError() == ERROR_INVALID_HANDLE, "key %p: got error %u\n", keys[i], GetLastError());
-
-        ret = GetSecurityInfo(keys[i], SE_REGISTRY_KEY,
-                DACL_SECURITY_INFORMATION, NULL, NULL, NULL, NULL, &sd_ptr);
-        if (keys[i] == HKEY_PERFORMANCE_DATA)
-            ok(ret == ERROR_INVALID_HANDLE, "key %p: got error %u\n", keys[i], ret);
-        else if (keys[i] == HKEY_DYN_DATA)
-            todo_wine ok(ret == ERROR_CALL_NOT_IMPLEMENTED || broken(ret == ERROR_INVALID_HANDLE) /* <7 */,
-                    "key %p: got error %u\n", keys[i], ret);
-        else
-            ok(!ret, "key %p: got error %u\n", keys[i], ret);
-        LocalFree(sd_ptr);
-
-        ret = GetSecurityInfo(keys[i], SE_KERNEL_OBJECT,
-                DACL_SECURITY_INFORMATION, NULL, NULL, NULL, NULL, &sd_ptr);
-        ok(ret == ERROR_INVALID_HANDLE, "key %p: got error %u\n", keys[i], ret);
-    }
-}
-
-static void test_duplicate_token(void)
-{
-    HANDLE token, token2;
-    BOOL ret;
-
-    ret = OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT, &token);
-    ok(ret, "got error %u\n", GetLastError());
-
-    ret = DuplicateToken(token, SecurityAnonymous, &token2);
-    ok(ret, "got error %u\n", GetLastError());
-    TEST_GRANTED_ACCESS(token2, TOKEN_QUERY | TOKEN_IMPERSONATE);
-    CloseHandle(token2);
-
-    ret = DuplicateTokenEx(token, 0, NULL, SecurityAnonymous, TokenPrimary, &token2);
-    ok(ret, "got error %u\n", GetLastError());
-    TEST_GRANTED_ACCESS(token2, TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT);
-    CloseHandle(token2);
-
-    ret = DuplicateTokenEx(token, MAXIMUM_ALLOWED, NULL, SecurityAnonymous, TokenPrimary, &token2);
-    ok(ret, "got error %u\n", GetLastError());
-    TEST_GRANTED_ACCESS(token2, TOKEN_ALL_ACCESS);
-    CloseHandle(token2);
-
-    ret = DuplicateTokenEx(token, TOKEN_QUERY_SOURCE, NULL, SecurityAnonymous, TokenPrimary, &token2);
-    ok(ret, "got error %u\n", GetLastError());
-    TEST_GRANTED_ACCESS(token2, TOKEN_QUERY_SOURCE);
-    CloseHandle(token2);
-
-    CloseHandle(token);
-}
-
-static void test_GetKernelObjectSecurity(void)
-{
-    /* Basic tests for parameter validation. */
-
-    SECURITY_DESCRIPTOR_CONTROL control;
-    DWORD size, ret_size, revision;
-    BOOL ret, present, defaulted;
-    PSECURITY_DESCRIPTOR sd;
-    PSID sid;
-    ACL *acl;
-
-    SetLastError(0xdeadbeef);
-    size = 0xdeadbeef;
-    ret = GetKernelObjectSecurity(NULL, OWNER_SECURITY_INFORMATION, NULL, 0, &size);
-    ok(!ret, "expected failure\n");
-    ok(GetLastError() == ERROR_INVALID_HANDLE, "got error %u\n", GetLastError());
-    ok(size == 0xdeadbeef, "got size %u\n", size);
-
-    SetLastError(0xdeadbeef);
-    ret = GetKernelObjectSecurity(GetCurrentProcess(), OWNER_SECURITY_INFORMATION, NULL, 0, NULL);
-    ok(!ret, "expected failure\n");
-    ok(GetLastError() == ERROR_NOACCESS, "got error %u\n", GetLastError());
-
-    SetLastError(0xdeadbeef);
-    size = 0xdeadbeef;
-    ret = GetKernelObjectSecurity(GetCurrentProcess(), OWNER_SECURITY_INFORMATION, NULL, 0, &size);
-    ok(!ret, "expected failure\n");
-    ok(GetLastError() == ERROR_INSUFFICIENT_BUFFER, "got error %u\n", GetLastError());
-    ok(size > 0 && size != 0xdeadbeef, "got size 0\n");
-
-    sd = malloc(size + 1);
-
-    SetLastError(0xdeadbeef);
-    ret = GetKernelObjectSecurity(GetCurrentProcess(), OWNER_SECURITY_INFORMATION, sd, size - 1, &ret_size);
-    ok(!ret, "expected failure\n");
-    ok(GetLastError() == ERROR_INSUFFICIENT_BUFFER, "got error %u\n", GetLastError());
-    ok(ret_size == size, "expected size %u, got %u\n", size, ret_size);
-
-    SetLastError(0xdeadbeef);
-    ret = GetKernelObjectSecurity(GetCurrentProcess(), OWNER_SECURITY_INFORMATION, sd, size + 1, &ret_size);
-    ok(ret, "expected success\n");
-    ok(GetLastError() == 0xdeadbeef, "got error %u\n", GetLastError());
-    ok(ret_size == size, "expected size %u, got %u\n", size, ret_size);
-
-    free(sd);
-
-    /* Calling the function with flags not defined succeeds and yields an empty
-     * descriptor. */
-
-    SetLastError(0xdeadbeef);
-    ret = GetKernelObjectSecurity(GetCurrentProcess(), 0x100000, NULL, 0, &size);
-    ok(!ret, "expected failure\n");
-    ok(GetLastError() == ERROR_INSUFFICIENT_BUFFER, "got error %u\n", GetLastError());
-
-    sd = malloc(size);
-    SetLastError(0xdeadbeef);
-    ret = GetKernelObjectSecurity(GetCurrentProcess(), 0x100000, sd, size, &ret_size);
-    ok(ret, "expected success\n");
-    ok(GetLastError() == 0xdeadbeef, "got error %u\n", GetLastError());
-    ok(ret_size == size, "expected size %u, got %u\n", size, ret_size);
-
-    ret = GetSecurityDescriptorControl(sd, &control, &revision);
-    ok(ret, "got error %u\n", GetLastError());
-    todo_wine ok(control == SE_SELF_RELATIVE, "got control %#x\n", control);
-    ok(revision == SECURITY_DESCRIPTOR_REVISION1, "got revision %u\n", revision);
-
-    ret = GetSecurityDescriptorOwner(sd, &sid, &defaulted);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(!sid, "expected no owner SID\n");
-    ok(!defaulted, "expected owner not defaulted\n");
-
-    ret = GetSecurityDescriptorGroup(sd, &sid, &defaulted);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(!sid, "expected no group SID\n");
-    ok(!defaulted, "expected group not defaulted\n");
-
-    ret = GetSecurityDescriptorDacl(sd, &present, &acl, &defaulted);
-    ok(ret, "got error %u\n", GetLastError());
-    todo_wine ok(!present, "expected no DACL present\n");
-    /* the descriptor is defaulted only on Windows >= 7 */
-
-    ret = GetSecurityDescriptorSacl(sd, &present, &acl, &defaulted);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(!present, "expected no SACL present\n");
-    /* the descriptor is defaulted only on Windows >= 7 */
-
-    free(sd);
-}
-
-static void check_different_token(HANDLE token1, HANDLE token2)
-{
-    TOKEN_STATISTICS stats1, stats2;
-    DWORD size;
-    BOOL ret;
-
-    ret = GetTokenInformation(token1, TokenStatistics, &stats1, sizeof(stats1), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    ret = GetTokenInformation(token2, TokenStatistics, &stats2, sizeof(stats2), &size);
-    ok(ret, "got error %u\n", GetLastError());
-
-    ok(memcmp(&stats1.TokenId, &stats2.TokenId, sizeof(LUID)), "expected different IDs\n");
-}
-
-static void test_elevation(void)
-{
-    TOKEN_LINKED_TOKEN linked, linked2;
-    DWORD orig_type, type, size;
-    TOKEN_ELEVATION elevation;
-    HANDLE token, token2;
-    BOOL ret;
-
-    ret = OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | READ_CONTROL | TOKEN_DUPLICATE
-            | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_PRIVILEGES | TOKEN_ADJUST_DEFAULT, &token);
-    ok(ret, "got error %u\n", GetLastError());
-
-    ret = GetTokenInformation(token, TokenElevationType, &type, sizeof(type), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    orig_type = type;
-    ret = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    ret = GetTokenInformation(token, TokenLinkedToken, &linked, sizeof(linked), &size);
-    if (!ret && GetLastError() == ERROR_NO_SUCH_LOGON_SESSION) /* fails on w2008s64 */
-    {
-        win_skip("Failed to get linked token.\n");
-        CloseHandle(token);
-        return;
-    }
-    ok(ret, "got error %u\n", GetLastError());
-
-    if (type == TokenElevationTypeDefault)
-    {
-        ok(elevation.TokenIsElevated == FALSE, "got elevation %#x\n", elevation.TokenIsElevated);
-        ok(!linked.LinkedToken, "expected no linked token\n");
-    }
-    else if (type == TokenElevationTypeLimited)
-    {
-        ok(elevation.TokenIsElevated == FALSE, "got elevation %#x\n", elevation.TokenIsElevated);
-        ok(!!linked.LinkedToken, "expected a linked token\n");
-
-        TEST_GRANTED_ACCESS(linked.LinkedToken, TOKEN_ALL_ACCESS);
-        ret = GetTokenInformation(linked.LinkedToken, TokenElevationType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenElevationTypeFull, "got type %#x\n", type);
-        ret = GetTokenInformation(linked.LinkedToken, TokenElevation, &elevation, sizeof(elevation), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(elevation.TokenIsElevated == TRUE, "got elevation %#x\n", elevation.TokenIsElevated);
-        ret = GetTokenInformation(linked.LinkedToken, TokenType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenImpersonation, "got type %#x\n", type);
-        ret = GetTokenInformation(linked.LinkedToken, TokenImpersonationLevel, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == SecurityIdentification, "got impersonation level %#x\n", type);
-
-        /* Asking for the linked token again gives us a different token. */
-        ret = GetTokenInformation(token, TokenLinkedToken, &linked2, sizeof(linked2), &size);
-        ok(ret, "got error %u\n", GetLastError());
-
-        ret = GetTokenInformation(linked2.LinkedToken, TokenElevationType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenElevationTypeFull, "got type %#x\n", type);
-        ret = GetTokenInformation(linked2.LinkedToken, TokenElevation, &elevation, sizeof(elevation), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(elevation.TokenIsElevated == TRUE, "got elevation %#x\n", elevation.TokenIsElevated);
-
-        check_different_token(linked.LinkedToken, linked2.LinkedToken);
-
-        CloseHandle(linked2.LinkedToken);
-
-        /* Asking for the linked token's linked token gives us a new limited token. */
-        ret = GetTokenInformation(linked.LinkedToken, TokenLinkedToken, &linked2, sizeof(linked2), &size);
-        ok(ret, "got error %u\n", GetLastError());
-
-        ret = GetTokenInformation(linked2.LinkedToken, TokenElevationType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenElevationTypeLimited, "got type %#x\n", type);
-        ret = GetTokenInformation(linked2.LinkedToken, TokenElevation, &elevation, sizeof(elevation), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(elevation.TokenIsElevated == FALSE, "got elevation %#x\n", elevation.TokenIsElevated);
-
-        check_different_token(token, linked2.LinkedToken);
-
-        CloseHandle(linked2.LinkedToken);
-
-        CloseHandle(linked.LinkedToken);
-
-        type = TokenElevationTypeLimited;
-        ret = SetTokenInformation(token, TokenElevationType, &type, sizeof(type));
-        ok(!ret, "expected failure\n");
-        ok(GetLastError() == ERROR_INVALID_PARAMETER, "got error %u\n", GetLastError());
-
-        elevation.TokenIsElevated = FALSE;
-        ret = SetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation));
-        ok(!ret, "expected failure\n");
-        ok(GetLastError() == ERROR_INVALID_PARAMETER, "got error %u\n", GetLastError());
-    }
-    else
-    {
-        ok(elevation.TokenIsElevated == TRUE, "got elevation %#x\n", elevation.TokenIsElevated);
-        ok(!!linked.LinkedToken, "expected a linked token\n");
-
-        TEST_GRANTED_ACCESS(linked.LinkedToken, TOKEN_ALL_ACCESS);
-        ret = GetTokenInformation(linked.LinkedToken, TokenElevationType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenElevationTypeLimited, "got type %#x\n", type);
-        ret = GetTokenInformation(linked.LinkedToken, TokenElevation, &elevation, sizeof(elevation), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(elevation.TokenIsElevated == FALSE, "got elevation %#x\n", elevation.TokenIsElevated);
-        ret = GetTokenInformation(linked.LinkedToken, TokenType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenImpersonation, "got type %#x\n", type);
-        ret = GetTokenInformation(linked.LinkedToken, TokenImpersonationLevel, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == SecurityIdentification, "got impersonation level %#x\n", type);
-
-        /* Asking for the linked token again gives us a different token. */
-        ret = GetTokenInformation(token, TokenLinkedToken, &linked2, sizeof(linked2), &size);
-        ok(ret, "got error %u\n", GetLastError());
-
-        ret = GetTokenInformation(linked2.LinkedToken, TokenElevationType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenElevationTypeLimited, "got type %#x\n", type);
-        ret = GetTokenInformation(linked2.LinkedToken, TokenElevation, &elevation, sizeof(elevation), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(elevation.TokenIsElevated == FALSE, "got elevation %#x\n", elevation.TokenIsElevated);
-
-        check_different_token(linked.LinkedToken, linked2.LinkedToken);
-
-        CloseHandle(linked2.LinkedToken);
-
-        /* Asking for the linked token's linked token gives us a new elevated token. */
-        ret = GetTokenInformation(linked.LinkedToken, TokenLinkedToken, &linked2, sizeof(linked2), &size);
-        ok(ret, "got error %u\n", GetLastError());
-
-        ret = GetTokenInformation(linked2.LinkedToken, TokenElevationType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenElevationTypeFull, "got type %#x\n", type);
-        ret = GetTokenInformation(linked2.LinkedToken, TokenElevation, &elevation, sizeof(elevation), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(elevation.TokenIsElevated == TRUE, "got elevation %#x\n", elevation.TokenIsElevated);
-
-        check_different_token(token, linked2.LinkedToken);
-
-        CloseHandle(linked2.LinkedToken);
-
-        CloseHandle(linked.LinkedToken);
-
-        type = TokenElevationTypeLimited;
-        ret = SetTokenInformation(token, TokenElevationType, &type, sizeof(type));
-        ok(!ret, "expected failure\n");
-        todo_wine ok(GetLastError() == ERROR_INVALID_PARAMETER, "got error %u\n", GetLastError());
-
-        elevation.TokenIsElevated = FALSE;
-        ret = SetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation));
-        ok(!ret, "expected failure\n");
-        todo_wine ok(GetLastError() == ERROR_INVALID_PARAMETER, "got error %u\n", GetLastError());
-    }
-
-    ret = DuplicateTokenEx(token, TOKEN_ALL_ACCESS, NULL, SecurityAnonymous, TokenPrimary, &token2);
-    ok(ret, "got error %u\n", GetLastError());
-    ret = GetTokenInformation(token2, TokenElevationType, &type, sizeof(type), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(type == orig_type, "expected same type\n");
-    ret = GetTokenInformation(token2, TokenElevation, &elevation, sizeof(elevation), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(elevation.TokenIsElevated == (type == TokenElevationTypeFull), "got elevation %#x\n", elevation.TokenIsElevated);
-    ret = GetTokenInformation(token2, TokenLinkedToken, &linked, sizeof(linked), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    if (type == TokenElevationTypeDefault)
-    {
-        ok(!linked.LinkedToken, "expected no linked token\n");
-        ret = GetTokenInformation(linked.LinkedToken, TokenType, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == TokenImpersonation, "got type %#x\n", type);
-        ret = GetTokenInformation(linked.LinkedToken, TokenImpersonationLevel, &type, sizeof(type), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(type == SecurityIdentification, "got impersonation level %#x\n", type);
-        CloseHandle(linked.LinkedToken);
-    }
-    else
-        ok(!!linked.LinkedToken, "expected a linked token\n");
-    CloseHandle(token2);
-
-    ret = CreateRestrictedToken(token, 0, 0, NULL, 0, NULL, 0, NULL, &token2);
-    ok(ret, "got error %u\n", GetLastError());
-    ret = GetTokenInformation(token2, TokenElevationType, &type, sizeof(type), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(type == orig_type, "expected same type\n");
-    ret = GetTokenInformation(token2, TokenElevation, &elevation, sizeof(elevation), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    ok(elevation.TokenIsElevated == (type == TokenElevationTypeFull), "got elevation %#x\n", elevation.TokenIsElevated);
-    ret = GetTokenInformation(token2, TokenLinkedToken, &linked, sizeof(linked), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    if (type == TokenElevationTypeDefault)
-        ok(!linked.LinkedToken, "expected no linked token\n");
-    else
-        ok(!!linked.LinkedToken, "expected a linked token\n");
-    CloseHandle(linked.LinkedToken);
-    CloseHandle(token2);
-
-    if (type != TokenElevationTypeDefault)
-    {
-        char prev_privs_buffer[128], acl_buffer[256], prev_acl_buffer[256];
-        TOKEN_PRIVILEGES privs, *prev_privs = (TOKEN_PRIVILEGES *)prev_privs_buffer;
-        TOKEN_DEFAULT_DACL *prev_acl = (TOKEN_DEFAULT_DACL *)prev_acl_buffer;
-        TOKEN_DEFAULT_DACL *ret_acl = (TOKEN_DEFAULT_DACL *)acl_buffer;
-        TOKEN_DEFAULT_DACL default_acl;
-        PRIVILEGE_SET priv_set;
-        BOOL ret, is_member;
-        DWORD size;
-        ACL acl;
-
-        /* Linked tokens do not preserve privilege modifications. */
-
-        privs.PrivilegeCount = 1;
-        ret = LookupPrivilegeValueA(NULL, "SeChangeNotifyPrivilege", &privs.Privileges[0].Luid);
-        ok(ret, "got error %u\n", GetLastError());
-        privs.Privileges[0].Attributes = SE_PRIVILEGE_REMOVED;
-        ret = AdjustTokenPrivileges(token, FALSE, &privs, sizeof(prev_privs_buffer), prev_privs, &size);
-        ok(ret, "got error %u\n", GetLastError());
-
-        priv_set.PrivilegeCount = 1;
-        priv_set.Control = 0;
-        priv_set.Privilege[0] = privs.Privileges[0];
-        ret = PrivilegeCheck(token, &priv_set, &is_member);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(!is_member, "not a member\n");
-
-        ret = GetTokenInformation(token, TokenLinkedToken, &linked, sizeof(linked), &size);
-        ok(ret, "got error %u\n", GetLastError());
-
-        ret = PrivilegeCheck(linked.LinkedToken, &priv_set, &is_member);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(is_member, "not a member\n");
-
-        CloseHandle(linked.LinkedToken);
-
-        ret = AdjustTokenPrivileges(token, FALSE, prev_privs, 0, NULL, NULL);
-        ok(ret, "got error %u\n", GetLastError());
-
-        /* Linked tokens do not preserve default DACL modifications. */
-
-        ret = GetTokenInformation(token, TokenDefaultDacl, prev_acl, sizeof(prev_acl_buffer), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(prev_acl->DefaultDacl->AceCount, "expected non-empty default DACL\n");
-
-        InitializeAcl(&acl, sizeof(acl), ACL_REVISION);
-        default_acl.DefaultDacl = &acl;
-        ret = SetTokenInformation(token, TokenDefaultDacl, &default_acl, sizeof(default_acl));
-        ok(ret, "got error %u\n", GetLastError());
-
-        ret = GetTokenInformation(token, TokenDefaultDacl, ret_acl, sizeof(acl_buffer), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(!ret_acl->DefaultDacl->AceCount, "expected empty default DACL\n");
-
-        ret = GetTokenInformation(token, TokenLinkedToken, &linked, sizeof(linked), &size);
-        ok(ret, "got error %u\n", GetLastError());
-
-        ret = GetTokenInformation(linked.LinkedToken, TokenDefaultDacl, ret_acl, sizeof(acl_buffer), &size);
-        ok(ret, "got error %u\n", GetLastError());
-        ok(ret_acl->DefaultDacl->AceCount, "expected non-empty default DACL\n");
-
-        CloseHandle(linked.LinkedToken);
-
-        ret = SetTokenInformation(token, TokenDefaultDacl, prev_acl, sizeof(*prev_acl));
-        ok(ret, "got error %u\n", GetLastError());
-    }
-
-    CloseHandle(token);
-}
-
-static void test_group_as_file_owner(void)
-{
-    char sd_buffer[200], sid_buffer[100];
-    SECURITY_DESCRIPTOR *sd = (SECURITY_DESCRIPTOR *)sd_buffer;
-    char temp_path[MAX_PATH], path[MAX_PATH];
-    SID *admin_sid = (SID *)sid_buffer;
-    BOOL ret, present, defaulted;
-    SECURITY_DESCRIPTOR new_sd;
-    HANDLE file;
-    DWORD size;
-    ACL *dacl;
-
-    /* The EA Origin client sets the SD owner of a directory to Administrators,
-     * while using the default DACL, and subsequently tries to create
-     * subdirectories. */
-
-    size = sizeof(sid_buffer);
-    CreateWellKnownSid(WinBuiltinAdministratorsSid, NULL, admin_sid, &size);
-
-    ret = CheckTokenMembership(NULL, admin_sid, &present);
-    ok(ret, "got error %u\n", GetLastError());
-    if (!present)
-    {
-        skip("user is not an administrator\n");
-        return;
-    }
-
-    GetTempPathA(ARRAY_SIZE(temp_path), temp_path);
-    sprintf(path, "%s\\testdir", temp_path);
-
-    ret = CreateDirectoryA(path, NULL);
-    ok(ret, "got error %u\n", GetLastError());
-
-    file = CreateFileA(path, FILE_ALL_ACCESS, 0, NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, 0);
-    ok(file != INVALID_HANDLE_VALUE, "got error %u\n", GetLastError());
-
-    ret = GetKernelObjectSecurity(file, DACL_SECURITY_INFORMATION, sd_buffer, sizeof(sd_buffer), &size);
-    ok(ret, "got error %u\n", GetLastError());
-    ret = GetSecurityDescriptorDacl(sd, &present, &dacl, &defaulted);
-    ok(ret, "got error %u\n", GetLastError());
-
-    InitializeSecurityDescriptor(&new_sd, SECURITY_DESCRIPTOR_REVISION);
-
-    ret = SetSecurityDescriptorOwner(&new_sd, admin_sid, FALSE);
-    ok(ret, "got error %u\n", GetLastError());
-
-    ret = GetSecurityDescriptorDacl(sd, &present, &dacl, &defaulted);
-    ok(ret, "got error %u\n", GetLastError());
-
-    ret = SetSecurityDescriptorDacl(&new_sd, present, dacl, defaulted);
-    ok(ret, "got error %u\n", GetLastError());
-
-    ret = SetKernelObjectSecurity(file, OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &new_sd);
-    ok(ret, "got error %u\n", GetLastError());
-
-    CloseHandle(file);
-
-    sprintf(path, "%s\\testdir\\subdir", temp_path);
-    ret = CreateDirectoryA(path, NULL);
-    ok(ret, "got error %u\n", GetLastError());
-
-    ret = RemoveDirectoryA(path);
-    ok(ret, "got error %u\n", GetLastError());
-    sprintf(path, "%s\\testdir", temp_path);
-    ret = RemoveDirectoryA(path);
-    ok(ret, "got error %u\n", GetLastError());
-}
-
 START_TEST(security)
 {
     init();
@@ -8449,11 +7896,9 @@ START_TEST(security)
         return;
     }
     test_kernel_objects_security();
-    test_ConvertStringSidToSid();
+    test_sid();
     test_trustee();
-    test_allocateLuid();
-    test_lookupPrivilegeName();
-    test_lookupPrivilegeValue();
+    test_luid();
     test_CreateWellKnownSid();
     test_FileSecurity();
     test_AccessCheck();
@@ -8471,7 +7916,7 @@ START_TEST(security)
     test_ConvertStringSecurityDescriptor();
     test_ConvertSecurityDescriptorToString();
     test_PrivateObjectSecurity();
-    test_InitializeAcl();
+    test_acls();
     test_GetWindowsAccountDomainSid();
     test_EqualDomainSid();
     test_GetSecurityInfo();
@@ -8495,11 +7940,6 @@ START_TEST(security)
     test_BuildSecurityDescriptorW();
     test_duplicate_handle_access();
     test_create_process_token();
-    test_pseudo_handle_security();
-    test_duplicate_token();
-    test_GetKernelObjectSecurity();
-    test_elevation();
-    test_group_as_file_owner();
 
     /* Must be the last test, modifies process token */
     test_token_security_descriptor();

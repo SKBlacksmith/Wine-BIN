@@ -230,7 +230,6 @@ WinMain (HINSTANCE hInstance, HINSTANCE hPrev, LPSTR szCmdLine, int nShow)
 
     if (IsWow64Process( GetCurrentProcess(), &is_wow64 ) && is_wow64)
     {
-        static const WCHAR winecfgW[] = {'\\','w','i','n','e','c','f','g','.','e','x','e',0};
         STARTUPINFOW si;
         PROCESS_INFORMATION pi;
         WCHAR filename[MAX_PATH];
@@ -239,8 +238,7 @@ WinMain (HINSTANCE hInstance, HINSTANCE hPrev, LPSTR szCmdLine, int nShow)
 
         memset( &si, 0, sizeof(si) );
         si.cb = sizeof(si);
-        GetSystemDirectoryW( filename, MAX_PATH );
-        lstrcatW( filename, winecfgW );
+        GetModuleFileNameW( 0, filename, MAX_PATH );
 
         Wow64DisableWow64FsRedirection( &redir );
         if (CreateProcessW( filename, GetCommandLineW(), NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi ))

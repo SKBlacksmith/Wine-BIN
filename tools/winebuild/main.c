@@ -49,7 +49,6 @@ int unwind_tables = 0;
 int use_msvcrt = 0;
 int unix_lib = 0;
 int safe_seh = 0;
-int prefer_native = 0;
 
 #ifdef __i386__
 enum target_cpu target_cpu = CPU_x86;
@@ -67,14 +66,12 @@ enum target_cpu target_cpu = CPU_ARM64;
 
 #ifdef __APPLE__
 enum target_platform target_platform = PLATFORM_APPLE;
-#elif defined(__linux__)
-enum target_platform target_platform = PLATFORM_LINUX;
 #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__)
 enum target_platform target_platform = PLATFORM_FREEBSD;
 #elif defined(__sun)
 enum target_platform target_platform = PLATFORM_SOLARIS;
 #elif defined(_WIN32)
-enum target_platform target_platform = PLATFORM_MINGW;
+enum target_platform target_platform = PLATFORM_WINDOWS;
 #else
 enum target_platform target_platform = PLATFORM_UNSPECIFIED;
 #endif
@@ -132,15 +129,13 @@ static const struct
     enum target_platform platform;
 } platform_names[] =
 {
-    { "macos",       PLATFORM_APPLE },
-    { "darwin",      PLATFORM_APPLE },
-    { "linux",       PLATFORM_LINUX },
-    { "freebsd",     PLATFORM_FREEBSD },
-    { "solaris",     PLATFORM_SOLARIS },
-    { "mingw32",     PLATFORM_MINGW },
-    { "windows-gnu", PLATFORM_MINGW },
-    { "windows",     PLATFORM_WINDOWS },
-    { "winnt",       PLATFORM_MINGW }
+    { "macos",   PLATFORM_APPLE },
+    { "darwin",  PLATFORM_APPLE },
+    { "freebsd", PLATFORM_FREEBSD },
+    { "solaris", PLATFORM_SOLARIS },
+    { "mingw32", PLATFORM_WINDOWS },
+    { "windows", PLATFORM_WINDOWS },
+    { "winnt",   PLATFORM_WINDOWS }
 };
 
 /* set the dll file name from the input file name */
@@ -249,8 +244,6 @@ static void set_target( const char *target )
     }
 
     free( spec );
-
-    if (target_cpu == CPU_ARM && is_pe()) thumb_mode = 1;
 }
 
 /* cleanup on program exit */
@@ -298,7 +291,6 @@ static const char usage_str[] =
 "       --nxcompat=y|n        Set the NX compatibility flag (default: yes)\n"
 "   -N, --dll-name=DLLNAME    Set the DLL name (default: from input file name)\n"
 "   -o, --output=NAME         Set the output file name (default: stdout)\n"
-"       --prefer-native       Set the flag to prefer loading native at run time\n"
 "   -r, --res=RSRC.RES        Load resources from RSRC.RES\n"
 "       --safeseh             Mark object files as SEH compatible\n"
 "       --save-temps          Do not delete the generated intermediate files\n"
@@ -334,7 +326,6 @@ enum long_options_values
     LONG_OPT_LDCMD,
     LONG_OPT_NMCMD,
     LONG_OPT_NXCOMPAT,
-    LONG_OPT_PREFER_NATIVE,
     LONG_OPT_RESOURCES,
     LONG_OPT_SAFE_SEH,
     LONG_OPT_SAVE_TEMPS,
@@ -362,7 +353,6 @@ static const struct option long_options[] =
     { "ld-cmd",        1, 0, LONG_OPT_LDCMD },
     { "nm-cmd",        1, 0, LONG_OPT_NMCMD },
     { "nxcompat",      1, 0, LONG_OPT_NXCOMPAT },
-    { "prefer-native", 0, 0, LONG_OPT_PREFER_NATIVE },
     { "resources",     0, 0, LONG_OPT_RESOURCES },
     { "safeseh",       0, 0, LONG_OPT_SAFE_SEH },
     { "save-temps",    0, 0, LONG_OPT_SAVE_TEMPS },
@@ -582,10 +572,6 @@ static char **parse_options( int argc, char **argv, DLLSPEC *spec )
         case LONG_OPT_SAFE_SEH:
             safe_seh = 1;
             break;
-        case LONG_OPT_PREFER_NATIVE:
-            prefer_native = 1;
-            spec->dll_characteristics |= IMAGE_DLLCHARACTERISTICS_PREFER_NATIVE;
-            break;
         case LONG_OPT_RESOURCES:
             set_exec_mode( MODE_RESOURCES );
             break;
@@ -722,7 +708,7 @@ int main(int argc, char **argv)
             else output_fake_module( spec );
             break;
         }
-        if (!is_pe())
+        if (target_platform != PLATFORM_WINDOWS)
         {
             load_import_libs( argv );
             read_undef_symbols( spec, argv );

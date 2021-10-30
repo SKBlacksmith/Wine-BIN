@@ -65,9 +65,7 @@ typedef DECLSPEC_ALIGN(16) struct _JUMP_BUFFER
     unsigned __int64 R14;
     unsigned __int64 R15;
     unsigned __int64 Rip;
-    unsigned long MxCsr;
-    unsigned short FpCsr;
-    unsigned short Spare;
+    unsigned __int64 Spare;
     SETJMP_FLOAT128  Xmm6;
     SETJMP_FLOAT128  Xmm7;
     SETJMP_FLOAT128  Xmm8;

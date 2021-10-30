@@ -64,7 +64,6 @@ static BOOL (WINAPI *pGetWindowDisplayAffinity)(HWND hwnd, DWORD *affinity);
 static BOOL (WINAPI *pSetWindowDisplayAffinity)(HWND hwnd, DWORD affinity);
 static BOOL (WINAPI *pAdjustWindowRectExForDpi)(LPRECT,DWORD,BOOL,DWORD,UINT);
 static BOOL (WINAPI *pSystemParametersInfoForDpi)(UINT,UINT,void*,UINT,UINT);
-static HICON (WINAPI *pInternalGetWindowIcon)(HWND window, UINT type);
 
 static BOOL test_lbuttondown_flag;
 static DWORD num_gettext_msgs;
@@ -2145,7 +2144,6 @@ static void test_mdi(void)
         SCROLLINFO si;
         BOOL ret, gotit;
 
-        winetest_push_context("style %#x", style[i]);
         mdi_client = CreateWindowExA(0, "mdiclient", NULL,
                                  WS_CHILD | style[i],
                                  0, 0, rc.right, rc.bottom,
@@ -2184,7 +2182,7 @@ static void test_mdi(void)
         ret = GetScrollInfo(mdi_client, SB_HORZ, &si);
         if (style[i] & (WS_HSCROLL | WS_VSCROLL))
         {
-            ok(ret, "GetScrollInfo(SB_HORZ) failed\n");
+            ok(ret, "style %#x: GetScrollInfo(SB_HORZ) failed\n", style[i]);
             ok(si.nPage == 0, "expected 0\n");
             ok(si.nPos == 0, "expected 0\n");
             ok(si.nTrackPos == 0, "expected 0\n");
@@ -2192,12 +2190,12 @@ static void test_mdi(void)
             ok(si.nMax == 100, "expected 100\n");
         }
         else
-            ok(!ret, "GetScrollInfo(SB_HORZ) should fail\n");
+            ok(!ret, "style %#x: GetScrollInfo(SB_HORZ) should fail\n", style[i]);
 
         ret = GetScrollInfo(mdi_client, SB_VERT, &si);
         if (style[i] & (WS_HSCROLL | WS_VSCROLL))
         {
-            ok(ret, "GetScrollInfo(SB_VERT) failed\n");
+            ok(ret, "style %#x: GetScrollInfo(SB_VERT) failed\n", style[i]);
             ok(si.nPage == 0, "expected 0\n");
             ok(si.nPos == 0, "expected 0\n");
             ok(si.nTrackPos == 0, "expected 0\n");
@@ -2205,7 +2203,7 @@ static void test_mdi(void)
             ok(si.nMax == 100, "expected 100\n");
         }
         else
-            ok(!ret, "GetScrollInfo(SB_VERT) should fail\n");
+            ok(!ret, "style %#x: GetScrollInfo(SB_VERT) should fail\n", style[i]);
 
         SetWindowPos(mdi_child, 0, -100, -100, 0, 0, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSIZE);
 
@@ -2214,7 +2212,7 @@ static void test_mdi(void)
         ret = GetScrollInfo(mdi_client, SB_HORZ, &si);
         if (style[i] & (WS_HSCROLL | WS_VSCROLL))
         {
-            ok(ret, "GetScrollInfo(SB_HORZ) failed\n");
+            ok(ret, "style %#x: GetScrollInfo(SB_HORZ) failed\n", style[i]);
             ok(si.nPage == 0, "expected 0\n");
             ok(si.nPos == 0, "expected 0\n");
             ok(si.nTrackPos == 0, "expected 0\n");
@@ -2222,12 +2220,12 @@ static void test_mdi(void)
             ok(si.nMax == 100, "expected 100\n");
         }
         else
-            ok(!ret, "GetScrollInfo(SB_HORZ) should fail\n");
+            ok(!ret, "style %#x: GetScrollInfo(SB_HORZ) should fail\n", style[i]);
 
         ret = GetScrollInfo(mdi_client, SB_VERT, &si);
         if (style[i] & (WS_HSCROLL | WS_VSCROLL))
         {
-            ok(ret, "GetScrollInfo(SB_VERT) failed\n");
+            ok(ret, "style %#x: GetScrollInfo(SB_VERT) failed\n", style[i]);
             ok(si.nPage == 0, "expected 0\n");
             ok(si.nPos == 0, "expected 0\n");
             ok(si.nTrackPos == 0, "expected 0\n");
@@ -2235,7 +2233,7 @@ static void test_mdi(void)
             ok(si.nMax == 100, "expected 100\n");
         }
         else
-            ok(!ret, "GetScrollInfo(SB_VERT) should fail\n");
+            ok(!ret, "style %#x: GetScrollInfo(SB_VERT) should fail\n", style[i]);
 
         gotit = FALSE;
         while (PeekMessageA(&msg, 0, 0, 0, PM_REMOVE))
@@ -2262,7 +2260,7 @@ static void test_mdi(void)
         ret = GetScrollInfo(mdi_client, SB_HORZ, &si);
         if (style[i] & (WS_HSCROLL | WS_VSCROLL))
         {
-            ok(ret, "GetScrollInfo(SB_HORZ) failed\n");
+            ok(ret, "style %#x: GetScrollInfo(SB_HORZ) failed\n", style[i]);
 todo_wine
             ok(si.nPage != 0, "expected !0\n");
             ok(si.nPos == 0, "expected 0\n");
@@ -2271,12 +2269,12 @@ todo_wine
             ok(si.nMax != 100, "expected !100\n");
         }
         else
-            ok(!ret, "GetScrollInfo(SB_HORZ) should fail\n");
+            ok(!ret, "style %#x: GetScrollInfo(SB_HORZ) should fail\n", style[i]);
 
         ret = GetScrollInfo(mdi_client, SB_VERT, &si);
         if (style[i] & (WS_HSCROLL | WS_VSCROLL))
         {
-            ok(ret, "GetScrollInfo(SB_VERT) failed\n");
+            ok(ret, "style %#x: GetScrollInfo(SB_VERT) failed\n", style[i]);
 todo_wine
             ok(si.nPage != 0, "expected !0\n");
             ok(si.nPos == 0, "expected 0\n");
@@ -2285,12 +2283,11 @@ todo_wine
             ok(si.nMax != 100, "expected !100\n");
         }
         else
-            ok(!ret, "GetScrollInfo(SB_VERT) should fail\n");
+            ok(!ret, "style %#x: GetScrollInfo(SB_VERT) should fail\n", style[i]);
 
         DestroyMenu(child_menu);
         DestroyWindow(mdi_child);
         DestroyWindow(mdi_client);
-        winetest_pop_context();
     }
 
     SetMenu(mdi_hwndMain, frame_menu);
@@ -2372,270 +2369,68 @@ todo_wine
     DestroyWindow(mdi_hwndMain);
 }
 
-#define check_icon_size(a, b, c) check_icon_size_(__LINE__, a, b, c)
-static void check_icon_size_( int line, HICON icon, LONG width, LONG height )
-{
-    ICONINFO info = {sizeof(info)};
-    BITMAP bitmap;
-    BOOL ret;
-
-    ret = GetIconInfo( icon, &info );
-    ok_(__FILE__, line)(ret, "failed to get icon info, error %u\n", GetLastError());
-    ret = GetObjectW(info.hbmColor, sizeof(bitmap), &bitmap);
-    ok_(__FILE__, line)(ret, "failed to get bitmap, error %u\n", GetLastError());
-    ok_(__FILE__, line)(bitmap.bmWidth == width, "expected width %d, got %d\n", width, bitmap.bmWidth);
-    ok_(__FILE__, line)(bitmap.bmHeight == height, "expected height %d, got %d\n", height, bitmap.bmHeight);
-}
-
-#define check_internal_icon_size(a, b, c, d) check_internal_icon_size_(__LINE__, a, b, c, d)
-static void check_internal_icon_size_( int line, HANDLE window, UINT type, LONG width, LONG height )
-{
-    HICON icon;
-    BOOL ret;
-
-    icon = pInternalGetWindowIcon( window, type );
-    ok_(__FILE__, line)(icon != 0, "expected nonzero icon\n");
-    check_icon_size_( line, icon, width, height );
-    ret = DestroyIcon( icon );
-    ok_(__FILE__, line)(ret, "failed to destroy icon, error %u\n", GetLastError());
-}
-
-static DWORD WINAPI internal_get_icon_thread(void *arg)
-{
-    HICON icon;
-    BOOL ret;
-
-    icon = pInternalGetWindowIcon( arg, ICON_BIG );
-    ok( icon != 0, "expected nonzero icon\n" );
-    ret = DestroyIcon( icon );
-    ok( ret, "got error %u\n", GetLastError() );
-
-    return 0;
-}
-
 static void test_icons(void)
 {
-    static const BYTE bitmap_bits[50 * 50 * 4];
-    HICON icon = CreateIcon( 0, 10, 10, 1, 32, bitmap_bits, bitmap_bits );
-    HICON icon2 = CreateIcon( 0, 20, 20, 1, 32, bitmap_bits, bitmap_bits );
-    HICON icon3 = CreateIcon( 0, 30, 30, 1, 32, bitmap_bits, bitmap_bits );
-    HICON icon4 = CreateIcon( 0, 40, 40, 1, 32, bitmap_bits, bitmap_bits );
-    HICON icon5 = CreateIcon( 0, 50, 50, 1, 32, bitmap_bits, bitmap_bits );
-    LONG big_width = GetSystemMetrics( SM_CXICON ), big_height = GetSystemMetrics( SM_CYICON );
-    LONG small_width = GetSystemMetrics( SM_CXSMICON ), small_height = GetSystemMetrics( SM_CYSMICON );
-    WNDCLASSEXA cls = {sizeof(cls)};
-    HICON res, res2;
-    HANDLE thread;
+    WNDCLASSEXA cls;
     HWND hwnd;
-    BOOL ret;
+    HICON icon = LoadIconA(0, (LPCSTR)IDI_APPLICATION);
+    HICON icon2 = LoadIconA(0, (LPCSTR)IDI_QUESTION);
+    HICON small_icon = LoadImageA(0, (LPCSTR)IDI_APPLICATION, IMAGE_ICON,
+                                  GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_SHARED );
+    HICON res;
 
+    cls.cbSize = sizeof(cls);
+    cls.style = 0;
     cls.lpfnWndProc = DefWindowProcA;
-    cls.hIcon = icon4;
-    cls.hIconSm = icon5;
+    cls.cbClsExtra = 0;
+    cls.cbWndExtra = 0;
+    cls.hInstance = 0;
+    cls.hIcon = LoadIconA(0, (LPCSTR)IDI_HAND);
+    cls.hIconSm = small_icon;
+    cls.hCursor = LoadCursorA(0, (LPCSTR)IDC_ARROW);
+    cls.hbrBackground = GetStockObject(WHITE_BRUSH);
+    cls.lpszMenuName = NULL;
     cls.lpszClassName = "IconWindowClass";
+
     RegisterClassExA(&cls);
 
     hwnd = CreateWindowExA(0, "IconWindowClass", "icon test", 0,
                            100, 100, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, NULL, NULL);
-    ok( hwnd != NULL, "failed to create window\n" );
+    assert( hwnd );
 
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_BIG, 0 );
     ok( res == 0, "wrong big icon %p/0\n", res );
-    SetLastError( 0xdeadbeef );
-    res = pInternalGetWindowIcon( hwnd, ICON_BIG );
-    ok( res != 0, "expected nonzero icon\n" );
-    ok( GetLastError() == 0xdeadbeef, "got error %u\n", GetLastError() );
-    check_icon_size( res, 40, 40 );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_BIG );
-    ok( res2 && res2 != res, "got %p\n", res2 );
-    check_icon_size( res2, 40, 40 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-    ret = DestroyIcon( res );
-    ok( ret, "got error %u\n", GetLastError() );
-
-    res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL, 0 );
-    ok( !res, "wrong small icon %p\n", res );
-    res = pInternalGetWindowIcon( hwnd, ICON_SMALL );
-    ok( res != 0, "expected nonzero icon\n" );
-    check_icon_size( res, 50, 50 );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_SMALL );
-    ok( res2 && res2 != res, "got %p\n", res2 );
-    check_icon_size( res2, 50, 50 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-    ret = DestroyIcon( res );
-    ok( ret, "got error %u\n", GetLastError() );
-
-    res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL2, 0 );
-    ok( !res, "wrong small2 icon %p\n", res );
-    res = pInternalGetWindowIcon( hwnd, ICON_SMALL2 );
-    ok( res != 0, "expected nonzero icon\n" );
-    check_icon_size( res, 50, 50 );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_SMALL2 );
-    ok( res2 && res2 != res, "got %p\n", res2 );
-    check_icon_size( res2, 50, 50 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-    ret = DestroyIcon( res );
-    ok( ret, "got error %u\n", GetLastError() );
-
     res = (HICON)SendMessageA( hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon );
     ok( res == 0, "wrong previous big icon %p/0\n", res );
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_BIG, 0 );
     ok( res == icon, "wrong big icon after set %p/%p\n", res, icon );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_BIG );
-    ok( res2 && res2 != icon, "got %p\n", res2 );
-    check_icon_size( res2, 10, 10 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-
     res = (HICON)SendMessageA( hwnd, WM_SETICON, ICON_BIG, (LPARAM)icon2 );
     ok( res == icon, "wrong previous big icon %p/%p\n", res, icon );
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_BIG, 0 );
     ok( res == icon2, "wrong big icon after set %p/%p\n", res, icon2 );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_BIG );
-    ok( res2 && res2 != icon2, "got %p\n", res2 );
-    check_icon_size( res2, 20, 20 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
 
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL, 0 );
     ok( res == 0, "wrong small icon %p/0\n", res );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_SMALL );
-    ok( res2 != 0, "expected nonzero icon\n" );
-    check_icon_size( res2, small_width, small_height );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL2, 0 );
-    ok( res && res != icon3 && res != icon2, "wrong small2 icon %p\n", res );
-    res2 = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL2, 0 );
-    ok( res2 == res, "expected icon to match\n" );
-    check_icon_size( res, small_width, small_height );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_SMALL2 );
-    ok( res2 && res2 != icon3 && res2 != icon2 && res2 != res, "got %p\n", res2 );
-    check_icon_size( res2, small_width, small_height );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-
+    ok( (res && res != small_icon && res != icon2) || broken(!res), "wrong small2 icon %p\n", res );
     res = (HICON)SendMessageA( hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon );
     ok( res == 0, "wrong previous small icon %p/0\n", res );
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL, 0 );
     ok( res == icon, "wrong small icon after set %p/%p\n", res, icon );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_SMALL );
-    ok( res2 && res2 != icon, "got %p\n", res2 );
-    check_icon_size( res2, 10, 10 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL2, 0 );
-    ok( res == icon, "wrong small2 icon after set %p/%p\n", res, icon );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_SMALL2 );
-    ok( res2 && res2 != icon && res2 != res, "got %p\n", res2 );
-    check_icon_size( res2, 10, 10 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-
-    res = (HICON)SendMessageA( hwnd, WM_SETICON, ICON_SMALL, (LPARAM)icon3 );
+    ok( res == icon || broken(!res), "wrong small2 icon after set %p/%p\n", res, icon );
+    res = (HICON)SendMessageA( hwnd, WM_SETICON, ICON_SMALL, (LPARAM)small_icon );
     ok( res == icon, "wrong previous small icon %p/%p\n", res, icon );
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL, 0 );
-    ok( res == icon3, "wrong small icon after set %p/%p\n", res, icon3 );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_SMALL );
-    ok( res2 && res2 != icon3, "got %p\n", res2 );
-    check_icon_size( res2, 30, 30 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-
+    ok( res == small_icon, "wrong small icon after set %p/%p\n", res, small_icon );
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_SMALL2, 0 );
-    ok( res == icon3, "wrong small2 icon after set %p/%p\n", res, icon3 );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_SMALL2 );
-    ok( res2 && res2 != icon3 && res2 != res, "got %p\n", res2 );
-    check_icon_size( res2, 30, 30 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
+    ok( res == small_icon || broken(!res), "wrong small2 icon after set %p/%p\n", res, small_icon );
 
     /* make sure the big icon hasn't changed */
     res = (HICON)SendMessageA( hwnd, WM_GETICON, ICON_BIG, 0 );
     ok( res == icon2, "wrong big icon after set %p/%p\n", res, icon2 );
-    res2 = pInternalGetWindowIcon( hwnd, ICON_BIG );
-    ok( res2 && res2 != icon2, "got %p\n", res2 );
-    check_icon_size( res2, 20, 20 );
-    ret = DestroyIcon( res2 );
-    ok( ret, "got error %u\n", GetLastError() );
-
-    SetLastError( 0xdeadbeef );
-    res = pInternalGetWindowIcon( NULL, ICON_BIG );
-    ok( !res, "got %p\n", res );
-    ok( GetLastError() == ERROR_INVALID_WINDOW_HANDLE, "got error %u\n", GetLastError() );
-
-    SetLastError( 0xdeadbeef );
-    res = pInternalGetWindowIcon( hwnd, 0xdeadbeef );
-    ok( !res, "got %p\n", res );
-    ok( GetLastError() == ERROR_INVALID_PARAMETER, "got error %u\n", GetLastError() );
-
-    thread = CreateThread( NULL, 0, internal_get_icon_thread, hwnd, 0, NULL );
-    ret = WaitForSingleObject( thread, 1000 );
-    ok( !ret, "wait timed out\n" );
-    CloseHandle( thread );
 
     DestroyWindow( hwnd );
-    UnregisterClassA( "IconWindowClass", GetModuleHandleA( NULL ) );
-
-    /* check when the big class icon is missing */
-
-    cls.hIcon = 0;
-    cls.hIconSm = icon5;
-    RegisterClassExA(&cls);
-
-    hwnd = CreateWindowExA(0, "IconWindowClass", "icon test", 0,
-                           100, 100, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, NULL, NULL);
-    ok( hwnd != NULL, "failed to create window\n" );
-
-    check_internal_icon_size( hwnd, ICON_BIG, big_width, big_height );
-    check_internal_icon_size( hwnd, ICON_SMALL, 50, 50 );
-    check_internal_icon_size( hwnd, ICON_SMALL2, 50, 50 );
-
-    DestroyWindow( hwnd );
-    UnregisterClassA( "IconWindowClass", GetModuleHandleA( NULL ) );
-
-    /* and when the small class icon is missing */
-
-    cls.hIcon = icon4;
-    cls.hIconSm = 0;
-    RegisterClassExA(&cls);
-    hwnd = CreateWindowExA(0, "IconWindowClass", "icon test", 0,
-                           100, 100, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, NULL, NULL);
-    ok( hwnd != NULL, "failed to create window\n" );
-
-    check_internal_icon_size( hwnd, ICON_BIG, 40, 40 );
-    check_internal_icon_size( hwnd, ICON_SMALL, small_width, small_width );
-    check_internal_icon_size( hwnd, ICON_SMALL2, small_width, small_width );
-
-    DestroyWindow( hwnd );
-    UnregisterClassA( "IconWindowClass", GetModuleHandleA( NULL ) );
-
-    /* and when both are missing */
-
-    cls.hIcon = 0;
-    cls.hIconSm = 0;
-    RegisterClassExA(&cls);
-    hwnd = CreateWindowExA(0, "IconWindowClass", "icon test", 0,
-                           100, 100, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, NULL, NULL);
-    ok( hwnd != NULL, "failed to create window\n" );
-
-    check_internal_icon_size( hwnd, ICON_BIG, big_width, big_height );
-    check_internal_icon_size( hwnd, ICON_SMALL, big_width, big_height );
-    check_internal_icon_size( hwnd, ICON_SMALL2, big_width, big_height );
-
-    DestroyWindow( hwnd );
-    UnregisterClassA( "IconWindowClass", GetModuleHandleA( NULL ) );
-
-    DestroyIcon( icon );
-    DestroyIcon( icon2 );
-    DestroyIcon( icon3 );
-    DestroyIcon( icon4 );
-    DestroyIcon( icon5 );
 }
 
 static LRESULT WINAPI nccalcsize_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -6854,21 +6649,6 @@ static void test_ShowWindow(void)
     RECT rcMain, rc, rcMinimized, rcClient, rcEmpty, rcMaximized, rcResized, rcNonClient;
     LPARAM ret;
     MONITORINFO mon_info;
-    unsigned int i;
-
-    DWORD test_style[] =
-    {
-        WS_OVERLAPPED | WS_VISIBLE | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_THICKFRAME,
-        WS_OVERLAPPED | WS_VISIBLE | WS_SYSMENU | WS_MINIMIZEBOX | WS_THICKFRAME,
-        WS_OVERLAPPED | WS_VISIBLE | WS_SYSMENU | WS_MAXIMIZEBOX | WS_THICKFRAME,
-        WS_OVERLAPPED | WS_VISIBLE | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX,
-        WS_OVERLAPPED | WS_VISIBLE | WS_SYSMENU | WS_MINIMIZEBOX,
-        WS_OVERLAPPED | WS_VISIBLE | WS_SYSMENU | WS_MAXIMIZEBOX,
-        WS_OVERLAPPED | WS_VISIBLE | WS_SYSMENU | WS_THICKFRAME,
-        WS_OVERLAPPED | WS_VISIBLE | WS_SYSMENU,
-        WS_OVERLAPPED | WS_VISIBLE | WS_THICKFRAME,
-        WS_OVERLAPPED | WS_VISIBLE
-    };
 
     SetRect(&rcClient, 0, 0, 90, 90);
     rcMain = rcClient;
@@ -7125,50 +6905,6 @@ static void test_ShowWindow(void)
     DestroyWindow(hwnd);
 
     flush_events(TRUE);
-
-    /* test maximize and restore windows without setting WS_CAPTION */
-
-    for (i = 0; i < ARRAY_SIZE(test_style); ++i)
-    {
-        SetRect(&rcMain, 0, 0, 90, 90);
-        OffsetRect(&rcMain, 120, 120);
-        hwnd = CreateWindowExA(0, "MainWindowClass", NULL, test_style[i],
-                               rcMain.left, rcMain.top,
-                               rcMain.right - rcMain.left, rcMain.bottom - rcMain.top,
-                               0, 0, 0, NULL);
-        ok(hwnd != NULL, "Test %u: failed to create window with error %u\n", i, GetLastError());
-
-        GetWindowRect(hwnd, &rcMain);
-        ok(rcMain.left   > mon_info.rcMonitor.left   &&
-           rcMain.right  < mon_info.rcMonitor.right  &&
-           rcMain.top    > mon_info.rcMonitor.top    &&
-           rcMain.bottom < mon_info.rcMonitor.bottom,
-           "Test %u: window should not be fullscreen\n", i);
-
-        rcMaximized = (test_style[i] & WS_MAXIMIZEBOX) ? mon_info.rcWork : mon_info.rcMonitor;
-        AdjustWindowRectEx(&rcMaximized, GetWindowLongA(hwnd, GWL_STYLE) & ~WS_BORDER,
-                           0, GetWindowLongA(hwnd, GWL_EXSTYLE));
-
-        ret = ShowWindow(hwnd, SW_MAXIMIZE);
-        ok(ret, "unexpected ret: %lu\n", ret);
-        style = GetWindowLongA(hwnd, GWL_STYLE);
-        ok(style & WS_MAXIMIZE, "Test %u: window should be maximized\n", i);
-        GetWindowRect(hwnd, &rc);
-        ok(EqualRect(&rcMaximized, &rc), "Test %u: expected %s, got %s\n",
-           i, wine_dbgstr_rect(&rcMaximized), wine_dbgstr_rect(&rc));
-
-        ret = ShowWindow(hwnd, SW_RESTORE);
-        ok(ret, "unexpected ret: %lu\n", ret);
-        style = GetWindowLongA(hwnd, GWL_STYLE);
-        ok(!(style & WS_MAXIMIZE), "Test %u: window should not be maximized\n", i);
-        GetWindowRect(hwnd, &rc);
-        ok(EqualRect(&rcMain, &rc), "Test %u: expected %s, got %s\n",
-           i, wine_dbgstr_rect(&rcMain), wine_dbgstr_rect(&rc));
-
-        DestroyWindow(hwnd);
-
-        flush_events(TRUE);
-    }
 }
 
 static void test_ShowWindow_owned(HWND hwndMain)
@@ -11810,58 +11546,6 @@ todo_wine
     ok(EqualRect(&wp.rcNormalPosition, &orig), "got normal pos %s\n",
         wine_dbgstr_rect(&wp.rcNormalPosition));
 
-    wp.flags = WPF_SETMINPOSITION;
-    wp.showCmd = SW_NORMAL;
-    wp.ptMinPosition.x = wp.ptMinPosition.y = 100;
-    wp.ptMaxPosition.x = wp.ptMaxPosition.y = 100;
-    wp.rcNormalPosition = orig;
-    ret = SetWindowPlacement(hwnd, &wp);
-    ok(ret, "failed to set window placement, error %u\n", GetLastError());
-
-    ShowWindow(hwnd, SW_MINIMIZE);
-
-    ret = GetWindowPlacement(hwnd, &wp);
-    ok(ret, "failed to get window placement, error %u\n", GetLastError());
-    ok(wp.showCmd == SW_SHOWMINIMIZED, "got show cmd %u\n", wp.showCmd);
-    ok(wp.ptMinPosition.x == -32000 && wp.ptMinPosition.y == -32000,
-        "got minimized pos (%d,%d)\n", wp.ptMinPosition.x, wp.ptMinPosition.y);
-todo_wine
-    ok(wp.ptMaxPosition.x == -1 && wp.ptMaxPosition.y == -1,
-        "got maximized pos (%d,%d)\n", wp.ptMaxPosition.x, wp.ptMaxPosition.y);
-    ok(EqualRect(&wp.rcNormalPosition, &orig), "got normal pos %s\n",
-        wine_dbgstr_rect(&wp.rcNormalPosition));
-
-    ret = SetWindowPos(hwnd, NULL, 100, 100, 151, 151, SWP_NOACTIVATE | SWP_NOZORDER);
-    ok(ret, "failed to set window pos, error %u\n", GetLastError());
-
-    ret = GetWindowPlacement(hwnd, &wp);
-    ok(ret, "failed to get window placement, error %u\n", GetLastError());
-    ok(wp.showCmd == SW_SHOWMINIMIZED, "got show cmd %u\n", wp.showCmd);
-    ok(wp.ptMinPosition.x == -32000 && wp.ptMinPosition.y == -32000,
-        "got minimized pos (%d,%d)\n", wp.ptMinPosition.x, wp.ptMinPosition.y);
-todo_wine
-    ok(wp.ptMaxPosition.x == -1 && wp.ptMaxPosition.y == -1,
-        "got maximized pos (%d,%d)\n", wp.ptMaxPosition.x, wp.ptMaxPosition.y);
-    ok(EqualRect(&wp.rcNormalPosition, &orig), "got normal pos %s\n",
-        wine_dbgstr_rect(&wp.rcNormalPosition));
-    GetWindowRect(hwnd, &rect);
-    ok(rect.left == -32000 && rect.top == -32000, "got window rect %s\n", wine_dbgstr_rect(&rect));
-
-    ShowWindow(hwnd, SW_SHOWNORMAL);
-
-    ret = GetWindowPlacement(hwnd, &wp);
-    ok(ret, "failed to get window placement, error %u\n", GetLastError());
-    ok(wp.showCmd == SW_NORMAL, "got show cmd %u\n", wp.showCmd);
-    ok(wp.ptMinPosition.x == -32000 && wp.ptMinPosition.y == -32000,
-        "got minimized pos (%d,%d)\n", wp.ptMinPosition.x, wp.ptMinPosition.y);
-todo_wine
-    ok(wp.ptMaxPosition.x == -1 && wp.ptMaxPosition.y == -1,
-        "got maximized pos (%d,%d)\n", wp.ptMaxPosition.x, wp.ptMaxPosition.y);
-    ok(EqualRect(&wp.rcNormalPosition, &orig), "got normal pos %s\n",
-        wine_dbgstr_rect(&wp.rcNormalPosition));
-    GetWindowRect(hwnd, &rect);
-    ok(EqualRect(&rect, &orig), "got window rect %s\n", wine_dbgstr_rect(&rect));
-
     DestroyWindow(hwnd);
 }
 
@@ -12232,7 +11916,6 @@ START_TEST(win)
     pSetWindowDisplayAffinity = (void *)GetProcAddress( user32, "SetWindowDisplayAffinity" );
     pAdjustWindowRectExForDpi = (void *)GetProcAddress( user32, "AdjustWindowRectExForDpi" );
     pSystemParametersInfoForDpi = (void *)GetProcAddress( user32, "SystemParametersInfoForDpi" );
-    pInternalGetWindowIcon = (void *)GetProcAddress( user32, "InternalGetWindowIcon" );
 
     if (argc == 4)
     {
