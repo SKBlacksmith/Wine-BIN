@@ -43,6 +43,7 @@
 #include <limits.h>
 #include <locale.h>
 #include <math.h>
+#include <intrin.h>
 
 #include "msvcrt.h"
 #include "winternl.h"
@@ -64,11 +65,23 @@ typedef int (CDECL *MSVCRT_matherr_func)(struct _exception *);
 
 static MSVCRT_matherr_func MSVCRT_default_matherr_func = NULL;
 
+BOOL erms_supported;
 BOOL sse2_supported;
 static BOOL sse2_enabled;
 
 void msvcrt_init_math( void *module )
 {
+#if defined(__i386__) || defined(__x86_64__)
+    int regs[4];
+
+    __cpuid(regs, 0);
+    if (regs[0] >= 7)
+    {
+        __cpuidex(regs, 7, 0);
+        erms_supported = ((regs[1] >> 9) & 1);
+    }
+#endif
+
     sse2_supported = IsProcessorFeaturePresent( PF_XMMI64_INSTRUCTIONS_AVAILABLE );
 #if _MSVCR_VER <=71
     sse2_enabled = FALSE;
@@ -90,7 +103,7 @@ static inline double fp_barrier(double x)
     return y;
 }
 
-static inline double CDECL ret_nan( BOOL update_sw )
+static inline double ret_nan( BOOL update_sw )
 {
     double x = 1.0;
     if (!update_sw) return -NAN;
@@ -702,6 +715,36 @@ static const UINT64 exp2f_T[] = {
     0x3fef5818dcfba487ULL, 0x3fef7c97337b9b5fULL, 0x3fefa4afa2a490daULL, 0x3fefd0765b6e4540ULL
 };
 #endif
+
+/*********************************************************************
+ *      _fdclass (MSVCR120.@)
+ *
+ * Copied from musl: src/math/__fpclassifyf.c
+ */
+short CDECL _fdclass(float x)
+{
+    union { float f; UINT32 i; } u = { x };
+    int e = u.i >> 23 & 0xff;
+
+    if (!e) return u.i << 1 ? FP_SUBNORMAL : FP_ZERO;
+    if (e == 0xff) return u.i << 9 ? FP_NAN : FP_INFINITE;
+    return FP_NORMAL;
+}
+
+/*********************************************************************
+ *      _dclass (MSVCR120.@)
+ *
+ * Copied from musl: src/math/__fpclassify.c
+ */
+short CDECL _dclass(double x)
+{
+    union { double f; UINT64 i; } u = { x };
+    int e = u.i >> 52 & 0x7ff;
+
+    if (!e) return u.i << 1 ? FP_SUBNORMAL : FP_ZERO;
+    if (e == 0x7ff) return (u.i << 12) ? FP_NAN : FP_INFINITE;
+    return FP_NORMAL;
+}
 
 #ifndef __i386__
 
@@ -2663,7 +2706,7 @@ double CDECL cos( double x )
 }
 
 /* Copied from musl: src/math/expm1.c */
-static double CDECL __expm1(double x)
+static double __expm1(double x)
 {
     static const double o_threshold = 7.09782712893383973096e+02,
         ln2_hi = 6.93147180369123816490e-01,
@@ -7826,36 +7869,6 @@ void __cdecl __libm_sse2_sqrt_precise(void)
     __asm__ __volatile__( "call " __ASM_NAME( "sse2_sqrt" ) );
 }
 #endif  /* __i386__ */
-
-/*********************************************************************
- *      _fdclass (MSVCR120.@)
- *
- * Copied from musl: src/math/__fpclassifyf.c
- */
-short CDECL _fdclass(float x)
-{
-    union { float f; UINT32 i; } u = { x };
-    int e = u.i >> 23 & 0xff;
-
-    if (!e) return u.i << 1 ? FP_SUBNORMAL : FP_ZERO;
-    if (e == 0xff) return u.i << 9 ? FP_NAN : FP_INFINITE;
-    return FP_NORMAL;
-}
-
-/*********************************************************************
- *      _dclass (MSVCR120.@)
- *
- * Copied from musl: src/math/__fpclassify.c
- */
-short CDECL _dclass(double x)
-{
-    union { double f; UINT64 i; } u = { x };
-    int e = u.i >> 52 & 0x7ff;
-
-    if (!e) return u.i << 1 ? FP_SUBNORMAL : FP_ZERO;
-    if (e == 0x7ff) return (u.i << 12) ? FP_NAN : FP_INFINITE;
-    return FP_NORMAL;
-}
 
 #if _MSVCR_VER>=120
 

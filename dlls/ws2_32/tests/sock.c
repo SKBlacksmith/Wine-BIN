@@ -1934,8 +1934,8 @@ static void test_ip_pktinfo(void)
         todo_wine ok(WSAGetLastError() == ERROR_IO_PENDING, "got error %u\n", WSAGetLastError());
 
         rc = SleepEx(1000, TRUE);
-        todo_wine ok(rc == WAIT_IO_COMPLETION, "got %d\n", rc);
-        todo_wine ok(got_ip_pktinfo_apc == 1, "apc was called %u times\n", got_ip_pktinfo_apc);
+        ok(rc == WAIT_IO_COMPLETION, "got %d\n", rc);
+        ok(got_ip_pktinfo_apc == 1, "apc was called %u times\n", got_ip_pktinfo_apc);
         ok(hdr.dwFlags == MSG_CTRUNC, "got flags %#x\n", hdr.dwFlags);
         got_ip_pktinfo_apc = 0;
 
@@ -1982,6 +1982,113 @@ static void test_ip_pktinfo(void)
     }
 
     CloseHandle(ov.hEvent);
+}
+
+static void test_ipv4_cmsg(void)
+{
+    static const DWORD off = 0;
+    static const DWORD on = 1;
+    SOCKADDR_IN localhost = {0};
+    SOCKET client, server;
+    char payload[] = "HELLO";
+    char control[100];
+    WSABUF payload_buf = {sizeof(payload), payload};
+    WSAMSG msg = {NULL, 0, &payload_buf, 1, {sizeof(control), control}, 0};
+    WSACMSGHDR *header = (WSACMSGHDR *)control;
+    LPFN_WSARECVMSG pWSARecvMsg;
+    INT *int_data = (INT *)WSA_CMSG_DATA(header);
+    IN_PKTINFO *pkt_info = (IN_PKTINFO *)WSA_CMSG_DATA(header);
+    DWORD count, state;
+    int rc;
+
+    localhost.sin_family = AF_INET;
+    localhost.sin_port = htons(SERVERPORT);
+    inet_pton(AF_INET, "127.0.0.1", &localhost.sin_addr);
+
+    client = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    ok(client != INVALID_SOCKET, "failed to create socket, error %u\n", WSAGetLastError());
+    server = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    ok(server != INVALID_SOCKET, "failed to create socket, error %u\n", WSAGetLastError());
+
+    rc = bind(server, (SOCKADDR *)&localhost, sizeof(localhost));
+    ok(rc != SOCKET_ERROR, "bind failed, error %u\n", WSAGetLastError());
+    rc = connect(client, (SOCKADDR *)&localhost, sizeof(localhost));
+    ok(rc != SOCKET_ERROR, "connect failed, error %u\n", WSAGetLastError());
+
+    rc = WSAIoctl(server, SIO_GET_EXTENSION_FUNCTION_POINTER, &WSARecvMsg_GUID, sizeof(WSARecvMsg_GUID),
+                  &pWSARecvMsg, sizeof(pWSARecvMsg), &count, NULL, NULL);
+    ok(!rc, "failed to get WSARecvMsg, error %u\n", WSAGetLastError());
+
+    memset(control, 0, sizeof(control));
+    msg.Control.len = sizeof(control);
+    rc = setsockopt(server, IPPROTO_IP, IP_RECVTTL, (const char *)&on, sizeof(on));
+    ok(!rc, "failed to set IP_RECVTTL, error %u\n", WSAGetLastError());
+    state = 0;
+    count = sizeof(state);
+    rc = getsockopt(server, IPPROTO_IP, IP_RECVTTL, (char *)&state, (INT *)&count);
+    ok(!rc, "failed to get IP_RECVTTL, error %u\n", WSAGetLastError());
+    ok(state == 1, "expected 1, got %u\n", state);
+    rc = send(client, payload, sizeof(payload), 0);
+    ok(rc == sizeof(payload), "send failed, error %u\n", WSAGetLastError());
+    rc = pWSARecvMsg(server, &msg, &count, NULL, NULL);
+    ok(!rc, "WSARecvMsg failed, error %u\n", WSAGetLastError());
+    ok(count == sizeof(payload), "expected length %Iu, got %u\n", sizeof(payload), count);
+    ok(header->cmsg_level == IPPROTO_IP, "expected IPPROTO_IP, got %i\n", header->cmsg_level);
+    ok(header->cmsg_type == IP_TTL || broken(header->cmsg_type == IP_HOPLIMIT) /* <= win10 v1607 */,
+       "expected IP_TTL, got %i\n", header->cmsg_type);
+    ok(header->cmsg_len == sizeof(*header) + sizeof(INT),
+       "expected length %Iu, got %Iu\n", sizeof(*header) + sizeof(INT), header->cmsg_len);
+    ok(*int_data >= 32, "expected at least 32, got %i\n", *int_data);
+    setsockopt(server, IPPROTO_IP, IP_RECVTTL, (const char *)&off, sizeof(off));
+    ok(!rc, "failed to clear IP_RECVTTL, error %u\n", WSAGetLastError());
+
+    memset(control, 0, sizeof(control));
+    msg.Control.len = sizeof(control);
+    rc = setsockopt(server, IPPROTO_IP, IP_PKTINFO, (const char *)&on, sizeof(on));
+    ok(!rc, "failed to set IP_PKTINFO, error %u\n", WSAGetLastError());
+    state = 0;
+    count = sizeof(state);
+    rc = getsockopt(server, IPPROTO_IP, IP_PKTINFO, (char *)&state, (INT *)&count);
+    ok(!rc, "failed to get IP_PKTINFO, error %u\n", WSAGetLastError());
+    ok(state == 1, "expected 1, got %u\n", state);
+    rc = send(client, payload, sizeof(payload), 0);
+    ok(rc == sizeof(payload), "send failed, error %u\n", WSAGetLastError());
+    rc = pWSARecvMsg(server, &msg, &count, NULL, NULL);
+    ok(!rc, "WSARecvMsg failed, error %u\n", WSAGetLastError());
+    ok(count == sizeof(payload), "expected length %Iu, got %u\n", sizeof(payload), count);
+    ok(header->cmsg_level == IPPROTO_IP, "expected IPPROTO_IP, got %i\n", header->cmsg_level);
+    ok(header->cmsg_type == IP_PKTINFO, "expected IP_PKTINFO, got %i\n", header->cmsg_type);
+    ok(header->cmsg_len == sizeof(*header) + sizeof(IN_PKTINFO),
+       "expected length %Iu, got %Iu\n", sizeof(*header) + sizeof(IN_PKTINFO), header->cmsg_len);
+    ok(!memcmp(&pkt_info->ipi_addr, &localhost.sin_addr, sizeof(IN_ADDR)), "expected 127.0.0.1\n");
+    rc = setsockopt(server, IPPROTO_IP, IP_PKTINFO, (const char *)&off, sizeof(off));
+    ok(!rc, "failed to clear IP_PKTINFO, error %u\n", WSAGetLastError());
+
+    memset(control, 0, sizeof(control));
+    msg.Control.len = sizeof(control);
+    rc = setsockopt(server, IPPROTO_IP, IP_RECVTOS, (const char *)&on, sizeof(on));
+    ok(!rc, "failed to set IP_RECVTOS, error %u\n", WSAGetLastError());
+    state = 0;
+    count = sizeof(state);
+    rc = getsockopt(server, IPPROTO_IP, IP_RECVTOS, (char *)&state, (INT *)&count);
+    ok(!rc, "failed to get IP_RECVTOS, error %u\n", WSAGetLastError());
+    ok(state == 1, "expected 1, got %u\n", state);
+    rc = send(client, payload, sizeof(payload), 0);
+    ok(rc == sizeof(payload), "send failed, error %u\n", WSAGetLastError());
+    rc = pWSARecvMsg(server, &msg, &count, NULL, NULL);
+    ok(!rc, "WSARecvMsg failed, error %u\n", WSAGetLastError());
+    ok(count == sizeof(payload), "expected length %Iu, got %u\n", sizeof(payload), count);
+    ok(header->cmsg_level == IPPROTO_IP, "expected IPPROTO_IP, got %i\n", header->cmsg_level);
+    ok(header->cmsg_type == IP_TOS || broken(header->cmsg_type == IP_TCLASS) /* <= win10 v1607 */,
+       "expected IP_TOS, got %i\n", header->cmsg_type);
+    ok(header->cmsg_len == sizeof(*header) + sizeof(INT),
+       "expected length %Iu, got %Iu\n", sizeof(*header) + sizeof(INT), header->cmsg_len);
+    ok(*int_data == 0, "expected 0, got %i\n", *int_data);
+    rc = setsockopt(server, IPPROTO_IP, IP_RECVTOS, (const char *)&off, sizeof(off));
+    ok(!rc, "failed to clear IP_RECVTOS, error %u\n", WSAGetLastError());
+
+    closesocket(server);
+    closesocket(client);
 }
 
 static void test_ipv6_cmsg(void)
@@ -2032,11 +2139,11 @@ static void test_ipv6_cmsg(void)
     ok(rc == sizeof(payload), "send failed, error %u\n", WSAGetLastError());
     rc = pWSARecvMsg(server, &msg, &count, NULL, NULL);
     ok(!rc, "WSARecvMsg failed, error %u\n", WSAGetLastError());
-    ok(count == sizeof(payload), "expected length %i, got %i\n", (INT)sizeof(payload), count);
+    ok(count == sizeof(payload), "expected length %Iu, got %u\n", sizeof(payload), count);
     ok(header->cmsg_level == IPPROTO_IPV6, "expected IPPROTO_IPV6, got %i\n", header->cmsg_level);
     ok(header->cmsg_type == IPV6_HOPLIMIT, "expected IPV6_HOPLIMIT, got %i\n", header->cmsg_type);
     ok(header->cmsg_len == sizeof(*header) + sizeof(INT),
-       "expected length %i, got %i\n", (INT)(sizeof(*header) + sizeof(INT)), (INT)header->cmsg_len);
+       "expected length %Iu, got %Iu\n", sizeof(*header) + sizeof(INT), header->cmsg_len);
     ok(*int_data >= 32, "expected at least 32, got %i\n", *int_data);
     setsockopt(server, IPPROTO_IPV6, IPV6_HOPLIMIT, (const char *)&off, sizeof(off));
     ok(!rc, "failed to clear IPV6_HOPLIMIT, error %u\n", WSAGetLastError());
@@ -2054,11 +2161,11 @@ static void test_ipv6_cmsg(void)
     ok(rc == sizeof(payload), "send failed, error %u\n", WSAGetLastError());
     rc = pWSARecvMsg(server, &msg, &count, NULL, NULL);
     ok(!rc, "WSARecvMsg failed, error %u\n", WSAGetLastError());
-    ok(count == sizeof(payload), "expected length %i, got %i\n", (INT)sizeof(payload), count);
+    ok(count == sizeof(payload), "expected length %Iu, got %u\n", sizeof(payload), count);
     ok(header->cmsg_level == IPPROTO_IPV6, "expected IPPROTO_IPV6, got %i\n", header->cmsg_level);
     ok(header->cmsg_type == IPV6_PKTINFO, "expected IPV6_PKTINFO, got %i\n", header->cmsg_type);
     ok(header->cmsg_len == sizeof(*header) + sizeof(IN6_PKTINFO),
-       "expected length %i, got %i\n", (INT)(sizeof(*header) + sizeof(IN6_PKTINFO)), (INT)header->cmsg_len);
+       "expected length %Iu, got %Iu\n", sizeof(*header) + sizeof(IN6_PKTINFO), header->cmsg_len);
     ok(!memcmp(&pkt_info->ipi6_addr, &localhost.sin6_addr, sizeof(IN6_ADDR)), "expected ::1\n");
     rc = setsockopt(server, IPPROTO_IPV6, IPV6_PKTINFO, (const char *)&off, sizeof(off));
     ok(!rc, "failed to clear IPV6_PKTINFO, error %u\n", WSAGetLastError());
@@ -2076,11 +2183,11 @@ static void test_ipv6_cmsg(void)
     ok(rc == sizeof(payload), "send failed, error %u\n", WSAGetLastError());
     rc = pWSARecvMsg(server, &msg, &count, NULL, NULL);
     ok(!rc, "WSARecvMsg failed, error %u\n", WSAGetLastError());
-    ok(count == sizeof(payload), "expected length %i, got %i\n", (INT)sizeof(payload), count);
+    ok(count == sizeof(payload), "expected length %Iu, got %u\n", sizeof(payload), count);
     ok(header->cmsg_level == IPPROTO_IPV6, "expected IPPROTO_IPV6, got %i\n", header->cmsg_level);
     ok(header->cmsg_type == IPV6_TCLASS, "expected IPV6_TCLASS, got %i\n", header->cmsg_type);
     ok(header->cmsg_len == sizeof(*header) + sizeof(INT),
-       "expected length %i, got %i\n", (INT)(sizeof(*header) + sizeof(INT)), (INT)header->cmsg_len);
+       "expected length %Iu, got %Iu\n", sizeof(*header) + sizeof(INT), header->cmsg_len);
     ok(*int_data == 0, "expected 0, got %i\n", *int_data);
     rc = setsockopt(server, IPPROTO_IPV6, IPV6_RECVTCLASS, (const char *)&off, sizeof(off));
     ok(!rc, "failed to clear IPV6_RECVTCLASS, error %u\n", WSAGetLastError());
@@ -2311,7 +2418,7 @@ static void test_WSASocket(void)
     {
         SetLastError( 0xdeadbeef );
         sock = WSASocketA( tests[i].family, tests[i].type, tests[i].protocol, NULL, 0, 0 );
-        todo_wine_if (!tests[i].error || i == 7)
+        todo_wine_if (i == 7)
             ok(WSAGetLastError() == tests[i].error, "Test %u: got wrong error %u\n", i, WSAGetLastError());
         if (tests[i].error)
         {
@@ -5543,7 +5650,7 @@ static void test_ipv6only(void)
 
     enabled = 2;
     ret = getsockopt(v6, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, &len);
-    ok(!ret, "getsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "getsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
     ok(enabled == 1, "expected 1, got %d\n", enabled);
 
     ret = bind(v6, (struct sockaddr*)&sin6, sizeof(sin6));
@@ -5555,26 +5662,26 @@ static void test_ipv6only(void)
 todo_wine {
     enabled = 2;
     ret = getsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, &len);
-    ok(!ret, "getsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "getsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
     ok(enabled == 1, "expected 1, got %d\n", enabled);
 }
 
     enabled = 0;
     len = sizeof(enabled);
     ret = setsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, len);
-    ok(!ret, "setsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "setsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
 
 todo_wine {
     enabled = 2;
     ret = getsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, &len);
-    ok(!ret, "getsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "getsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
     ok(!enabled, "expected 0, got %d\n", enabled);
 }
 
     enabled = 1;
     len = sizeof(enabled);
     ret = setsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, len);
-    ok(!ret, "setsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "setsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
 
     /* bind on IPv4 socket should succeed - IPV6_V6ONLY is enabled by default */
     ret = bind(v4, (struct sockaddr*)&sin4, sizeof(sin4));
@@ -5583,26 +5690,26 @@ todo_wine {
 todo_wine {
     enabled = 2;
     ret = getsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, &len);
-    ok(!ret, "getsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "getsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
     ok(enabled == 1, "expected 1, got %d\n", enabled);
 }
 
     enabled = 0;
     len = sizeof(enabled);
     ret = setsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, len);
-    ok(ret, "setsockopt(IPV6_ONLY) succeeded (LastError: %d)\n", WSAGetLastError());
+    ok(ret, "setsockopt(IPV6_V6ONLY) succeeded (LastError: %d)\n", WSAGetLastError());
 
 todo_wine {
     enabled = 0;
     ret = getsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, &len);
-    ok(!ret, "getsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "getsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
     ok(enabled == 1, "expected 1, got %d\n", enabled);
 }
 
     enabled = 1;
     len = sizeof(enabled);
     ret = setsockopt(v4, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, len);
-    ok(ret, "setsockopt(IPV6_ONLY) succeeded (LastError: %d)\n", WSAGetLastError());
+    ok(ret, "setsockopt(IPV6_V6ONLY) succeeded (LastError: %d)\n", WSAGetLastError());
 
     closesocket(v4);
     closesocket(v6);
@@ -5621,7 +5728,7 @@ todo_wine {
 
     enabled = 2;
     ret = getsockopt(v6, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, &len);
-    ok(!ret, "getsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "getsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
     ok(!enabled, "expected 0, got %d\n", enabled);
 
     /*
@@ -5642,7 +5749,7 @@ todo_wine {
     enabled = 2;
     len = sizeof(enabled);
     getsockopt(v6, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&enabled, &len);
-    ok(!ret, "getsockopt(IPV6_ONLY) failed (LastError: %d)\n", WSAGetLastError());
+    ok(!ret, "getsockopt(IPV6_V6ONLY) failed (LastError: %d)\n", WSAGetLastError());
     ok(!enabled, "IPV6_V6ONLY is enabled after bind\n");
 
     v4 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -10687,7 +10794,18 @@ static void test_bind(void)
     WSASetLastError(0xdeadbeef);
     ret = bind(s, NULL, 0);
     ok(ret == -1, "expected failure\n");
-    todo_wine ok(WSAGetLastError() == WSAEFAULT, "got error %u\n", WSAGetLastError());
+    ok(WSAGetLastError() == WSAEFAULT, "got error %u\n", WSAGetLastError());
+
+    WSASetLastError(0xdeadbeef);
+    ret = bind(s, NULL, sizeof(addr));
+    ok(ret == -1, "expected failure\n");
+    ok(WSAGetLastError() == WSAEFAULT, "got error %u\n", WSAGetLastError());
+
+    addr.sa_family = AF_INET;
+    WSASetLastError(0xdeadbeef);
+    ret = bind(s, &addr, 0);
+    ok(ret == -1, "expected failure\n");
+    ok(WSAGetLastError() == WSAEFAULT, "got error %u\n", WSAGetLastError());
 
     addr.sa_family = 0xdead;
     WSASetLastError(0xdeadbeef);
@@ -11495,7 +11613,7 @@ static void test_sockopt_validity(void)
         { IP_DROP_MEMBERSHIP,         WSAENOPROTOOPT                    },
         { IP_DONTFRAGMENT                                               },
         { IP_PKTINFO,                 WSAEINVAL                         },
-        { IP_RECVTTL,                 WSAEINVAL,       0,          TRUE },
+        { IP_RECVTTL,                 WSAEINVAL                         },
         { IP_RECEIVE_BROADCAST,       WSAEINVAL,       0,          TRUE },
         { IP_RECVIF,                  WSAEINVAL,       0,          TRUE },
         { IP_RECVDSTADDR,             WSAEINVAL,       0,          TRUE },
@@ -11504,7 +11622,7 @@ static void test_sockopt_validity(void)
         { IP_RTHDR,                   0,               0,          TRUE },
         { IP_GET_IFLIST,              WSAEINVAL,       0,          TRUE },
         { IP_RECVRTHDR,               WSAEINVAL,       0,          TRUE },
-        { IP_RECVTCLASS,              WSAEINVAL,       0,          TRUE },
+        { IP_RECVTOS,                 WSAEINVAL                         },
         { IP_ORIGINAL_ARRIVAL_IF,     WSAEINVAL,       0,          TRUE },
         { IP_ECN,                     WSAEINVAL,       0,          TRUE },
         { IP_PKTINFO_EX,              WSAEINVAL,       0,          TRUE },
@@ -11530,7 +11648,7 @@ static void test_sockopt_validity(void)
         { IP_DROP_MEMBERSHIP,         WSAENOPROTOOPT                    },
         { IP_DONTFRAGMENT                                               },
         { IP_PKTINFO                                                    },
-        { IP_RECVTTL,                 0,               0,          TRUE },
+        { IP_RECVTTL                                                    },
         { IP_RECEIVE_BROADCAST,       0,               0,          TRUE },
         { IP_RECVIF,                  0,               0,          TRUE },
         { IP_RECVDSTADDR,             0,               0,          TRUE },
@@ -11539,7 +11657,7 @@ static void test_sockopt_validity(void)
         { IP_RTHDR,                   0,               0,          TRUE },
         { IP_GET_IFLIST,              WSAEINVAL,       0,          TRUE },
         { IP_RECVRTHDR,               0,               0,          TRUE },
-        { IP_RECVTCLASS,              0,               0,          TRUE },
+        { IP_RECVTOS                                                    },
         { IP_ORIGINAL_ARRIVAL_IF,     0,               0,          TRUE },
         { IP_ECN,                     0,               0,          TRUE },
         { IP_PKTINFO_EX,              0,               0,          TRUE },
@@ -11565,7 +11683,7 @@ static void test_sockopt_validity(void)
         { IP_DROP_MEMBERSHIP,         WSAENOPROTOOPT                    },
         { IP_DONTFRAGMENT                                               },
         { IP_PKTINFO                                                    },
-        { IP_RECVTTL,                 0,               0,          TRUE },
+        { IP_RECVTTL                                                    },
         { IP_RECEIVE_BROADCAST,       0,               0,          TRUE },
         { IP_RECVIF,                  0,               0,          TRUE },
         { IP_RECVDSTADDR,             0,               0,          TRUE },
@@ -11574,7 +11692,7 @@ static void test_sockopt_validity(void)
         { IP_RTHDR,                   0,               0,          TRUE },
         { IP_GET_IFLIST,              WSAEINVAL,       0,          TRUE },
         { IP_RECVRTHDR,               0,               0,          TRUE },
-        { IP_RECVTCLASS,              0,               0,          TRUE },
+        { IP_RECVTOS                                                    },
         { IP_ORIGINAL_ARRIVAL_IF,     0,               0,          TRUE },
         { IP_ECN,                     0,               0,          TRUE },
         { IP_PKTINFO_EX,              0,               0,          TRUE },
@@ -11767,6 +11885,7 @@ START_TEST( sock )
     test_set_getsockopt();
     test_so_reuseaddr();
     test_ip_pktinfo();
+    test_ipv4_cmsg();
     test_ipv6_cmsg();
     test_extendedSocketOptions();
     test_so_debug();

@@ -492,6 +492,7 @@ typedef union
         unsigned int     status;
         client_ptr_t     user;
         client_ptr_t     sb;
+        data_size_t      result;
     } async_io;
     struct
     {
@@ -1768,7 +1769,7 @@ struct poll_socket_output
 struct poll_socket_request
 {
     struct request_header __header;
-    char __pad_12[4];
+    int          exclusive;
     async_data_t async;
     timeout_t    timeout;
     /* VARARG(sockets,poll_socket_input); */
@@ -2903,9 +2904,7 @@ struct get_async_result_request
 struct get_async_result_reply
 {
     struct reply_header __header;
-    data_size_t    size;
     /* VARARG(out_data,bytes); */
-    char __pad_12[4];
 };
 
 
@@ -3029,6 +3028,8 @@ struct create_window_request
     mod_handle_t   instance;
     int            dpi;
     int            awareness;
+    unsigned int   style;
+    unsigned int   ex_style;
     /* VARARG(class,unicode_str); */
 };
 struct create_window_reply
@@ -4808,6 +4809,11 @@ struct get_next_device_request_request
     obj_handle_t prev;
     unsigned int status;
     client_ptr_t user_ptr;
+    int          pending;
+    unsigned int iosb_status;
+    data_size_t  result;
+    /* VARARG(data,bytes); */
+    char __pad_44[4];
 };
 struct get_next_device_request_reply
 {
@@ -5360,6 +5366,7 @@ struct get_job_info_reply
     struct reply_header __header;
     int total_processes;
     int active_processes;
+    /* VARARG(pids,uints); */
 };
 
 
@@ -6460,7 +6467,7 @@ union generic_reply
 
 /* ### protocol_version begin ### */
 
-#define SERVER_PROTOCOL_VERSION 727
+#define SERVER_PROTOCOL_VERSION 734
 
 /* ### protocol_version end ### */
 

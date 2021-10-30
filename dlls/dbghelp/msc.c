@@ -263,8 +263,8 @@ static int leaf_as_variant(VARIANT* v, const unsigned short int* leaf)
 
     if (type < LF_NUMERIC)
     {
-        v->n1.n2.vt = VT_UINT;
-        v->n1.n2.n3.uintVal = type;
+        V_VT(v) = VT_UINT;
+        V_UINT(v) = type;
     }
     else
     {
@@ -272,109 +272,108 @@ static int leaf_as_variant(VARIANT* v, const unsigned short int* leaf)
         {
         case LF_CHAR:
             length += 1;
-            v->n1.n2.vt = VT_I1;
-            v->n1.n2.n3.cVal = *(const char*)leaf;
+            V_VT(v) = VT_I1;
+            V_I1(v) = *(const char*)leaf;
             break;
 
         case LF_SHORT:
             length += 2;
-            v->n1.n2.vt = VT_I2;
-            v->n1.n2.n3.iVal = *(const short*)leaf;
+            V_VT(v) = VT_I2;
+            V_I2(v) = *(const short*)leaf;
             break;
 
         case LF_USHORT:
             length += 2;
-            v->n1.n2.vt = VT_UI2;
-            v->n1.n2.n3.uiVal = *leaf;
+            V_VT(v) = VT_UI2;
+            V_UI2(v) = *leaf;
             break;
 
         case LF_LONG:
             length += 4;
-            v->n1.n2.vt = VT_I4;
-            v->n1.n2.n3.lVal = *(const int*)leaf;
+            V_VT(v) = VT_I4;
+            V_I4(v) = *(const int*)leaf;
             break;
 
         case LF_ULONG:
             length += 4;
-            v->n1.n2.vt = VT_UI4;
-            v->n1.n2.n3.uiVal = *(const unsigned int*)leaf;
+            V_VT(v) = VT_UI4;
+            V_UI4(v) = *(const unsigned int*)leaf;
             break;
 
         case LF_QUADWORD:
             length += 8;
-            v->n1.n2.vt = VT_I8;
-            v->n1.n2.n3.llVal = *(const long long int*)leaf;
+            V_VT(v) = VT_I8;
+            V_I8(v) = *(const long long int*)leaf;
             break;
 
         case LF_UQUADWORD:
             length += 8;
-            v->n1.n2.vt = VT_UI8;
-            v->n1.n2.n3.ullVal = *(const long long unsigned int*)leaf;
+            V_VT(v) = VT_UI8;
+            V_UI8(v) = *(const long long unsigned int*)leaf;
             break;
 
         case LF_REAL32:
             length += 4;
-            v->n1.n2.vt = VT_R4;
-            v->n1.n2.n3.fltVal = *(const float*)leaf;
+            V_VT(v) = VT_R4;
+            V_R4(v) = *(const float*)leaf;
             break;
 
         case LF_REAL48:
 	    FIXME("Unsupported numeric leaf type %04x\n", type);
             length += 6;
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
+            V_VT(v) = VT_EMPTY;     /* FIXME */
             break;
 
         case LF_REAL64:
             length += 8;
-            v->n1.n2.vt = VT_R8;
-            v->n1.n2.n3.fltVal = *(const double*)leaf;
+            V_VT(v) = VT_R8;
+            V_R8(v) = *(const double*)leaf;
             break;
 
         case LF_REAL80:
 	    FIXME("Unsupported numeric leaf type %04x\n", type);
             length += 10;
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
+            V_VT(v) = VT_EMPTY;     /* FIXME */
             break;
 
         case LF_REAL128:
 	    FIXME("Unsupported numeric leaf type %04x\n", type);
             length += 16;
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
+            V_VT(v) = VT_EMPTY;     /* FIXME */
             break;
 
         case LF_COMPLEX32:
 	    FIXME("Unsupported numeric leaf type %04x\n", type);
             length += 4;
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
+            V_VT(v) = VT_EMPTY;     /* FIXME */
             break;
 
         case LF_COMPLEX64:
 	    FIXME("Unsupported numeric leaf type %04x\n", type);
             length += 8;
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
+            V_VT(v) = VT_EMPTY;     /* FIXME */
             break;
 
         case LF_COMPLEX80:
 	    FIXME("Unsupported numeric leaf type %04x\n", type);
             length += 10;
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
             break;
 
         case LF_COMPLEX128:
 	    FIXME("Unsupported numeric leaf type %04x\n", type);
             length += 16;
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
+            V_VT(v) = VT_EMPTY;     /* FIXME */
             break;
 
         case LF_VARSTRING:
 	    FIXME("Unsupported numeric leaf type %04x\n", type);
             length += 2 + *leaf;
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
+            V_VT(v) = VT_EMPTY;     /* FIXME */
             break;
 
         default:
 	    FIXME("Unknown numeric leaf type %04x\n", type);
-            v->n1.n2.vt = VT_EMPTY;     /* FIXME */
+            V_VT(v) = VT_EMPTY;     /* FIXME */
             break;
         }
     }
@@ -671,8 +670,16 @@ static struct symt* codeview_add_type_array(struct codeview_type_parse* ctp,
 {
     struct symt*        elem = codeview_fetch_type(ctp, elemtype, FALSE);
     struct symt*        index = codeview_fetch_type(ctp, indextype, FALSE);
+    DWORD64             elem_size;
+    DWORD               count = 0;
 
-    return &symt_new_array(ctp->module, 0, -arr_len, elem, index)->symt;
+    if (symt_get_info(ctp->module, elem, TI_GET_LENGTH, &elem_size) && elem_size)
+    {
+        if (arr_len % (DWORD)elem_size)
+            FIXME("array size should be a multiple of element size %u %u\n", arr_len, (DWORD)elem_size);
+        count = arr_len / (unsigned)elem_size;
+    }
+    return &symt_new_array(ctp->module, 0, count, elem, index)->symt;
 }
 
 static BOOL codeview_add_type_enum_field_list(struct module* module,
@@ -736,13 +743,13 @@ static void codeview_add_udt_element(struct codeview_type_parse* ctp,
         case LF_BITFIELD_V1:
             symt_add_udt_element(ctp->module, symt, name,
                                  codeview_fetch_type(ctp, cv_type->bitfield_v1.type, FALSE),
-                                 (value << 3) + cv_type->bitfield_v1.bitoff,
+                                 value, cv_type->bitfield_v1.bitoff,
                                  cv_type->bitfield_v1.nbits);
             return;
         case LF_BITFIELD_V2:
             symt_add_udt_element(ctp->module, symt, name,
                                  codeview_fetch_type(ctp, cv_type->bitfield_v2.type, FALSE),
-                                 (value << 3) + cv_type->bitfield_v2.bitoff,
+                                 value, cv_type->bitfield_v2.bitoff,
                                  cv_type->bitfield_v2.nbits);
             return;
         }
@@ -753,8 +760,7 @@ static void codeview_add_udt_element(struct codeview_type_parse* ctp,
     {
         DWORD64 elem_size = 0;
         symt_get_info(ctp->module, subtype, TI_GET_LENGTH, &elem_size);
-        symt_add_udt_element(ctp->module, symt, name, subtype,
-                             value << 3, (DWORD)elem_size << 3);
+        symt_add_udt_element(ctp->module, symt, name, subtype, value, 0, 0);
     }
 }
 
@@ -1820,7 +1826,6 @@ static BOOL codeview_snarf(const struct msc_debug_info* msc_dbg, const BYTE* roo
             }
             else if (curr_func)
             {
-                symt_normalize_function(msc_dbg->module, curr_func);
                 curr_func = NULL;
             }
             break;
@@ -1851,6 +1856,7 @@ static BOOL codeview_snarf(const struct msc_debug_info* msc_dbg, const BYTE* roo
             compiland = symt_new_compiland(msc_dbg->module, 0 /* FIXME */,
                                            source_new(msc_dbg->module, NULL,
                                                       sym->objname_v3.name));
+            break;
 
         case S_OBJNAME_ST:
             TRACE("S-ObjName-V1 %s\n", terminate_string(&sym->objname_v1.p_name));
@@ -2026,8 +2032,6 @@ static BOOL codeview_snarf(const struct msc_debug_info* msc_dbg, const BYTE* roo
             break;
         }
     }
-
-    if (curr_func) symt_normalize_function(msc_dbg->module, curr_func);
 
     return TRUE;
 }
@@ -3195,10 +3199,7 @@ BOOL pdb_virtual_unwind(struct cpu_stack_walk *csw, DWORD_PTR ip,
     char*                       strbase;
     BOOL                        ret = TRUE;
 
-    if (!(pair.pcs = process_find_by_handle(csw->hProcess)) ||
-        !(pair.requested = module_find_by_addr(pair.pcs, ip, DMT_UNKNOWN)) ||
-        !module_get_debug(&pair))
-        return FALSE;
+    if (!module_init_pair(&pair, csw->hProcess, ip)) return FALSE;
     if (!pair.effective->format_info[DFI_PDB]) return FALSE;
     pdb_info = pair.effective->format_info[DFI_PDB]->u.pdb_info;
     TRACE("searching %lx => %lx\n", ip, ip - (DWORD_PTR)pair.effective->module.BaseOfImage);
@@ -3361,7 +3362,7 @@ static BOOL codeview_process_info(const struct process* pcs,
     }
     default:
         ERR("Unknown CODEVIEW signature %08x in module %s\n",
-            *signature, debugstr_w(msc_dbg->module->module.ModuleName));
+            *signature, debugstr_w(msc_dbg->module->modulename));
         break;
     }
     if (ret)

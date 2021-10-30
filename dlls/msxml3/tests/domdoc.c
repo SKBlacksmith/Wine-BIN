@@ -7468,6 +7468,7 @@ static void test_XSLPattern(void)
         ok(hr == S_OK, "query=%s, failed with 0x%08x\n", ptr->query, hr);
         len = 0;
         hr = IXMLDOMNodeList_get_length(list, &len);
+        ok(hr == S_OK, "Unexpected hr %#x.\n", hr);
         ok(len != 0, "query=%s, empty list\n", ptr->query);
         if (len) {
             if (ptr->todo) {
@@ -8591,8 +8592,28 @@ static void test_createProcessingInstruction(void)
     doc = create_document(&IID_IXMLDOMDocument);
 
     hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=\"windows-1252\" dummy=\"value\""), &pi);
-todo_wine
     ok(hr == XML_E_UNEXPECTED_ATTRIBUTE, "got 0x%08x\n", hr);
+    hr = IXMLDOMDocument_createProcessingInstruction(doc, NULL, _bstr_("version=\"1.0\" encoding=\"UTF-8\""), &pi);
+    ok(hr == E_FAIL, "got 0x%08x\n", hr);
+    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), NULL, &pi);
+    ok(hr == XML_E_XMLDECLSYNTAX, "got 0x%08x\n", hr);
+    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=UTF-8"), &pi);
+    ok(hr == XML_E_MISSINGQUOTE, "got 0x%08x\n", hr);
+    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding='UTF-8\""), &pi);
+    ok(hr == XML_E_BADCHARINSTRING, "got 0x%08x\n", hr);
+    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding=\"UTF-8"), &pi);
+    ok(hr == XML_E_BADCHARINSTRING, "got 0x%08x\n", hr);
+    pi = NULL;
+    hr = IXMLDOMDocument_createProcessingInstruction(doc, _bstr_("xml"), _bstr_("version=\"1.0\" encoding='UTF-8'"), &pi);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    hr = IXMLDOMProcessingInstruction_QueryInterface(pi, &IID_IXMLDOMNode, (void **)&node);
+    node_map = NULL;
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    hr = IXMLDOMNode_get_attributes(node, &node_map);
+    ok(hr == S_OK, "got 0x%08x\n", hr);
+    IXMLDOMNamedNodeMap_Release(node_map);
+    IXMLDOMNode_Release(node);
+    IXMLDOMProcessingInstruction_Release(pi);
 
     /* test for BSTR handling, pass broken BSTR */
     memcpy(&buff[2], L"test", 5 * sizeof(WCHAR));
@@ -13643,11 +13664,11 @@ todo_wine
     ok(hr == S_OK, "got %#x\n", hr);
     ok(b == VARIANT_TRUE, "got %d\n", b);
     ok(qi_count == 0, "got %d QI calls\n", qi_count);
-    SysFreeString(V_BSTR(&var));
 
     IXMLDOMDocument2_Release(doc);
 
     DeleteFileA(path);
+    free_bstrs();
 }
 
 START_TEST(domdoc)

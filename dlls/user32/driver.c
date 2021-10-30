@@ -84,7 +84,7 @@ static BOOL load_desktop_driver( HWND hwnd, HMODULE *module )
 static const USER_DRIVER *load_driver(void)
 {
     void *ptr;
-    HMODULE graphics_driver;
+    HMODULE graphics_driver = NULL;
     USER_DRIVER *driver, *prev;
 
     driver = HeapAlloc( GetProcessHeap(), 0, sizeof(*driver) );
@@ -95,7 +95,7 @@ static const USER_DRIVER *load_driver(void)
         USEROBJECTFLAGS flags;
         HWINSTA winstation;
 
-        winstation = GetProcessWindowStation();
+        winstation = NtUserGetProcessWindowStation();
         if (!GetUserObjectInformationA(winstation, UOI_FLAGS, &flags, sizeof(flags), NULL)
             || (flags.dwFlags & WSF_VISIBLE))
             driver->pCreateWindow = nodrv_CreateWindow;

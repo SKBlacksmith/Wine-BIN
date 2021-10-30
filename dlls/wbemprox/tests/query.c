@@ -1424,6 +1424,7 @@ static void test_Win32_OperatingSystem( IWbemServices *services )
     check_property( obj, L"Version", VT_BSTR, CIM_STRING );
     check_property( obj, L"TotalVisibleMemorySize", VT_BSTR, CIM_UINT64 );
     check_property( obj, L"TotalVirtualMemorySize", VT_BSTR, CIM_UINT64 );
+    check_property( obj, L"Status", VT_BSTR, CIM_STRING );
     check_property( obj, L"SystemDrive", VT_BSTR, CIM_STRING );
 
     IWbemClassObject_Release( obj );
@@ -1642,6 +1643,7 @@ static void test_Win32_VideoController( IWbemServices *services )
         if (hr != S_OK) break;
 
         check_property( obj, L"__CLASS", VT_BSTR, CIM_STRING );
+        check_property( obj, L"__DERIVATION", VT_BSTR | VT_ARRAY, CIM_STRING | CIM_FLAG_ARRAY );
         check_property( obj, L"__GENUS", VT_I4, CIM_SINT32 );
         check_property( obj, L"__NAMESPACE", VT_BSTR, CIM_STRING );
         check_property( obj, L"__PATH", VT_BSTR, CIM_STRING );
@@ -2061,6 +2063,33 @@ static void test_Win32_LogicalDisk( IWbemServices *services )
     SysFreeString( wql );
 }
 
+static void test_empty_namespace( IWbemLocator *locator )
+{
+    BSTR path = SysAllocString( L"ROOT" );
+    BSTR wql = SysAllocString( L"wql" );
+    IEnumWbemClassObject *result;
+    IWbemServices *services;
+    BSTR query;
+    HRESULT hr;
+
+    hr = IWbemLocator_ConnectServer( locator, path, NULL, NULL, NULL, 0, NULL, NULL, &services );
+    ok( hr == S_OK, "failed to get IWbemServices interface %08x\n", hr );
+
+    query = SysAllocString( L"SELECT * FROM __ASSOCIATORS" );
+    hr = IWbemServices_ExecQuery( services, wql, query, 0, NULL, &result );
+    ok( hr == WBEM_E_INVALID_CLASS, "Query failed: %08x\n", hr );
+    SysFreeString( query );
+
+    query = SysAllocString( L"SELECT * FROM Win32_OperatingSystem" );
+    hr = IWbemServices_ExecQuery( services, wql, query, 0, NULL, &result );
+    ok( hr == WBEM_E_INVALID_CLASS, "got %08x\n", hr );
+    SysFreeString( query );
+
+    SysFreeString( wql );
+    SysFreeString( path );
+    IWbemServices_Release( services );
+}
+
 START_TEST(query)
 {
     BSTR path = SysAllocString( L"ROOT\\CIMV2" );
@@ -2138,6 +2167,7 @@ START_TEST(query)
     test_Win32_VideoController( services );
     test_Win32_WinSAT( services );
     test_SystemRestore( services );
+    test_empty_namespace( locator );
 
     SysFreeString( path );
     IWbemServices_Release( services );

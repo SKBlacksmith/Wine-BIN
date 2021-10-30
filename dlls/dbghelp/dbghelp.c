@@ -286,7 +286,7 @@ const WCHAR *process_getenv(const struct process *process, const WCHAR *name)
  *		check_live_target
  *
  */
-static BOOL check_live_target(struct process* pcs)
+static BOOL check_live_target(struct process* pcs, BOOL wow64, BOOL child_wow64)
 {
     PROCESS_BASIC_INFORMATION pbi;
     ULONG_PTR base = 0, env = 0;
@@ -300,11 +300,17 @@ static BOOL check_live_target(struct process* pcs)
 
     if (!pcs->is_64bit)
     {
+        const char* peb32_addr;
         DWORD env32;
         PEB32 peb32;
+
         C_ASSERT(sizeof(void*) != 4 || FIELD_OFFSET(RTL_USER_PROCESS_PARAMETERS, Environment) == 0x48);
-        if (!ReadProcessMemory(pcs->handle, pbi.PebBaseAddress, &peb32, sizeof(peb32), NULL)) return FALSE;
-        if (!ReadProcessMemory(pcs->handle, (char *)pbi.PebBaseAddress + 0x460 /* CloudFileFlags */, &base, sizeof(base), NULL)) return FALSE;
+        peb32_addr = (const char*)pbi.PebBaseAddress;
+        if (!wow64 && child_wow64)
+            /* current process is 64bit, while child process is 32 bit, need to read 32bit PEB */
+            peb32_addr += 0x1000;
+        if (!ReadProcessMemory(pcs->handle, peb32_addr, &peb32, sizeof(peb32), NULL)) return FALSE;
+        if (!ReadProcessMemory(pcs->handle, peb32_addr + 0x460 /* CloudFileFlags */, &base, sizeof(base), NULL)) return FALSE;
         if (read_process_memory(pcs, peb32.ProcessParameters + 0x48, &env32, sizeof(env32))) env = env32;
     }
     else
@@ -424,28 +430,26 @@ BOOL WINAPI SymInitializeW(HANDLE hProcess, PCWSTR UserSearchPath, BOOL fInvadeP
     {
         unsigned        size;
         unsigned        len;
-        static const WCHAR      sym_path[] = {'_','N','T','_','S','Y','M','B','O','L','_','P','A','T','H',0};
-        static const WCHAR      alt_sym_path[] = {'_','N','T','_','A','L','T','E','R','N','A','T','E','_','S','Y','M','B','O','L','_','P','A','T','H',0};
 
         pcs->search_path = HeapAlloc(GetProcessHeap(), 0, (len = MAX_PATH) * sizeof(WCHAR));
         while ((size = GetCurrentDirectoryW(len, pcs->search_path)) >= len)
             pcs->search_path = HeapReAlloc(GetProcessHeap(), 0, pcs->search_path, (len *= 2) * sizeof(WCHAR));
         pcs->search_path = HeapReAlloc(GetProcessHeap(), 0, pcs->search_path, (size + 1) * sizeof(WCHAR));
 
-        len = GetEnvironmentVariableW(sym_path, NULL, 0);
+        len = GetEnvironmentVariableW(L"_NT_SYMBOL_PATH", NULL, 0);
         if (len)
         {
             pcs->search_path = HeapReAlloc(GetProcessHeap(), 0, pcs->search_path, (size + 1 + len + 1) * sizeof(WCHAR));
             pcs->search_path[size] = ';';
-            GetEnvironmentVariableW(sym_path, pcs->search_path + size + 1, len);
+            GetEnvironmentVariableW(L"_NT_SYMBOL_PATH", pcs->search_path + size + 1, len);
             size += 1 + len;
         }
-        len = GetEnvironmentVariableW(alt_sym_path, NULL, 0);
+        len = GetEnvironmentVariableW(L"_NT_ALTERNATE_SYMBOL_PATH", NULL, 0);
         if (len)
         {
             pcs->search_path = HeapReAlloc(GetProcessHeap(), 0, pcs->search_path, (size + 1 + len + 1) * sizeof(WCHAR));
             pcs->search_path[size] = ';';
-            GetEnvironmentVariableW(alt_sym_path, pcs->search_path + size + 1, len);
+            GetEnvironmentVariableW(L"_NT_ALTERNATE_SYMBOL_PATH", pcs->search_path + size + 1, len);
         }
     }
 
@@ -454,7 +458,7 @@ BOOL WINAPI SymInitializeW(HANDLE hProcess, PCWSTR UserSearchPath, BOOL fInvadeP
     pcs->next = process_first;
     process_first = pcs;
     
-    if (check_live_target(pcs))
+    if (check_live_target(pcs, wow64, child_wow64))
     {
         if (fInvadeProcess)
             EnumerateLoadedModulesW64(hProcess, process_invade_cb, hProcess);
@@ -605,21 +609,62 @@ BOOL WINAPI SymSetContext(HANDLE hProcess, PIMAGEHLP_STACK_FRAME StackFrame,
     struct process* pcs = process_find_by_handle(hProcess);
     if (!pcs) return FALSE;
 
+    if (!module_find_by_addr(pcs, StackFrame->InstructionOffset, DMT_UNKNOWN))
+        return FALSE;
     if (pcs->ctx_frame.ReturnOffset == StackFrame->ReturnOffset &&
         pcs->ctx_frame.FrameOffset  == StackFrame->FrameOffset  &&
         pcs->ctx_frame.StackOffset  == StackFrame->StackOffset)
     {
-        TRACE("Setting same frame {rtn=%s frm=%s stk=%s}\n",
-              wine_dbgstr_longlong(pcs->ctx_frame.ReturnOffset),
-              wine_dbgstr_longlong(pcs->ctx_frame.FrameOffset),
-              wine_dbgstr_longlong(pcs->ctx_frame.StackOffset));
+        TRACE("Setting same frame {rtn=%I64x frm=%I64x stk=%I64x}\n",
+              pcs->ctx_frame.ReturnOffset,
+              pcs->ctx_frame.FrameOffset,
+              pcs->ctx_frame.StackOffset);
         pcs->ctx_frame.InstructionOffset = StackFrame->InstructionOffset;
-        SetLastError(ERROR_ACCESS_DENIED); /* latest MSDN says ERROR_SUCCESS */
+        SetLastError(ERROR_SUCCESS);
         return FALSE;
     }
 
     pcs->ctx_frame = *StackFrame;
-    /* MSDN states that Context is not (no longer?) used */
+    /* Context is not (no longer?) used */
+    return TRUE;
+}
+
+/******************************************************************
+ *		SymSetScopeFromAddr (DBGHELP.@)
+ */
+BOOL WINAPI SymSetScopeFromAddr(HANDLE hProcess, ULONG64 addr)
+{
+    struct process*     pcs;
+
+    FIXME("(%p %#I64x): stub\n", hProcess, addr);
+
+    if (!(pcs = process_find_by_handle(hProcess))) return FALSE;
+    return TRUE;
+}
+
+/******************************************************************
+ *		SymSetScopeFromIndex (DBGHELP.@)
+ */
+BOOL WINAPI SymSetScopeFromIndex(HANDLE hProcess, ULONG64 addr, DWORD index)
+{
+    struct process*     pcs;
+
+    FIXME("(%p %#I64x %u): stub\n", hProcess, addr, index);
+
+    if (!(pcs = process_find_by_handle(hProcess))) return FALSE;
+    return TRUE;
+}
+
+/******************************************************************
+ *		SymSetScopeFromInlineContext (DBGHELP.@)
+ */
+BOOL WINAPI SymSetScopeFromInlineContext(HANDLE hProcess, ULONG64 addr, DWORD inlinectx)
+{
+    struct process*     pcs;
+
+    FIXME("(%p %#I64x %u): stub\n", hProcess, addr, inlinectx);
+
+    if (!(pcs = process_find_by_handle(hProcess))) return FALSE;
     return TRUE;
 }
 

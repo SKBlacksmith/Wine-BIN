@@ -12599,6 +12599,16 @@ static void test_clear_state(void)
     ok(tmp_ds_state == ds_state, "Got unexpected depth stencil state %p, expected %p.\n", tmp_ds_state, ds_state);
     ID3D11DepthStencilState_Release(tmp_ds_state);
     ok(stencil_ref == 3, "Got unexpected stencil ref %u.\n", stencil_ref);
+    /* For OMGetDepthStencilState() both arguments are optional. */
+    ID3D11DeviceContext_OMGetDepthStencilState(context, NULL, NULL);
+    stencil_ref = 0;
+    ID3D11DeviceContext_OMGetDepthStencilState(context, NULL, &stencil_ref);
+    ok(stencil_ref == 3, "Got unexpected stencil ref %u.\n", stencil_ref);
+    tmp_ds_state = NULL;
+    ID3D11DeviceContext_OMGetDepthStencilState(context, &tmp_ds_state, NULL);
+    ok(tmp_ds_state == ds_state, "Got unexpected depth stencil state %p, expected %p.\n", tmp_ds_state, ds_state);
+    ID3D11DepthStencilState_Release(tmp_ds_state);
+
     ID3D11DeviceContext_OMGetRenderTargets(context, D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT, tmp_rtv, &tmp_dsv);
     for (i = 0; i < D3D11_SIMULTANEOUS_RENDER_TARGET_COUNT - 1; ++i)
     {
@@ -26582,8 +26592,8 @@ static void test_fl10_stream_output_desc(void)
 
 static void test_stream_output_resume(void)
 {
+    ID3D11Buffer *cb, *so_buffer, *so_buffer2, *buffer;
     struct d3d11_test_context test_context;
-    ID3D11Buffer *cb, *so_buffer, *buffer;
     unsigned int i, j, idx, offset;
     ID3D11DeviceContext *context;
     struct resource_readback rb;
@@ -26663,16 +26673,22 @@ static void test_stream_output_resume(void)
 
     cb = create_buffer(device, D3D11_BIND_CONSTANT_BUFFER, sizeof(constants[0]), &constants[0]);
     so_buffer = create_buffer(device, D3D11_BIND_STREAM_OUTPUT, 1024, NULL);
+    so_buffer2 = create_buffer(device, D3D11_BIND_STREAM_OUTPUT, 1024, NULL);
 
     ID3D11DeviceContext_GSSetShader(context, gs, NULL, 0);
     ID3D11DeviceContext_GSSetConstantBuffers(context, 0, 1, &cb);
 
-    offset = 0;
-    ID3D11DeviceContext_SOSetTargets(context, 1, &so_buffer, &offset);
-
     ID3D11DeviceContext_ClearRenderTargetView(context, test_context.backbuffer_rtv, &white.x);
     check_texture_color(test_context.backbuffer, 0xffffffff, 0);
 
+    /* Draw into a SO buffer and then immediately destroy it, to make sure that
+     * wined3d doesn't try to rebind transform feedback buffers while transform
+     * feedback is active. */
+    offset = 0;
+    ID3D11DeviceContext_SOSetTargets(context, 1, &so_buffer2, &offset);
+    draw_color_quad(&test_context, &red);
+    ID3D11DeviceContext_SOSetTargets(context, 1, &so_buffer, &offset);
+    ID3D11Buffer_Release(so_buffer2);
     draw_color_quad(&test_context, &red);
     check_texture_color(test_context.backbuffer, 0xffffffff, 0);
 
@@ -32888,6 +32904,29 @@ static void test_deferred_context_rendering(void)
     ID3D11CommandList_Release(list1);
     ID3D11DeviceContext_Release(deferred);
 
+    /* Command lists do not inherit state from the immediate context. */
+
+    hr = ID3D11Device_CreateDeferredContext(device, 0, &deferred);
+    ok(hr == S_OK, "Failed to create deferred context, hr %#x.\n", hr);
+
+    ID3D11DeviceContext_ClearRenderTargetView(immediate, test_context.backbuffer_rtv, black);
+
+    ID3D11DeviceContext_OMSetRenderTargets(deferred, 1, &test_context.backbuffer_rtv, NULL);
+    set_viewport(deferred, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
+    test_context.immediate_context = deferred;
+    draw_color_quad(&test_context, &white);
+    test_context.immediate_context = immediate;
+    hr = ID3D11DeviceContext_FinishCommandList(deferred, FALSE, &list1);
+    ok(hr == S_OK, "Failed to create command list, hr %#x.\n", hr);
+
+    ID3D11DeviceContext_OMSetBlendState(immediate, green_blend, NULL, D3D11_DEFAULT_SAMPLE_MASK);
+    ID3D11DeviceContext_ExecuteCommandList(immediate, list1, FALSE);
+    color = get_texture_color(test_context.backbuffer, 320, 240);
+    ok(color == 0xffffffff, "Got unexpected color %#08x.\n", color);
+
+    ID3D11CommandList_Release(list1);
+    ID3D11DeviceContext_Release(deferred);
+
     /* The clearing of state done by FinishCommandList is captured by a
      * subsequent call to FinishCommandList... */
 
@@ -33000,6 +33039,85 @@ static void test_deferred_context_rendering(void)
     ID3D11BlendState_Release(blue_blend);
     ID3D11RenderTargetView_Release(rtv);
     ID3D11Texture2D_Release(texture);
+    release_test_context(&test_context);
+}
+
+static void test_deferred_context_queries(void)
+{
+    ID3D11DeviceContext *immediate, *deferred;
+    struct d3d11_test_context test_context;
+    D3D11_QUERY_DESC query_desc;
+    ID3D11Asynchronous *query;
+    ID3D11CommandList *list;
+    ID3D11Device *device;
+    HRESULT hr;
+
+    union
+    {
+        UINT64 uint;
+        DWORD dword[2];
+    } data;
+
+    static const struct vec4 white = {1.0f, 1.0f, 1.0f, 1.0f};
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+
+    device = test_context.device;
+    immediate = test_context.immediate_context;
+
+    hr = ID3D11Device_CreateDeferredContext(device, 0, &deferred);
+    ok(hr == S_OK, "Failed to create deferred context, hr %#x.\n", hr);
+
+    query_desc.Query = D3D11_QUERY_OCCLUSION;
+    query_desc.MiscFlags = 0;
+    hr = ID3D11Device_CreateQuery(device, &query_desc, (ID3D11Query **)&query);
+    ok(hr == S_OK, "Failed to create query, hr %#x.\n", hr);
+
+    hr = ID3D11DeviceContext_GetData(deferred, query, NULL, 0, 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D11DeviceContext_GetData(deferred, query, &data, sizeof(data), 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    ID3D11DeviceContext_OMSetRenderTargets(deferred, 1, &test_context.backbuffer_rtv, NULL);
+    set_viewport(deferred, 0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
+
+    ID3D11DeviceContext_Begin(deferred, query);
+
+    hr = ID3D11DeviceContext_GetData(deferred, query, &data, sizeof(data), 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    test_context.immediate_context = deferred;
+    draw_color_quad(&test_context, &white);
+    test_context.immediate_context = immediate;
+
+    ID3D11DeviceContext_End(deferred, query);
+
+    hr = ID3D11DeviceContext_GetData(deferred, query, &data, sizeof(data), 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D11DeviceContext_GetData(immediate, query, &data, sizeof(data), 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    hr = ID3D11DeviceContext_FinishCommandList(deferred, FALSE, &list);
+
+    hr = ID3D11DeviceContext_GetData(deferred, query, &data, sizeof(data), 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D11DeviceContext_GetData(immediate, query, &data, sizeof(data), 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    ID3D11DeviceContext_ExecuteCommandList(immediate, list, FALSE);
+
+    hr = ID3D11DeviceContext_GetData(deferred, query, &data, sizeof(data), 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+    hr = ID3D11DeviceContext_GetData(deferred, query, NULL, 0, 0);
+    ok(hr == DXGI_ERROR_INVALID_CALL, "Got unexpected hr %#x.\n", hr);
+
+    get_query_data(immediate, query, &data, sizeof(data));
+    ok(data.uint == 640 * 480, "Got unexpected query result 0x%08x%08x.\n", data.dword[1], data.dword[0]);
+
+    ID3D11Asynchronous_Release(query);
+    ID3D11CommandList_Release(list);
+    ID3D11DeviceContext_Release(deferred);
     release_test_context(&test_context);
 }
 
@@ -33696,6 +33814,100 @@ static void test_constant_buffer_offset(void)
     release_test_context(&test_context);
 }
 
+static void fill_dynamic_vb_quad(const D3D11_MAPPED_SUBRESOURCE *map_desc, unsigned int x, unsigned int y)
+{
+    struct vec3 *quad = (struct vec3 *)map_desc->pData + 4 * x;
+
+    memset(quad, 0, 4 * sizeof(*quad));
+
+    quad[0].x = quad[1].x = -1.0f + 0.01f * x;
+    quad[2].x = quad[3].x = -1.0f + 0.01f * (x + 1);
+
+    quad[0].y = quad[2].y = -1.0f + 0.01f * y;
+    quad[1].y = quad[3].y = -1.0f + 0.01f * (y + 1);
+}
+
+/* Stress-test dynamic maps, to ensure that we are applying the correct
+ * synchronization guarantees. */
+static void test_dynamic_map_synchronization(void)
+{
+    static const struct vec4 green = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const struct vec4 red = {1.0f, 0.0f, 0.0f, 1.0f};
+    ID3D11DeviceContext *immediate, *deferred;
+    struct d3d11_test_context test_context;
+    D3D11_BUFFER_DESC buffer_desc = {0};
+    D3D11_MAPPED_SUBRESOURCE map_desc;
+    ID3D11CommandList *list;
+    ID3D11Device *device;
+    unsigned int x, y;
+    HRESULT hr;
+
+    if (!init_test_context(&test_context, NULL))
+        return;
+    device = test_context.device;
+    immediate = test_context.immediate_context;
+
+    hr = ID3D11Device_CreateDeferredContext(device, 0, &deferred);
+    ok(hr == S_OK, "Failed to create deferred context, hr %#x.\n", hr);
+
+    buffer_desc.ByteWidth = 200 * 4 * sizeof(struct vec3);
+    buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
+    buffer_desc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    hr = ID3D11Device_CreateBuffer(device, &buffer_desc, NULL, &test_context.vb);
+    ok(hr == S_OK, "Failed to create vertex buffer, hr %#x.\n", hr);
+
+    ID3D11DeviceContext_ClearRenderTargetView(immediate, test_context.backbuffer_rtv, &red.x);
+
+    for (y = 0; y < 200; ++y)
+    {
+        if (y % 2)
+        {
+            hr = ID3D11DeviceContext_Map(immediate, (ID3D11Resource *)test_context.vb,
+                    0, D3D11_MAP_WRITE_DISCARD, 0, &map_desc);
+            ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+            fill_dynamic_vb_quad(&map_desc, 0, y);
+
+            ID3D11DeviceContext_Unmap(immediate, (ID3D11Resource *)test_context.vb, 0);
+            draw_color_quad(&test_context, &green);
+        }
+        else
+        {
+            hr = ID3D11DeviceContext_Map(deferred, (ID3D11Resource *)test_context.vb,
+                    0, D3D11_MAP_WRITE_DISCARD, 0, &map_desc);
+            ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+            fill_dynamic_vb_quad(&map_desc, 0, y);
+
+            ID3D11DeviceContext_Unmap(deferred, (ID3D11Resource *)test_context.vb, 0);
+
+            hr = ID3D11DeviceContext_FinishCommandList(deferred, FALSE, &list);
+            ok(hr == S_OK, "Failed to record command list, hr %#x.\n", hr);
+            ID3D11DeviceContext_ExecuteCommandList(immediate, list, TRUE);
+            ID3D11CommandList_Release(list);
+            draw_color_quad(&test_context, &green);
+        }
+
+        for (x = 1; x < 200; ++x)
+        {
+            hr = ID3D11DeviceContext_Map(immediate, (ID3D11Resource *)test_context.vb,
+                    0, D3D11_MAP_WRITE_NO_OVERWRITE, 0, &map_desc);
+            ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+            fill_dynamic_vb_quad(&map_desc, x, y);
+
+            ID3D11DeviceContext_Unmap(immediate, (ID3D11Resource *)test_context.vb, 0);
+            ID3D11DeviceContext_Draw(immediate, 4, x * 4);
+        }
+    }
+
+    check_texture_color(test_context.backbuffer, 0xff00ff00, 0);
+
+    ID3D11DeviceContext_Release(deferred);
+    release_test_context(&test_context);
+}
+
 START_TEST(d3d11)
 {
     unsigned int argc, i;
@@ -33867,9 +34079,11 @@ START_TEST(d3d11)
     queue_test(test_deferred_context_swap_state);
     queue_test(test_deferred_context_rendering);
     queue_test(test_deferred_context_map);
+    queue_test(test_deferred_context_queries);
     queue_test(test_unbound_streams);
     queue_test(test_texture_compressed_3d);
     queue_test(test_constant_buffer_offset);
+    queue_test(test_dynamic_map_synchronization);
 
     run_queued_tests();
 }

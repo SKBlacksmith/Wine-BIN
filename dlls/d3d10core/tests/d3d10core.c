@@ -5696,6 +5696,17 @@ float4 main(float4 color : COLOR) : SV_TARGET
     ok(tmp_ds_state == ds_state, "Got unexpected depth stencil state %p, expected %p.\n", tmp_ds_state, ds_state);
     ID3D10DepthStencilState_Release(tmp_ds_state);
     ok(stencil_ref == 3, "Got unexpected stencil ref %u.\n", stencil_ref);
+    /* For OMGetDepthStencilState() both arguments are optional. */
+    ID3D10Device_OMGetDepthStencilState(device, NULL, NULL);
+    stencil_ref = 0;
+    ID3D10Device_OMGetDepthStencilState(device, NULL, &stencil_ref);
+    ok(stencil_ref == 3, "Got unexpected stencil ref %u.\n", stencil_ref);
+    tmp_ds_state = NULL;
+    ID3D10Device_OMGetDepthStencilState(device, &tmp_ds_state, NULL);
+    ok(stencil_ref == 3, "Got unexpected stencil ref %u.\n", stencil_ref);
+    ok(tmp_ds_state == ds_state, "Got unexpected depth stencil state %p, expected %p.\n", tmp_ds_state, ds_state);
+    ID3D10DepthStencilState_Release(tmp_ds_state);
+
     ID3D10Device_OMGetRenderTargets(device, D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT, tmp_rtv, &tmp_dsv);
     for (i = 0; i < D3D10_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
     {
@@ -15253,6 +15264,10 @@ static void test_stream_output(void)
         {
             {"SV_POSITION", 0, 0, 4, 0},
             {NULL,          0, 0, 8, 0},
+        },
+        {
+            {"SV_POSITION", 0, 0, 4, 0},
+            {NULL,          0, 0, 8, 0},
             {"ATTRIB",      1, 0, 4, 0},
         },
         {
@@ -15260,6 +15275,13 @@ static void test_stream_output(void)
             {NULL,          0, 0, 4, 0},
             {NULL,          0, 0, 4, 0},
             {"ATTRIB",      1, 0, 4, 0},
+        },
+        {
+            {"attrib",      1, 0, 4, 0},
+            {"attrib",      2, 0, 3, 0},
+            {"attrib",      3, 0, 2, 0},
+            {NULL,          0, 0, 1, 0},
+            {"attrib",      4, 0, 1, 0},
         },
         /* ComponentCount */
         {
@@ -15315,13 +15337,6 @@ static void test_stream_output(void)
         {
             {"attrib",      1, 0, 4, 0},
             {"attrib",      2, 0, 3, 3},
-        },
-        {
-            {"attrib",      1, 0, 4, 0},
-            {"attrib",      2, 0, 3, 0},
-            {"attrib",      3, 0, 2, 0},
-            {NULL,          0, 0, 1, 0},
-            {"attrib",      4, 0, 1, 0},
         },
         /* Multiple occurrences of the same output */
         {
@@ -15460,6 +15475,8 @@ static void test_stream_output(void)
     for (i = 0; i < ARRAY_SIZE(valid_so_declarations); ++i)
     {
         unsigned int max_output_slot = 0;
+
+        winetest_push_context("Test %u", i);
         for (count = 0; count < ARRAY_SIZE(valid_so_declarations[i]); ++count)
         {
             const D3D10_SO_DECLARATION_ENTRY *e = &valid_so_declarations[i][count];
@@ -15470,10 +15487,12 @@ static void test_stream_output(void)
 
         check_so_desc(device, gs_code, sizeof(gs_code), valid_so_declarations[i], count, 0, !!max_output_slot);
         check_so_desc(device, gs_code, sizeof(gs_code), valid_so_declarations[i], count, 64, !max_output_slot);
+        winetest_pop_context();
     }
 
     for (i = 0; i < ARRAY_SIZE(invalid_so_declarations); ++i)
     {
+        winetest_push_context("Test %u", i);
         for (count = 0; count < ARRAY_SIZE(invalid_so_declarations[i]); ++count)
         {
             const D3D10_SO_DECLARATION_ENTRY *e = &invalid_so_declarations[i][count];
@@ -15483,6 +15502,7 @@ static void test_stream_output(void)
 
         check_so_desc(device, gs_code, sizeof(gs_code), invalid_so_declarations[i], count, 0, FALSE);
         check_so_desc(device, gs_code, sizeof(gs_code), invalid_so_declarations[i], count, 64, FALSE);
+        winetest_pop_context();
     }
 
     /* Buffer stride */
@@ -15495,8 +15515,8 @@ static void test_stream_output(void)
 
 static void test_stream_output_resume(void)
 {
+    ID3D10Buffer *cb, *so_buffer, *so_buffer2, *buffer;
     struct d3d10core_test_context test_context;
-    ID3D10Buffer *cb, *so_buffer, *buffer;
     unsigned int i, j, idx, offset;
     struct resource_readback rb;
     ID3D10GeometryShader *gs;
@@ -15573,16 +15593,22 @@ static void test_stream_output_resume(void)
 
     cb = create_buffer(device, D3D10_BIND_CONSTANT_BUFFER, sizeof(constants[0]), &constants[0]);
     so_buffer = create_buffer(device, D3D10_BIND_STREAM_OUTPUT, 1024, NULL);
+    so_buffer2 = create_buffer(device, D3D10_BIND_STREAM_OUTPUT, 1024, NULL);
 
     ID3D10Device_GSSetShader(device, gs);
     ID3D10Device_GSSetConstantBuffers(device, 0, 1, &cb);
 
-    offset = 0;
-    ID3D10Device_SOSetTargets(device, 1, &so_buffer, &offset);
-
     ID3D10Device_ClearRenderTargetView(device, test_context.backbuffer_rtv, &white.x);
     check_texture_color(test_context.backbuffer, 0xffffffff, 0);
 
+    /* Draw into a SO buffer and then immediately destroy it, to make sure that
+     * wined3d doesn't try to rebind transform feedback buffers while transform
+     * feedback is active. */
+    offset = 0;
+    ID3D10Device_SOSetTargets(device, 1, &so_buffer2, &offset);
+    draw_color_quad(&test_context, &red);
+    ID3D10Device_SOSetTargets(device, 1, &so_buffer, &offset);
+    ID3D10Buffer_Release(so_buffer2);
     draw_color_quad(&test_context, &red);
     check_texture_color(test_context.backbuffer, 0xff0000ff, 0);
 
@@ -19089,6 +19115,72 @@ static void test_texture_compressed_3d(void)
     release_test_context(&test_context);
 }
 
+static void fill_dynamic_vb_quad(void *data, unsigned int x, unsigned int y)
+{
+    struct vec3 *quad = (struct vec3 *)data + 4 * x;
+
+    memset(quad, 0, 4 * sizeof(*quad));
+
+    quad[0].x = quad[1].x = -1.0f + 0.01f * x;
+    quad[2].x = quad[3].x = -1.0f + 0.01f * (x + 1);
+
+    quad[0].y = quad[2].y = -1.0f + 0.01f * y;
+    quad[1].y = quad[3].y = -1.0f + 0.01f * (y + 1);
+}
+
+/* Stress-test dynamic maps, to ensure that we are applying the correct
+ * synchronization guarantees. */
+static void test_dynamic_map_synchronization(void)
+{
+    static const struct vec4 green = {0.0f, 1.0f, 0.0f, 1.0f};
+    static const struct vec4 red = {1.0f, 0.0f, 0.0f, 1.0f};
+    struct d3d10core_test_context test_context;
+    D3D10_BUFFER_DESC buffer_desc = {0};
+    ID3D10Device *device;
+    unsigned int x, y;
+    HRESULT hr;
+    void *data;
+
+    if (!init_test_context(&test_context))
+        return;
+    device = test_context.device;
+
+    buffer_desc.ByteWidth = 200 * 4 * sizeof(struct vec3);
+    buffer_desc.Usage = D3D10_USAGE_DYNAMIC;
+    buffer_desc.BindFlags = D3D10_BIND_VERTEX_BUFFER;
+    buffer_desc.CPUAccessFlags = D3D10_CPU_ACCESS_WRITE;
+    hr = ID3D10Device_CreateBuffer(device, &buffer_desc, NULL, &test_context.vb);
+    ok(hr == S_OK, "Failed to create vertex buffer, hr %#x.\n", hr);
+
+    ID3D10Device_ClearRenderTargetView(device, test_context.backbuffer_rtv, &red.x);
+
+    for (y = 0; y < 200; ++y)
+    {
+        hr = ID3D10Buffer_Map(test_context.vb, D3D10_MAP_WRITE_DISCARD, 0, &data);
+        ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+        fill_dynamic_vb_quad(data, 0, y);
+
+        ID3D10Buffer_Unmap(test_context.vb);
+        draw_color_quad(&test_context, &green);
+
+        for (x = 1; x < 200; ++x)
+        {
+            hr = ID3D10Buffer_Map(test_context.vb, D3D10_MAP_WRITE_NO_OVERWRITE, 0, &data);
+            ok(hr == S_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+            fill_dynamic_vb_quad(data, x, y);
+
+            ID3D10Buffer_Unmap(test_context.vb);
+            ID3D10Device_Draw(device, 4, x * 4);
+        }
+    }
+
+    check_texture_color(test_context.backbuffer, 0xff00ff00, 0);
+
+    release_test_context(&test_context);
+}
+
 START_TEST(d3d10core)
 {
     unsigned int argc, i;
@@ -19215,6 +19307,7 @@ START_TEST(d3d10core)
     queue_test(test_dual_source_blend);
     queue_test(test_unbound_streams);
     queue_test(test_texture_compressed_3d);
+    queue_test(test_dynamic_map_synchronization);
 
     run_queued_tests();
 
