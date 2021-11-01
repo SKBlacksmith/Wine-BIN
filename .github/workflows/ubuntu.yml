@@ -12,8 +12,9 @@ jobs:
     - uses: actions/checkout@v2
     - name: Deps
     run: |
-      sudo dpkg --add-architecture i386 && sudo apt update
-      yes|./debdeps.sh
+     sudo dpkg --add-architecture i386 && sudo apt update
+     chmod +x debdeps.sh
+     ./debdeps.sh
     - name: Wine 64
       run: |
        mkdir wine64
