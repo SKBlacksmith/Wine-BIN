@@ -31,6 +31,3 @@ jobs:
      cd Wine-Crossroads
      cd wine64
      make STRIP=true prefix="${pkgdir}" libdir="${pkgdir}/lib" dlldir="${pkgdir}/lib/wine" DESTDIR=builds/wine-crossroads-ubuntu install
-    - name: Archive the artifacts
-      uses: actions/upload-artifact@v2
-        
