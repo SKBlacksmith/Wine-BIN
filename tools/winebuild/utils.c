@@ -19,7 +19,6 @@
  */
 
 #include "config.h"
-#include "wine/port.h"
 
 #include <assert.h>
 #include <ctype.h>
@@ -27,23 +26,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef HAVE_UNISTD_H
-# include <unistd.h>
-#endif
-#ifdef HAVE_SYS_STAT_H
-# include <sys/stat.h>
-#endif
 
 #include "build.h"
 
-#if defined(_WIN32) && !defined(__CYGWIN__)
-# define PATH_SEPARATOR ';'
-#else
-# define PATH_SEPARATOR ':'
-#endif
-
 static struct strarray tmp_files;
-static struct strarray empty_strarray;
 static const char *output_file_source_name;
 
 static const struct
@@ -77,128 +63,11 @@ void cleanup_tmp_files(void)
 }
 
 
-void *xmalloc (size_t size)
-{
-    void *res;
-
-    res = malloc (size ? size : 1);
-    if (res == NULL)
-    {
-        fprintf (stderr, "Virtual memory exhausted.\n");
-        exit (1);
-    }
-    return res;
-}
-
-void *xrealloc (void *ptr, size_t size)
-{
-    void *res = realloc (ptr, size);
-    if (size && res == NULL)
-    {
-        fprintf (stderr, "Virtual memory exhausted.\n");
-        exit (1);
-    }
-    return res;
-}
-
-char *xstrdup( const char *str )
-{
-    char *res = strdup( str );
-    if (!res)
-    {
-        fprintf (stderr, "Virtual memory exhausted.\n");
-        exit (1);
-    }
-    return res;
-}
-
 char *strupper(char *s)
 {
     char *p;
     for (p = s; *p; p++) *p = toupper(*p);
     return s;
-}
-
-int strendswith(const char* str, const char* end)
-{
-    int l = strlen(str);
-    int m = strlen(end);
-    return l >= m && strcmp(str + l - m, end) == 0;
-}
-
-char *strmake( const char* fmt, ... )
-{
-    int n;
-    size_t size = 100;
-    va_list ap;
-
-    for (;;)
-    {
-        char *p = xmalloc( size );
-        va_start( ap, fmt );
-	n = vsnprintf( p, size, fmt, ap );
-	va_end( ap );
-        if (n == -1) size *= 2;
-        else if ((size_t)n >= size) size = n + 1;
-        else return p;
-        free( p );
-    }
-}
-
-static struct strarray strarray_copy( struct strarray src )
-{
-    struct strarray array;
-    array.count = src.count;
-    array.max = src.max;
-    array.str = xmalloc( array.max * sizeof(*array.str) );
-    memcpy( array.str, src.str, array.count * sizeof(*array.str) );
-    return array;
-}
-
-static void strarray_add_one( struct strarray *array, const char *str )
-{
-    if (array->count == array->max)
-    {
-        array->max *= 2;
-        if (array->max < 16) array->max = 16;
-        array->str = xrealloc( array->str, array->max * sizeof(*array->str) );
-    }
-    array->str[array->count++] = str;
-}
-
-void strarray_add( struct strarray *array, ... )
-{
-    va_list valist;
-    const char *str;
-
-    va_start( valist, array );
-    while ((str = va_arg( valist, const char *))) strarray_add_one( array, str );
-    va_end( valist );
-}
-
-void strarray_addv( struct strarray *array, char * const *argv )
-{
-    while (*argv) strarray_add_one( array, *argv++ );
-}
-
-void strarray_addall( struct strarray *array, struct strarray args )
-{
-    unsigned int i;
-
-    for (i = 0; i < args.count; i++) strarray_add_one( array, args.str[i] );
-}
-
-struct strarray strarray_fromstring( const char *str, const char *delim )
-{
-    const char *tok;
-    struct strarray array = empty_strarray;
-    char *buf = xstrdup( str );
-
-    for (tok = strtok( buf, delim ); tok; tok = strtok( NULL, delim ))
-	strarray_add_one( &array, strdup( tok ));
-
-    free( buf );
-    return array;
 }
 
 void fatal_error( const char *msg, ... )
@@ -288,20 +157,8 @@ static struct strarray get_tools_path(void)
 
     if (!done)
     {
-        dirs = strarray_copy( tools_path );
-
-        /* then append the PATH directories */
-        if (getenv( "PATH" ))
-        {
-            char *p = xstrdup( getenv( "PATH" ));
-            while (*p)
-            {
-                strarray_add_one( &dirs, p );
-                while (*p && *p != PATH_SEPARATOR) p++;
-                if (!*p) break;
-                *p++ = 0;
-            }
-        }
+        strarray_addall( &dirs, tools_path );
+        strarray_addall( &dirs, strarray_frompath( getenv( "PATH" )));
         done = 1;
     }
     return dirs;
@@ -342,17 +199,13 @@ static const char *find_binary( const char *prefix, const char *name )
 
 void spawn( struct strarray args )
 {
-    unsigned int i;
     int status;
     const char *argv0 = find_binary( NULL, args.str[0] );
 
     if (argv0) args.str[0] = argv0;
-    strarray_add_one( &args, NULL );
-    if (verbose)
-        for (i = 0; args.str[i]; i++)
-            fprintf( stderr, "%s%c", args.str[i], args.str[i+1] ? ' ' : '\n' );
+    if (verbose) strarray_trace( args );
 
-    if ((status = _spawnvp( _P_WAIT, args.str[0], args.str )))
+    if ((status = strarray_spawn( args )))
     {
 	if (status > 0) fatal_error( "%s failed with status %u\n", args.str[0], status );
 	else fatal_perror( "winebuild" );
@@ -360,9 +213,50 @@ void spawn( struct strarray args )
     }
 }
 
+static const char *find_clang_tool( struct strarray clang, const char *tool )
+{
+    const char *out = get_temp_file_name( "print_tool", ".out" );
+    struct strarray args = empty_strarray;
+    int sout = -1;
+    char *path, *p;
+    struct stat st;
+    size_t cnt;
+
+    strarray_addall( &args, clang );
+    strarray_add( &args, strmake( "-print-prog-name=%s", tool ));
+    if (verbose) strarray_add( &args, "-v" );
+
+    sout = dup( fileno(stdout) );
+    freopen( out, "w", stdout );
+    spawn( args );
+    if (sout >= 0)
+    {
+        dup2( sout, fileno(stdout) );
+        close( sout );
+    }
+
+    if (stat(out, &st) || !st.st_size) return NULL;
+
+    path = xmalloc(st.st_size + 1);
+    sout = open(out, O_RDONLY);
+    if (sout == -1) return NULL;
+    cnt = read(sout, path, st.st_size);
+    close(sout);
+    path[cnt] = 0;
+    if ((p = strchr(path, '\n'))) *p = 0;
+    /* clang returns passed command instead of full path if the tool could not be found */
+    if (!strcmp(path, tool))
+    {
+        free( path );
+        return NULL;
+    }
+    return path;
+}
+
 /* find a build tool in the path, trying the various names */
 struct strarray find_tool( const char *name, const char * const *names )
 {
+    struct strarray ret = empty_strarray;
     const char *file;
     const char *alt_names[2];
 
@@ -375,34 +269,63 @@ struct strarray find_tool( const char *name, const char * const *names )
 
     while (*names)
     {
-        if ((file = find_binary( target_alias, *names ))
-            || (names == alt_names && (file = find_binary( "llvm", *names ))))
-        {
-            struct strarray ret = empty_strarray;
-            strarray_add_one( &ret, file );
-            return ret;
-        }
+        if ((file = find_binary( target_alias, *names ))) break;
         names++;
     }
-    fatal_error( "cannot find the '%s' tool\n", name );
+
+    if (!file && names == alt_names + 1)
+    {
+        if (cc_command.count) file = find_clang_tool( cc_command, "lld-link" );
+        if (!file && !(file = find_binary( "llvm", name )))
+        {
+            struct strarray clang = empty_strarray;
+            strarray_add( &clang, "clang" );
+            file = find_clang_tool( clang, strmake( "llvm-%s", name ));
+        }
+    }
+    if (!file) fatal_error( "cannot find the '%s' tool\n", name );
+
+    strarray_add( &ret, file );
+    return ret;
+}
+
+/* find a link tool in the path */
+struct strarray find_link_tool(void)
+{
+    struct strarray ret = empty_strarray;
+    const char *file = NULL;
+
+    if (cc_command.count) file = find_clang_tool( cc_command, "lld-link" );
+    if (!file) file = find_binary( NULL, "lld-link" );
+    if (!file)
+    {
+        struct strarray clang = empty_strarray;
+        strarray_add( &clang, "clang" );
+        file = find_clang_tool( clang, "lld-link" );
+    }
+
+    if (!file) fatal_error( "cannot find the 'lld-link' tool\n" );
+    strarray_add( &ret, file );
+    return ret;
 }
 
 struct strarray get_as_command(void)
 {
-    struct strarray args;
+    struct strarray args = empty_strarray;
     unsigned int i;
 
     if (cc_command.count)
     {
-        args = strarray_copy( cc_command );
-        strarray_add( &args, "-xassembler", "-c", NULL );
+        strarray_addall( &args, cc_command );
+        strarray_add( &args, "-xassembler" );
+        strarray_add( &args, "-c" );
         if (force_pointer_size)
-            strarray_add_one( &args, (force_pointer_size == 8) ? "-m64" : "-m32" );
-        if (cpu_option) strarray_add_one( &args, strmake("-mcpu=%s", cpu_option) );
-        if (fpu_option) strarray_add_one( &args, strmake("-mfpu=%s", fpu_option) );
-        if (arch_option) strarray_add_one( &args, strmake("-march=%s", arch_option) );
+            strarray_add( &args, (force_pointer_size == 8) ? "-m64" : "-m32" );
+        if (cpu_option) strarray_add( &args, strmake("-mcpu=%s", cpu_option) );
+        if (fpu_option) strarray_add( &args, strmake("-mfpu=%s", fpu_option) );
+        if (arch_option) strarray_add( &args, strmake("-march=%s", arch_option) );
         for (i = 0; i < tools_path.count; i++)
-            strarray_add_one( &args, strmake("-B%s", tools_path.str[i] ));
+            strarray_add( &args, strmake("-B%s", tools_path.str[i] ));
         return args;
     }
 
@@ -412,37 +335,38 @@ struct strarray get_as_command(void)
         as_command = find_tool( "as", commands );
     }
 
-    args = strarray_copy( as_command );
+    strarray_addall( &args, as_command );
 
     if (force_pointer_size)
     {
         switch (target_platform)
         {
         case PLATFORM_APPLE:
-            strarray_add( &args, "-arch", (force_pointer_size == 8) ? "x86_64" : "i386", NULL );
+            strarray_add( &args, "-arch" );
+            strarray_add( &args, (force_pointer_size == 8) ? "x86_64" : "i386" );
             break;
         default:
             switch(target_cpu)
             {
             case CPU_POWERPC:
-                strarray_add_one( &args, (force_pointer_size == 8) ? "-a64" : "-a32" );
+                strarray_add( &args, (force_pointer_size == 8) ? "-a64" : "-a32" );
                 break;
             default:
-                strarray_add_one( &args, (force_pointer_size == 8) ? "--64" : "--32" );
+                strarray_add( &args, (force_pointer_size == 8) ? "--64" : "--32" );
                 break;
             }
             break;
         }
     }
 
-    if (cpu_option) strarray_add_one( &args, strmake("-mcpu=%s", cpu_option) );
-    if (fpu_option) strarray_add_one( &args, strmake("-mfpu=%s", fpu_option) );
+    if (cpu_option) strarray_add( &args, strmake("-mcpu=%s", cpu_option) );
+    if (fpu_option) strarray_add( &args, strmake("-mfpu=%s", fpu_option) );
     return args;
 }
 
 struct strarray get_ld_command(void)
 {
-    struct strarray args;
+    struct strarray args = empty_strarray;
 
     if (!ld_command.count)
     {
@@ -450,37 +374,43 @@ struct strarray get_ld_command(void)
         ld_command = find_tool( "ld", commands );
     }
 
-    args = strarray_copy( ld_command );
+    strarray_addall( &args, ld_command );
 
     if (force_pointer_size)
     {
         switch (target_platform)
         {
         case PLATFORM_APPLE:
-            strarray_add( &args, "-arch", (force_pointer_size == 8) ? "x86_64" : "i386", NULL );
+            strarray_add( &args, "-arch" );
+            strarray_add( &args, (force_pointer_size == 8) ? "x86_64" : "i386" );
             break;
         case PLATFORM_FREEBSD:
-            strarray_add( &args, "-m", (force_pointer_size == 8) ? "elf_x86_64_fbsd" : "elf_i386_fbsd", NULL );
+            strarray_add( &args, "-m" );
+            strarray_add( &args, (force_pointer_size == 8) ? "elf_x86_64_fbsd" : "elf_i386_fbsd" );
             break;
+        case PLATFORM_MINGW:
         case PLATFORM_WINDOWS:
-            strarray_add( &args, "-m", (force_pointer_size == 8) ? "i386pep" : "i386pe", NULL );
+            strarray_add( &args, "-m" );
+            strarray_add( &args, (force_pointer_size == 8) ? "i386pep" : "i386pe" );
             break;
         default:
             switch(target_cpu)
             {
             case CPU_POWERPC:
-                strarray_add( &args, "-m", (force_pointer_size == 8) ? "elf64ppc" : "elf32ppc", NULL );
+                strarray_add( &args, "-m" );
+                strarray_add( &args, (force_pointer_size == 8) ? "elf64ppc" : "elf32ppc" );
                 break;
             default:
-                strarray_add( &args, "-m", (force_pointer_size == 8) ? "elf_x86_64" : "elf_i386", NULL );
+                strarray_add( &args, "-m" );
+                strarray_add( &args, (force_pointer_size == 8) ? "elf_x86_64" : "elf_i386" );
                 break;
             }
             break;
         }
     }
 
-    if (target_cpu == CPU_ARM && target_platform != PLATFORM_WINDOWS)
-        strarray_add( &args, "--no-wchar-size-warning", NULL );
+    if (target_cpu == CPU_ARM && !is_pe())
+        strarray_add( &args, "--no-wchar-size-warning" );
 
     return args;
 }
@@ -501,31 +431,12 @@ const char *get_nm_command(void)
 char *get_temp_file_name( const char *prefix, const char *suffix )
 {
     char *name;
-    const char *ext, *basename;
     int fd;
 
-    if (!prefix || !prefix[0]) prefix = "winebuild";
-    if (!suffix) suffix = "";
-    if ((basename = strrchr( prefix, '/' ))) basename++;
-    else basename = prefix;
-    if (!(ext = strchr( basename, '.' ))) ext = prefix + strlen(prefix);
-    name = xmalloc( sizeof("/tmp/") + (ext - prefix) + sizeof(".XXXXXX") + strlen(suffix) );
-    memcpy( name, prefix, ext - prefix );
-    strcpy( name + (ext - prefix), ".XXXXXX" );
-    strcat( name, suffix );
-
-    if ((fd = mkstemps( name, strlen(suffix) )) == -1)
-    {
-        strcpy( name, "/tmp/" );
-        memcpy( name + 5, basename, ext - basename );
-        strcpy( name + 5 + (ext - basename), ".XXXXXX" );
-        strcat( name, suffix );
-        if ((fd = mkstemps( name, strlen(suffix) )) == -1)
-            fatal_error( "could not generate a temp file\n" );
-    }
-
+    if (prefix) prefix = get_basename_noext( prefix );
+    fd = make_temp_file( prefix, suffix, &name );
     close( fd );
-    strarray_add_one( &tmp_files, name );
+    strarray_add( &tmp_files, name );
     return name;
 }
 
@@ -690,6 +601,11 @@ void output_standard_file_header(void)
         output( "\t.globl  @feat.00\n" );
         output( ".set @feat.00, 1\n" );
     }
+    if (thumb_mode)
+    {
+        output( "\t.syntax unified\n" );
+        output( "\t.thumb\n" );
+    }
 }
 
 /* dump a byte stream into the assembly code */
@@ -814,7 +730,9 @@ int remove_stdcall_decoration( char *name )
 void assemble_file( const char *src_file, const char *obj_file )
 {
     struct strarray args = get_as_command();
-    strarray_add( &args, "-o", obj_file, src_file, NULL );
+    strarray_add( &args, "-o" );
+    strarray_add( &args, obj_file );
+    strarray_add( &args, src_file );
     spawn( args );
 }
 
@@ -836,6 +754,7 @@ DLLSPEC *alloc_dll_spec(void)
     spec->subsystem          = 0;
     spec->subsystem_major    = 4;
     spec->subsystem_minor    = 0;
+    spec->syscall_table      = 0;
     if (get_ptr_size() > 4)
         spec->characteristics |= IMAGE_FILE_LARGE_ADDRESS_AWARE;
     else
@@ -926,7 +845,7 @@ const char *get_link_name( const ORDDEF *odp )
     switch (odp->type)
     {
     case TYPE_STDCALL:
-        if (target_platform == PLATFORM_WINDOWS)
+        if (is_pe())
         {
             if (odp->flags & FLAG_THISCALL) return odp->link_name;
             if (odp->flags & FLAG_FASTCALL) ret = strmake( "@%s@%u", odp->link_name, get_args_size( odp ));
@@ -942,7 +861,7 @@ const char *get_link_name( const ORDDEF *odp )
         break;
 
     case TYPE_PASCAL:
-        if (target_platform == PLATFORM_WINDOWS && !kill_at)
+        if (is_pe() && !kill_at)
         {
             int args = get_args_size( odp );
             if (odp->flags & FLAG_REGISTER) args += get_ptr_size();  /* context argument */
@@ -1069,6 +988,7 @@ unsigned int get_args_size( const ORDDEF *odp )
         {
         case ARG_INT64:
         case ARG_DOUBLE:
+            if (target_cpu == CPU_ARM) size = (size + 7) & ~7;
             size += 8;
             break;
         case ARG_INT128:
@@ -1094,6 +1014,7 @@ const char *asm_name( const char *sym )
 
     switch (target_platform)
     {
+    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         if (target_cpu != CPU_x86) return sym;
         if (sym[0] == '@') return sym;  /* fastcall */
@@ -1117,15 +1038,20 @@ const char *func_declaration( const char *func )
     {
     case PLATFORM_APPLE:
         return "";
+    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         free( buffer );
-        buffer = strmake( ".def %s\n\t.scl 2\n\t.type 32\n\t.endef", asm_name(func) );
+        buffer = strmake( ".def %s\n\t.scl 2\n\t.type 32\n\t.endef%s", asm_name(func),
+                          thumb_mode ? "\n\t.thumb_func" : "" );
         break;
     default:
         free( buffer );
         switch(target_cpu)
         {
         case CPU_ARM:
+            buffer = strmake( ".type %s,%%function%s", func,
+                              thumb_mode ? "\n\t.thumb_func" : "" );
+            break;
         case CPU_ARM64:
             buffer = strmake( ".type %s,%%function", func );
             break;
@@ -1144,6 +1070,7 @@ void output_function_size( const char *name )
     switch (target_platform)
     {
     case PLATFORM_APPLE:
+    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         break;
     default:
@@ -1173,6 +1100,7 @@ void output_rva( const char *format, ... )
     va_start( valist, format );
     switch (target_platform)
     {
+    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         output( "\t.rva " );
         vfprintf( output_file, format, valist );
@@ -1192,6 +1120,7 @@ void output_gnu_stack_note(void)
 {
     switch (target_platform)
     {
+    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
     case PLATFORM_APPLE:
         break;
@@ -1221,6 +1150,7 @@ const char *asm_globl( const char *func )
     case PLATFORM_APPLE:
         buffer = strmake( "\t.globl _%s\n\t.private_extern _%s\n_%s:", func, func, func );
         break;
+    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS:
         buffer = strmake( "\t.globl %s%s\n%s%s:", target_cpu == CPU_x86 ? "_" : "", func,
                           target_cpu == CPU_x86 ? "_" : "", func );
@@ -1259,6 +1189,7 @@ const char *get_asm_export_section(void)
     switch (target_platform)
     {
     case PLATFORM_APPLE:   return ".data";
+    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS: return ".section .edata";
     default:               return ".section .data";
     }
@@ -1278,6 +1209,7 @@ const char *get_asm_rsrc_section(void)
     switch (target_platform)
     {
     case PLATFORM_APPLE:   return ".data";
+    case PLATFORM_MINGW:
     case PLATFORM_WINDOWS: return ".section .rsrc";
     default:               return ".section .data";
     }

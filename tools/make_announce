@@ -24,6 +24,7 @@
 use strict;
 use locale;
 use POSIX;
+use Text::CSV::Encoded;
 use open ':encoding(utf8)';
 
 sub unescape($)
@@ -68,14 +69,18 @@ sub get_current_version()
 # retrieve a list of bugs with the specified filter
 sub get_bugs($)
 {
+    my $filter = shift;
+    my $csv = Text::CSV::Encoded->new({ encoding_in => "utf-8", encoding_out => "utf-8" });
     my %bugs;
 
-    open QUERY, "-|" or exec "git", "log", "--notes=stable-notes", "--format=%N", "wine-" . get_current_version() . ".."
+    open QUERY, "-|" or exec "wget", "-qO-", "https://bugs.winehq.org/buglist.cgi?columnlist=short_desc&query_format=advanced&ctype=csv&$filter"
         or die "cannot query bug list";
+    <QUERY>;  # skip header line
     while (<QUERY>)
     {
-        next unless /^Fixes: \[(\d+)\] (.*)/;
-        $bugs{$1} = $2;
+        next unless $csv->parse($_);
+        my ($id, $descr) = $csv->fields();
+        $bugs{$id} = $descr;
     }
     close QUERY;
     return %bugs;

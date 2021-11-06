@@ -189,8 +189,6 @@ struct ScriptControl {
     ScriptError *error;
 };
 
-static HINSTANCE msscript_instance;
-
 typedef enum tid_t {
     IScriptControl_tid,
     IScriptError_tid,
@@ -4013,10 +4011,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void *reserved)
     TRACE("(%p %d %p)\n", instance, reason, reserved);
 
     switch(reason) {
-    case DLL_WINE_PREATTACH:
-        return FALSE;  /* prefer native version */
     case DLL_PROCESS_ATTACH:
-        msscript_instance = instance;
         DisableThreadLibraryCalls(instance);
         break;
     case DLL_PROCESS_DETACH:
@@ -4089,31 +4084,4 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, LPVOID *ppv)
 
     FIXME("%s %s %p\n", debugstr_guid(rclsid), debugstr_guid(riid), ppv);
     return CLASS_E_CLASSNOTAVAILABLE;
-}
-
-/***********************************************************************
- *          DllCanUnloadNow (msscript.ocx.@)
- */
-HRESULT WINAPI DllCanUnloadNow(void)
-{
-    TRACE("\n");
-    return S_FALSE;
-}
-
-/***********************************************************************
- *          DllRegisterServer (msscript.ocx.@)
- */
-HRESULT WINAPI DllRegisterServer(void)
-{
-    TRACE("()\n");
-    return __wine_register_resources(msscript_instance);
-}
-
-/***********************************************************************
- *          DllUnregisterServer (msscript.ocx.@)
- */
-HRESULT WINAPI DllUnregisterServer(void)
-{
-    TRACE("()\n");
-    return __wine_unregister_resources(msscript_instance);
 }

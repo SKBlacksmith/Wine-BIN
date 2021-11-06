@@ -58,9 +58,21 @@ DEFINE_VTBL_WRAPPER(56);
 /* ?_Fpz@std@@3_JB */
 const __int64 std_Fpz = 0;
 
-void* (__cdecl *MSVCRT_operator_new)(size_t);
-void (__cdecl *MSVCRT_operator_delete)(void*);
+static void* (__cdecl *MSVCRT_operator_new)(size_t);
+static void (__cdecl *MSVCRT_operator_delete)(void*);
 void* (__cdecl *MSVCRT_set_new_handler)(void*);
+
+void* __cdecl operator_new(size_t size)
+{
+    void *ret = MSVCRT_operator_new(size);
+    if (!ret) _Xmem();
+    return ret;
+}
+
+void __cdecl operator_delete(void *mem)
+{
+    MSVCRT_operator_delete(mem);
+}
 
 static void init_cxx_funcs(void)
 {
@@ -86,8 +98,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
 
     switch (fdwReason)
     {
-        case DLL_WINE_PREATTACH:
-            return FALSE;    /* prefer native version */
         case DLL_PROCESS_ATTACH:
             init_cxx_funcs();
             _Init_locks__Init_locks_ctor(NULL);

@@ -41,8 +41,6 @@ DEFINE_GUID(WMFORMAT_WaveFormatEx,  0x05589f81,0xc356,0x11ce,0xbf,0x01,0x00,0xaa
 
 WINE_DEFAULT_DEBUG_CHANNEL(mp3dmod);
 
-static HINSTANCE mp3dmod_instance;
-
 struct mp3_decoder
 {
     IUnknown IUnknown_inner;
@@ -515,7 +513,7 @@ static HRESULT WINAPI MediaObject_ProcessOutput(IMediaObject *iface, DWORD flags
         else if (err != MPG123_OK)
             ERR("mpg123_read() returned %d\n", err);
         if (written < framesize)
-            ERR("short write: %zd/%u\n", written, framesize);
+            ERR("short write: %Id/%u\n", written, framesize);
 
         got_data = 1;
 
@@ -651,19 +649,6 @@ static const IClassFactoryVtbl classfactory_vtbl = {
 
 static IClassFactory mp3_decoder_cf = { &classfactory_vtbl };
 
-BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)
-{
-    TRACE("%p, %d, %p\n", instance, reason, reserved);
-    switch (reason)
-    {
-    case DLL_PROCESS_ATTACH:
-        DisableThreadLibraryCalls(instance);
-        mp3dmod_instance = instance;
-        break;
-    }
-    return TRUE;
-}
-
 /*************************************************************************
  *              DllGetClassObject (DSDMO.@)
  */
@@ -678,20 +663,11 @@ HRESULT WINAPI DllGetClassObject(REFCLSID clsid, REFIID iid, void **obj)
     return CLASS_E_CLASSNOTAVAILABLE;
 }
 
-/******************************************************************
- *              DllCanUnloadNow (DSDMO.@)
- */
-HRESULT WINAPI DllCanUnloadNow(void)
-{
-    return S_FALSE;
-}
-
 /***********************************************************************
  *              DllRegisterServer (DSDMO.@)
  */
 HRESULT WINAPI DllRegisterServer(void)
 {
-    static const WCHAR nameW[] = {'M','P','3',' ','D','e','c','o','d','e','r',' ','D','M','O',0};
     DMO_PARTIAL_MEDIATYPE in, out;
     HRESULT hr;
 
@@ -699,11 +675,11 @@ HRESULT WINAPI DllRegisterServer(void)
     in.subtype = WMMEDIASUBTYPE_MP3;
     out.type = WMMEDIATYPE_Audio;
     out.subtype = WMMEDIASUBTYPE_PCM;
-    hr = DMORegister(nameW, &CLSID_CMP3DecMediaObject, &DMOCATEGORY_AUDIO_DECODER,
+    hr = DMORegister(L"MP3 Decoder DMO", &CLSID_CMP3DecMediaObject, &DMOCATEGORY_AUDIO_DECODER,
         0, 1, &in, 1, &out);
     if (FAILED(hr)) return hr;
 
-    return __wine_register_resources( mp3dmod_instance );
+    return __wine_register_resources();
 }
 
 /***********************************************************************
@@ -716,5 +692,5 @@ HRESULT WINAPI DllUnregisterServer(void)
     hr = DMOUnregister(&CLSID_CMP3DecMediaObject, &DMOCATEGORY_AUDIO_DECODER);
     if (FAILED(hr)) return hr;
 
-    return __wine_unregister_resources( mp3dmod_instance );
+    return __wine_unregister_resources();
 }

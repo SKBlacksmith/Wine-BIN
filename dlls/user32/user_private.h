@@ -25,9 +25,10 @@
 #include "windef.h"
 #include "winbase.h"
 #include "wingdi.h"
-#include "winuser.h"
+#include "ntuser.h"
 #include "winreg.h"
 #include "winternl.h"
+#include "hidusage.h"
 #include "wine/heap.h"
 
 #define GET_WORD(ptr)  (*(const WORD *)(ptr))
@@ -62,17 +63,13 @@ enum wine_internal_message
 
 typedef struct tagUSER_DRIVER {
     /* keyboard functions */
-    HKL    (CDECL *pActivateKeyboardLayout)(HKL, UINT);
+    BOOL   (CDECL *pActivateKeyboardLayout)(HKL, UINT);
     void   (CDECL *pBeep)(void);
     INT    (CDECL *pGetKeyNameText)(LONG, LPWSTR, INT);
-    HKL    (CDECL *pGetKeyboardLayout)(DWORD);
     UINT   (CDECL *pGetKeyboardLayoutList)(INT, HKL *);
-    BOOL   (CDECL *pGetKeyboardLayoutName)(LPWSTR);
-    HKL    (CDECL *pLoadKeyboardLayout)(LPCWSTR, UINT);
     UINT   (CDECL *pMapVirtualKeyEx)(UINT, UINT, HKL);
     BOOL   (CDECL *pRegisterHotKey)(HWND, UINT, UINT);
     INT    (CDECL *pToUnicodeEx)(UINT, UINT, const BYTE *, LPWSTR, int, UINT, HKL);
-    BOOL   (CDECL *pUnloadKeyboardLayout)(HKL);
     void   (CDECL *pUnregisterHotKey)(HWND, UINT, UINT);
     SHORT  (CDECL *pVkKeyScanEx)(WCHAR, HKL);
     /* cursor/icon functions */
@@ -109,7 +106,7 @@ typedef struct tagUSER_DRIVER {
     LRESULT (CDECL *pSysCommand)(HWND,WPARAM,LPARAM);
     BOOL    (CDECL *pUpdateLayeredWindow)(HWND,const UPDATELAYEREDWINDOWINFO *,const RECT *);
     LRESULT (CDECL *pWindowMessage)(HWND,UINT,WPARAM,LPARAM);
-    void   (CDECL *pWindowPosChanging)(HWND,HWND,UINT,const RECT *,const RECT *,RECT *,struct window_surface**);
+    BOOL   (CDECL *pWindowPosChanging)(HWND,HWND,UINT,const RECT *,const RECT *,RECT *,struct window_surface**);
     void   (CDECL *pWindowPosChanged)(HWND,HWND,UINT,const RECT *,const RECT *,const RECT *,const RECT *,struct window_surface*);
     /* system parameters */
     BOOL   (CDECL *pSystemParametersInfo)(UINT,UINT,void*,UINT);
@@ -199,6 +196,8 @@ struct user_thread_info
     DWORD                         GetMessagePosVal;       /* Value for GetMessagePos */
     ULONG_PTR                     GetMessageExtraInfoVal; /* Value for GetMessageExtraInfo */
     struct user_key_state_info   *key_state;              /* Cache of global key state */
+    HKL                           kbd_layout;             /* Current keyboard layout */
+    DWORD                         kbd_layout_id;          /* Current keyboard layout ID */
     HWND                          top_window;             /* Desktop window */
     HWND                          msg_window;             /* HWND_MESSAGE parent window */
     struct rawinput_thread_data  *rawinput;               /* RawInput thread local data / buffer */
@@ -209,6 +208,9 @@ C_ASSERT( sizeof(struct user_thread_info) <= sizeof(((TEB *)0)->Win32ClientInfo)
 extern INT global_key_state_counter DECLSPEC_HIDDEN;
 extern BOOL (WINAPI *imm_register_window)(HWND) DECLSPEC_HIDDEN;
 extern void (WINAPI *imm_unregister_window)(HWND) DECLSPEC_HIDDEN;
+#define WM_IME_INTERNAL 0x287
+#define IME_INTERNAL_ACTIVATE 0x17
+#define IME_INTERNAL_DEACTIVATE 0x18
 
 struct user_key_state_info
 {
@@ -235,13 +237,18 @@ static inline BOOL is_broadcast( HWND hwnd )
 }
 
 extern HMODULE user32_module DECLSPEC_HIDDEN;
+extern BOOL enable_mouse_in_pointer DECLSPEC_HIDDEN;
 
 struct dce;
 struct tagWND;
 
 struct hardware_msg_data;
 extern BOOL rawinput_from_hardware_message(RAWINPUT *rawinput, const struct hardware_msg_data *msg_data);
+extern BOOL rawinput_device_get_usages(HANDLE handle, USAGE *usage_page, USAGE *usage);
 extern struct rawinput_thread_data *rawinput_thread_data(void);
+
+extern void keyboard_init(void) DECLSPEC_HIDDEN;
+extern void create_offscreen_window_surface( const RECT *visible_rect, struct window_surface **surface ) DECLSPEC_HIDDEN;
 
 extern void CLIPBOARD_ReleaseOwner( HWND hwnd ) DECLSPEC_HIDDEN;
 extern BOOL FOCUS_MouseActivate( HWND hwnd ) DECLSPEC_HIDDEN;
@@ -258,12 +265,14 @@ extern void move_window_bits( HWND hwnd, struct window_surface *old_surface,
 extern void move_window_bits_parent( HWND hwnd, HWND parent, const RECT *window_rect,
                                      const RECT *valid_rects ) DECLSPEC_HIDDEN;
 extern void update_window_state( HWND hwnd ) DECLSPEC_HIDDEN;
+extern void wait_graphics_driver_ready(void) DECLSPEC_HIDDEN;
 extern void *get_hook_proc( void *proc, const WCHAR *module, HMODULE *free_module ) DECLSPEC_HIDDEN;
 extern RECT get_virtual_screen_rect(void) DECLSPEC_HIDDEN;
+extern RECT get_primary_monitor_rect(void) DECLSPEC_HIDDEN;
 extern LRESULT call_current_hook( HHOOK hhook, INT code, WPARAM wparam, LPARAM lparam ) DECLSPEC_HIDDEN;
 extern DWORD get_input_codepage( void ) DECLSPEC_HIDDEN;
 extern BOOL map_wparam_AtoW( UINT message, WPARAM *wparam, enum wm_char_mapping mapping ) DECLSPEC_HIDDEN;
-extern NTSTATUS send_hardware_message( HWND hwnd, const INPUT *input, UINT flags ) DECLSPEC_HIDDEN;
+extern NTSTATUS send_hardware_message( HWND hwnd, const INPUT *input, const RAWINPUT *rawinput, UINT flags ) DECLSPEC_HIDDEN;
 extern LRESULT MSG_SendInternalMessageTimeout( DWORD dest_pid, DWORD dest_tid,
                                                UINT msg, WPARAM wparam, LPARAM lparam,
                                                UINT flags, UINT timeout, PDWORD_PTR res_ptr ) DECLSPEC_HIDDEN;
@@ -369,30 +378,17 @@ typedef struct
 extern int bitmap_info_size( const BITMAPINFO * info, WORD coloruse ) DECLSPEC_HIDDEN;
 extern BOOL get_icon_size( HICON handle, SIZE *size ) DECLSPEC_HIDDEN;
 
-struct png_funcs
-{
-    BOOL (CDECL *get_png_info)(const void *png_data, DWORD size, int *width, int *height, int *bpp);
-    BITMAPINFO * (CDECL *load_png)(const char *png_data, DWORD *size);
-    int (CDECL *hack_unix_setenv)(const char *name, const char *value, int overwrite);
-};
-
-extern BOOL have_libpng(void);
-extern const struct png_funcs *png_funcs;
-
 /* Mingw's assert() imports MessageBoxA and gets confused by user32 exporting it */
 #ifdef __MINGW32__
 #undef assert
 #define assert(expr) ((void)0)
 #endif
 
-static inline WCHAR *heap_strdupW(const WCHAR *src)
-{
-    WCHAR *dst;
-    unsigned len;
-    if (!src) return NULL;
-    len = (lstrlenW(src) + 1) * sizeof(WCHAR);
-    if ((dst = heap_alloc(len))) memcpy(dst, src, len);
-    return dst;
-}
+extern struct user_api_hook *user_api DECLSPEC_HIDDEN;
+LRESULT WINAPI USER_DefDlgProc(HWND, UINT, WPARAM, LPARAM, BOOL) DECLSPEC_HIDDEN;
+LRESULT WINAPI USER_ScrollBarProc(HWND, UINT, WPARAM, LPARAM, BOOL) DECLSPEC_HIDDEN;
+void WINAPI USER_ScrollBarDraw(HWND, HDC, INT, enum SCROLL_HITTEST,
+                               const struct SCROLL_TRACKING_INFO *, BOOL, BOOL, RECT *, INT, INT,
+                               INT, BOOL) DECLSPEC_HIDDEN;
 
 #endif /* __WINE_USER_PRIVATE_H */

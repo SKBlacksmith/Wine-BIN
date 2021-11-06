@@ -631,6 +631,7 @@ static const tid_t HTMLLocation_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLLocation_dispex = {
+    L"Object",
     NULL,
     DispHTMLLocation_tid,
     HTMLLocation_iface_tids
@@ -649,7 +650,8 @@ HRESULT HTMLLocation_Create(HTMLInnerWindow *window, HTMLLocation **ret)
     location->ref = 1;
     location->window = window;
 
-    init_dispex(&location->dispex, (IUnknown*)&location->IHTMLLocation_iface, &HTMLLocation_dispex);
+    init_dispatch(&location->dispex, (IUnknown*)&location->IHTMLLocation_iface, &HTMLLocation_dispex,
+                  dispex_compat_mode(&window->event_target.dispex));
 
     *ret = location;
     return S_OK;

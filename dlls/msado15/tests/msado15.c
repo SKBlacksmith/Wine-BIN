@@ -43,24 +43,6 @@ static BOOL is_eof( _Recordset *recordset )
     return eof == VARIANT_TRUE;
 }
 
-static LONG get_refs_field( Field *field )
-{
-    Field_AddRef( field );
-    return Field_Release( field );
-}
-
-static LONG get_refs_fields( Fields *fields )
-{
-    Fields_AddRef( fields );
-    return Fields_Release( fields );
-}
-
-static LONG get_refs_recordset( _Recordset *recordset )
-{
-    _Recordset_AddRef( recordset );
-    return _Recordset_Release( recordset );
-}
-
 static void test_Recordset(void)
 {
     _Recordset *recordset;
@@ -68,12 +50,15 @@ static void test_Recordset(void)
     ISupportErrorInfo *errorinfo;
     Fields *fields, *fields2;
     Field *field;
-    LONG refs, count, state;
+    Properties *props;
+    Property *prop;
+    LONG count, state;
     VARIANT missing, val, index;
     CursorLocationEnum location;
     CursorTypeEnum cursor;
     BSTR name;
     HRESULT hr;
+    VARIANT bookmark;
 
     hr = CoCreateInstance( &CLSID_Recordset, NULL, CLSCTX_INPROC_SERVER, &IID__Recordset, (void **)&recordset );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -86,39 +71,15 @@ static void test_Recordset(void)
     errorinfo = NULL;
     hr = _Recordset_QueryInterface( recordset, &IID_ISupportErrorInfo, (void **)&errorinfo );
     ok( hr == S_OK, "got %08x\n", hr );
-    refs = get_refs_recordset( recordset );
-    ok( refs == 2, "got %d\n", refs );
     if (errorinfo) ISupportErrorInfo_Release( errorinfo );
-    refs = get_refs_recordset( recordset );
-    ok( refs == 1, "got %d\n", refs );
 
-    /* handing out fields object increases recordset refcount */
-    refs = get_refs_recordset( recordset );
-    ok( refs == 1, "got %d\n", refs );
     hr = _Recordset_get_Fields( recordset, &fields );
     ok( hr == S_OK, "got %08x\n", hr );
-    refs = get_refs_recordset( recordset );
-    ok( refs == 2, "got %d\n", refs );
-    refs = get_refs_fields( fields );
-    ok( refs == 1, "got %d\n", refs );
 
-    /* releasing fields object decreases recordset refcount, but fields refcount doesn't drop to zero */
-    Fields_Release( fields );
-    refs = get_refs_recordset( recordset );
-    ok( refs == 1, "got %d\n", refs );
-    refs = get_refs_fields( fields );
-    ok( refs == 1, "got %d\n", refs );
-
-    /* calling get_Fields again returns the same object with the same refcount and increases recordset refcount  */
+    /* calling get_Fields again returns the same object */
     hr = _Recordset_get_Fields( recordset, &fields2 );
     ok( hr == S_OK, "got %08x\n", hr );
-    refs = get_refs_recordset( recordset );
-    ok( refs == 2, "got %d\n", refs );
-    refs = get_refs_fields( fields2 );
-    ok( refs == 1, "got %d\n", refs );
     ok( fields2 == fields, "expected same object\n" );
-    refs = Fields_Release( fields2 );
-    ok( refs == 1, "got %d\n", refs );
 
     count = -1;
     hr = Fields_get_Count( fields2, &count );
@@ -128,12 +89,7 @@ static void test_Recordset(void)
     hr = _Recordset_Close( recordset );
     ok( hr == MAKE_ADO_HRESULT( adErrObjectClosed ), "got %08x\n", hr );
 
-    refs = _Recordset_Release( recordset );
-    ok( !refs, "got %d\n", refs );
-
-    /* fields object still has a reference */
-    refs = Fields_Release( fields2 );
-    ok( refs == 1, "got %d\n", refs );
+    Fields_Release( fields2 );
 
     hr = CoCreateInstance( &CLSID_Recordset, NULL, CLSCTX_INPROC_SERVER, &IID__Recordset, (void **)&recordset );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -153,6 +109,14 @@ static void test_Recordset(void)
     ok( hr == S_OK, "got %08x\n", hr );
     ok( cursor == adOpenForwardOnly, "got %d\n", cursor );
 
+    VariantInit( &bookmark );
+    hr = _Recordset_get_Bookmark( recordset, &bookmark );
+    ok( hr == MAKE_ADO_HRESULT( adErrObjectClosed ), "got %08x\n", hr );
+
+    VariantInit( &bookmark );
+    hr = _Recordset_put_Bookmark( recordset, bookmark );
+    ok( hr == MAKE_ADO_HRESULT( adErrObjectClosed ), "got %08x\n", hr );
+
     VariantInit( &missing );
     hr = _Recordset_AddNew( recordset, missing, missing );
     ok( hr == MAKE_ADO_HRESULT( adErrObjectClosed ), "got %08x\n", hr );
@@ -169,11 +133,63 @@ static void test_Recordset(void)
     hr = Fields__Append( fields, name, adInteger, 4, adFldUnspecified );
     ok( hr == S_OK, "got %08x\n", hr );
 
+    V_VT( &index ) = VT_I4;
+    V_I4( &index ) = 1000;
+    hr = Fields_get_Item( fields, index, &field );
+    ok( hr == MAKE_ADO_HRESULT(adErrItemNotFound), "got %08x\n", hr );
+
+    V_VT( &index ) = VT_I4;
+    V_I4( &index ) = 0;
+    hr = Fields_get_Item( fields, index, &field );
+    ok( hr == S_OK, "got %08x\n", hr );
+    Field_Release(field);
+
+    V_VT( &index ) = VT_I2;
+    V_I4( &index ) = 0;
+    hr = Fields_get_Item( fields, index, &field );
+    ok( hr == S_OK, "got %08x\n", hr );
+    Field_Release(field);
+
+    V_VT( &index ) = VT_I1;
+    V_I1( &index ) = 0;
+    hr = Fields_get_Item( fields, index, &field );
+    ok( hr == S_OK, "got %08x\n", hr );
+    Field_Release(field);
+
+    V_VT( &index ) = VT_R8;
+    V_R8( &index ) = 0.1;
+    hr = Fields_get_Item( fields, index, &field );
+    ok( hr == S_OK, "got %08x\n", hr );
+    Field_Release(field);
+
+    V_VT( &index ) = VT_UNKNOWN;
+    V_UNKNOWN( &index ) = NULL;
+    hr = Fields_get_Item( fields, index, &field );
+    ok( hr == MAKE_ADO_HRESULT(adErrItemNotFound), "got %08x\n", hr );
+
     V_VT( &index ) = VT_BSTR;
     V_BSTR( &index ) = name;
     hr = Fields_get_Item( fields, index, &field );
     ok( hr == S_OK, "got %08x\n", hr );
     SysFreeString( name );
+
+    hr = Field_QueryInterface(field, &IID_Properties, (void**)&props);
+    ok( hr == E_NOINTERFACE, "got %08x\n", hr );
+
+    hr = Field_get_Properties(field, &props);
+    ok( hr == S_OK, "got %08x\n", hr );
+
+    count = -1;
+    hr = Properties_get_Count(props, &count);
+    ok( hr == S_OK, "got %08x\n", hr );
+    ok( !count, "got %d\n", count );
+
+    V_VT( &index ) = VT_I4;
+    V_I4( &index ) = 1000;
+    hr = Properties_get_Item(props, index, &prop);
+    ok( hr == MAKE_ADO_HRESULT(adErrItemNotFound), "got %08x\n", hr );
+
+    Properties_Release(props);
 
     hr = _Recordset_Open( recordset, missing, missing, adOpenStatic, adLockBatchOptimistic, adCmdUnspecified );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -187,6 +203,14 @@ static void test_Recordset(void)
     hr = _Recordset_get_State( recordset, &state );
     ok( hr == S_OK, "got %08x\n", hr );
     ok( state == adStateOpen, "got %d\n", state );
+
+    VariantInit( &bookmark );
+    hr = _Recordset_get_Bookmark( recordset, &bookmark );
+    ok( hr == MAKE_ADO_HRESULT( adErrNoCurrentRecord ), "got %08x\n", hr );
+
+    VariantInit( &bookmark );
+    hr = _Recordset_put_Bookmark( recordset, bookmark );
+    ok( hr == MAKE_ADO_HRESULT( adErrInvalidArgument ), "got %08x\n", hr );
 
     count = -1;
     hr = _Recordset_get_RecordCount( recordset, &count );
@@ -280,6 +304,13 @@ static void test_Recordset(void)
 
     hr = _Recordset_Close( recordset );
     ok( hr == S_OK, "got %08x\n", hr );
+
+    count = -1;
+    hr = Fields_get_Count( fields, &count );
+    ok( !count, "got %d\n", count );
+
+    hr = Field_get_Name(field, &name);
+    todo_wine ok( hr == MAKE_ADO_HRESULT( adErrObjectNotSet ), "got %08x\n", hr );
 
     state = -1;
     hr = _Recordset_get_State( recordset, &state );
@@ -596,7 +627,7 @@ static void test_ADORecordsetConstruction(void)
 
     count = -1;
     hr = Fields_get_Count( fields, &count );
-    todo_wine ok( count == 1, "got %d\n", count );
+    ok( count == 1, "got %d\n", count );
     if (count > 0)
     {
         VARIANT index;
@@ -641,13 +672,16 @@ static void test_Fields(void)
     Field *field, *field2;
     VARIANT val, index;
     BSTR name;
-    LONG refs, count, size;
+    LONG count, size;
     DataTypeEnum type;
     FieldAttributeEnum attrs;
     HRESULT hr;
 
     hr = CoCreateInstance( &CLSID_Recordset, NULL, CLSCTX_INPROC_SERVER, &IID__Recordset, (void **)&recordset );
     ok( hr == S_OK, "got %08x\n", hr );
+
+    hr = _Recordset_QueryInterface( recordset, &IID_Fields, (void **)&fields );
+    ok( hr == E_NOINTERFACE, "got %08x\n", hr );
 
     hr = _Recordset_get_Fields( recordset, &fields );
     ok( hr == S_OK, "got %08x\n", hr );
@@ -656,11 +690,7 @@ static void test_Fields(void)
     errorinfo = NULL;
     hr = Fields_QueryInterface( fields, &IID_ISupportErrorInfo, (void **)&errorinfo );
     ok( hr == S_OK, "got %08x\n", hr );
-    refs = get_refs_fields( fields );
-    ok( refs == 2, "got %d\n", refs );
     if (errorinfo) ISupportErrorInfo_Release( errorinfo );
-    refs = get_refs_fields( fields );
-    ok( refs == 1, "got %d\n", refs );
 
     count = -1;
     hr = Fields_get_Count( fields, &count );
@@ -690,29 +720,12 @@ static void test_Fields(void)
     name = SysAllocString( L"field" );
     V_VT( &index ) = VT_BSTR;
     V_BSTR( &index ) = name;
-    refs = get_refs_recordset( recordset );
-    ok( refs == 2, "got %d\n", refs );
-    refs = get_refs_fields( fields );
-    ok( refs == 1, "got %d\n", refs );
     hr = Fields_get_Item( fields, index, &field );
-    ok( hr == S_OK, "got %08x\n", hr );
-    refs = get_refs_field( field );
-    ok( refs == 1, "got %d\n", refs );
-    refs = get_refs_recordset( recordset );
-    ok( refs == 2, "got %d\n", refs );
-    refs = get_refs_fields( fields );
-    ok( refs == 1, "got %d\n", refs );
 
     /* calling get_Item again returns the same object and adds reference */
     hr = Fields_get_Item( fields, index, &field2 );
     ok( hr == S_OK, "got %08x\n", hr );
     ok( field2 == field, "expected same object\n" );
-    refs = get_refs_field( field2 );
-    ok( refs == 2, "got %d\n", refs );
-    refs = get_refs_recordset( recordset );
-    ok( refs == 2, "got %d\n", refs );
-    refs = get_refs_fields( fields );
-    ok( refs == 1, "got %d\n", refs );
     Field_Release( field2 );
     SysFreeString( name );
 
@@ -720,11 +733,7 @@ static void test_Fields(void)
     errorinfo = NULL;
     hr = Field_QueryInterface( field, &IID_ISupportErrorInfo, (void **)&errorinfo );
     ok( hr == S_OK, "got %08x\n", hr );
-    refs = get_refs_field( field );
-    ok( refs == 2, "got %d\n", refs );
     if (errorinfo) ISupportErrorInfo_Release( errorinfo );
-    refs = get_refs_field( field );
-    ok( refs == 1, "got %d\n", refs );
 
     /* verify values set with _Append */
     hr = Field_get_Name( field, &name );
@@ -1046,7 +1055,7 @@ static void test_Connection(void)
     IConnectionPointContainer_Release(pointcontainer);
 
     hr = _Connection_QueryInterface(connection, &IID_ADOConnectionConstruction15, (void**)&construct);
-    todo_wine ok(hr == S_OK, "Failed to get ADOConnectionConstruction15 interface %08x\n", hr);
+    ok(hr == S_OK, "Failed to get ADOConnectionConstruction15 interface %08x\n", hr);
     if (hr == S_OK)
         ADOConnectionConstruction15_Release(construct);
 

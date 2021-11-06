@@ -145,8 +145,11 @@ static HRESULT WINAPI HTMLStorage_key(IHTMLStorage *iface, LONG lIndex, BSTR *p)
 static HRESULT WINAPI HTMLStorage_getItem(IHTMLStorage *iface, BSTR bstrKey, VARIANT *p)
 {
     HTMLStorage *This = impl_from_IHTMLStorage(iface);
+
     FIXME("(%p)->(%s %p)\n", This, debugstr_w(bstrKey), p);
-    return E_NOTIMPL;
+
+    V_VT(p) = VT_NULL;
+    return S_OK;
 }
 
 static HRESULT WINAPI HTMLStorage_setItem(IHTMLStorage *iface, BSTR bstrKey, BSTR bstrValue)
@@ -192,12 +195,13 @@ static const tid_t HTMLStorage_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLStorage_dispex = {
+    L"Storage",
     NULL,
     IHTMLStorage_tid,
     HTMLStorage_iface_tids
 };
 
-HRESULT create_storage(IHTMLStorage **p)
+HRESULT create_html_storage(compat_mode_t compat_mode, IHTMLStorage **p)
 {
     HTMLStorage *storage;
 
@@ -207,7 +211,7 @@ HRESULT create_storage(IHTMLStorage **p)
 
     storage->IHTMLStorage_iface.lpVtbl = &HTMLStorageVtbl;
     storage->ref = 1;
-    init_dispex(&storage->dispex, (IUnknown*)&storage->IHTMLStorage_iface, &HTMLStorage_dispex);
+    init_dispatch(&storage->dispex, (IUnknown*)&storage->IHTMLStorage_iface, &HTMLStorage_dispex, compat_mode);
 
     *p = &storage->IHTMLStorage_iface;
     return S_OK;

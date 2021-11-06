@@ -168,7 +168,7 @@ GpStatus WINGDIPAPI GdipCreateFont(GDIPCONST GpFontFamily *fontFamily,
     stat = GdipGetFamilyName(fontFamily, lfw.lfFaceName, LANG_NEUTRAL);
     if (stat != Ok) return stat;
 
-    lfw.lfHeight = -units_to_pixels(emSize, unit, fontFamily->dpi);
+    lfw.lfHeight = -units_to_pixels(emSize, unit, fontFamily->dpi, FALSE);
     lfw.lfWeight = style & FontStyleBold ? FW_BOLD : FW_REGULAR;
     lfw.lfItalic = style & FontStyleItalic;
     lfw.lfUnderline = style & FontStyleUnderline;
@@ -467,16 +467,16 @@ GpStatus WINGDIPAPI GdipGetLogFontW(GpFont *font, GpGraphics *graphics, LOGFONTW
 
     if (font->unit == UnitPixel || font->unit == UnitWorld)
     {
-        height = units_to_pixels(font->emSize, graphics->unit, graphics->yres);
+        height = units_to_pixels(font->emSize, graphics->unit, graphics->yres, graphics->printer_display);
         if (graphics->unit != UnitDisplay)
             GdipScaleMatrix(&matrix, graphics->scale, graphics->scale, MatrixOrderAppend);
     }
     else
     {
         if (graphics->unit == UnitDisplay || graphics->unit == UnitPixel)
-            height = units_to_pixels(font->emSize, font->unit, graphics->xres);
+            height = units_to_pixels(font->emSize, font->unit, graphics->xres, graphics->printer_display);
         else
-            height = units_to_pixels(font->emSize, font->unit, graphics->yres);
+            height = units_to_pixels(font->emSize, font->unit, graphics->yres, graphics->printer_display);
     }
 
     pt[0].X = 0.0;
@@ -569,7 +569,7 @@ GpStatus WINGDIPAPI GdipGetFontHeight(GDIPCONST GpFont *font,
     stat = GdipGetDpiY((GpGraphics *)graphics, &dpi);
     if (stat != Ok) return stat;
 
-    *height = pixels_to_units(font_height, graphics->unit, dpi);
+    *height = pixels_to_units(font_height, graphics->unit, dpi, graphics->printer_display);
 
     TRACE("%s,%d(unit %d) => %f\n",
           debugstr_w(font->family->FamilyName), font->otm.otmTextMetrics.tmHeight, graphics->unit, *height);
@@ -603,7 +603,7 @@ GpStatus WINGDIPAPI GdipGetFontHeightGivenDPI(GDIPCONST GpFont *font, REAL dpi, 
     TRACE("%p (%s), %f, %p\n", font,
             debugstr_w(font->family->FamilyName), dpi, height);
 
-    font_size = units_to_pixels(get_font_size(font), font->unit, dpi);
+    font_size = units_to_pixels(get_font_size(font), font->unit, dpi, FALSE);
     style = get_font_style(font);
     stat = GdipGetLineSpacing(font->family, style, &line_spacing);
     if (stat != Ok) return stat;
@@ -798,17 +798,20 @@ GpStatus WINGDIPAPI GdipCloneFontFamily(GpFontFamily *family, GpFontFamily **clo
  *  FAILURE: InvalidParameter if family is NULL
  *
  * NOTES
- *   If name is a NULL ptr, then both XP and Vista will crash (so we do as well)
+ *   If name is NULL, XP and Vista crash but not Windows 7+
  */
 GpStatus WINGDIPAPI GdipGetFamilyName (GDIPCONST GpFontFamily *family,
                                        WCHAR *name, LANGID language)
 {
     static int lang_fixme;
 
+    TRACE("%p, %p, %d\n", family, name, language);
+
     if (family == NULL)
          return InvalidParameter;
 
-    TRACE("%p, %p, %d\n", family, name, language);
+    if (name == NULL)
+         return Ok;
 
     if (language != LANG_NEUTRAL && !lang_fixme++)
         FIXME("No support for handling of multiple languages!\n");

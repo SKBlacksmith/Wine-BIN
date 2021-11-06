@@ -658,8 +658,8 @@
 @ stub -arch=i386 ?_Tidy@exception@std@@AAEXXZ
 @ stub -arch=win64 ?_Tidy@exception@std@@AEAAXXZ
 @ varargs ?_Trace_agents@Concurrency@@YAXW4Agents_EventType@1@_JZZ(long int64) _Trace_agents
-@ cdecl -arch=win32 ?_Trace_ppl_function@Concurrency@@YAXABU_GUID@@EW4ConcRT_EventType@1@@Z(ptr long long) Concurrency__Trace_ppl_function
-@ cdecl -arch=win64 ?_Trace_ppl_function@Concurrency@@YAXAEBU_GUID@@EW4ConcRT_EventType@1@@Z(ptr long long) Concurrency__Trace_ppl_function
+@ cdecl -arch=win32 ?_Trace_ppl_function@Concurrency@@YAXABU_GUID@@EW4ConcRT_EventType@1@@Z(ptr long long) _Trace_ppl_function
+@ cdecl -arch=win64 ?_Trace_ppl_function@Concurrency@@YAXAEBU_GUID@@EW4ConcRT_EventType@1@@Z(ptr long long) _Trace_ppl_function
 @ cdecl -arch=arm ?_TryAcquire@_NonReentrantBlockingLock@details@Concurrency@@QAA_NXZ(ptr) _ReentrantBlockingLock__TryAcquire
 @ thiscall -arch=i386 ?_TryAcquire@_NonReentrantBlockingLock@details@Concurrency@@QAE_NXZ(ptr) _ReentrantBlockingLock__TryAcquire
 @ cdecl -arch=win64 ?_TryAcquire@_NonReentrantBlockingLock@details@Concurrency@@QEAA_NXZ(ptr) _ReentrantBlockingLock__TryAcquire
@@ -820,9 +820,9 @@
 @ cdecl -arch=win64 ?wait_for@_Condition_variable@details@Concurrency@@QEAA_NAEAVcritical_section@3@I@Z(ptr ptr long) _Condition_variable_wait_for
 @ cdecl -arch=win32 ?wait_for_multiple@event@Concurrency@@SAIPAPAV12@I_NI@Z(ptr long long long) event_wait_for_multiple
 @ cdecl -arch=win64 ?wait_for_multiple@event@Concurrency@@SA_KPEAPEAV12@_K_NI@Z(ptr long long long) event_wait_for_multiple
-@ cdecl -arch=arm ?what@exception@std@@UBAPBDXZ(ptr) what_exception
-@ thiscall -arch=i386 ?what@exception@std@@UBEPBDXZ(ptr) what_exception
-@ cdecl -arch=win64 ?what@exception@std@@UEBAPEBDXZ(ptr) what_exception
+@ cdecl -arch=arm ?what@exception@std@@UBAPBDXZ(ptr) exception_what
+@ thiscall -arch=i386 ?what@exception@std@@UBEPBDXZ(ptr) exception_what
+@ cdecl -arch=win64 ?what@exception@std@@UEBAPEBDXZ(ptr) exception_what
 @ cdecl -norelay $I10_OUTPUT(double long long long ptr) I10_OUTPUT
 @ cdecl -arch=i386 _CIacos()
 @ cdecl -arch=i386 _CIasin()
@@ -990,7 +990,7 @@
 @ cdecl __p__mbctype()
 @ cdecl __p__pctype()
 @ cdecl __p__pgmptr()
-@ stub __p__pwctype()
+@ cdecl __p__pwctype()
 @ cdecl __p__timezone()
 @ cdecl __p__tzname()
 @ cdecl __p__wcmdln()
@@ -998,14 +998,14 @@
 @ cdecl __p__wpgmptr()
 @ cdecl __pctype_func()
 @ extern __pioinfo MSVCRT___pioinfo
-@ stub __pwctype_func
+@ cdecl __pwctype_func()
 @ cdecl __pxcptinfoptrs()
 @ stub __report_gsfailure
 @ cdecl __set_app_type(long)
 @ extern __setlc_active MSVCRT___setlc_active
 @ cdecl __setusermatherr(ptr)
 @ cdecl __strncnt(str long)
-@ varargs  __swprintf_l(ptr wstr ptr)
+@ varargs __swprintf_l(ptr wstr ptr)
 @ cdecl __sys_errlist()
 @ cdecl __sys_nerr()
 @ cdecl __threadhandle() kernel32.GetCurrentThread
@@ -1217,7 +1217,7 @@
 @ varargs _fwscanf_l(ptr wstr ptr)
 @ varargs _fwscanf_s_l(ptr wstr ptr)
 @ cdecl _gcvt(double long str)
-@ cdecl _gcvt_s(ptr long  double long)
+@ cdecl _gcvt_s(ptr long double long)
 @ cdecl _get_current_locale()
 @ cdecl _get_daylight(ptr)
 @ cdecl _get_doserrno(ptr)
@@ -1249,7 +1249,7 @@
 @ cdecl _getdrives() kernel32.GetLogicalDrives
 @ cdecl _getmaxstdio()
 @ cdecl _getmbcp()
-@ cdecl _getpid() _getpid
+@ cdecl _getpid()
 @ cdecl _getptd()
 @ stub _getsystime(ptr)
 @ cdecl _getw(ptr)
@@ -1340,9 +1340,9 @@
 @ cdecl _ismbcl2_l(long ptr)
 @ cdecl _ismbclegal(long)
 @ cdecl _ismbclegal_l(long ptr)
-@ stub _ismbclower(long)
+@ cdecl _ismbclower(long)
 @ cdecl _ismbclower_l(long ptr)
-@ stub _ismbcprint(long)
+@ cdecl _ismbcprint(long)
 @ cdecl _ismbcprint_l(long ptr)
 @ cdecl _ismbcpunct(long)
 @ cdecl _ismbcpunct_l(long ptr)
@@ -2015,7 +2015,7 @@
 @ cdecl exp(double)
 @ cdecl -arch=!i386 expf(float)
 @ cdecl fabs(double)
-@ cdecl -arch=!i386 fabsf(float)
+@ cdecl -arch=arm,arm64 fabsf(float)
 @ cdecl fclose(ptr)
 @ cdecl feof(ptr)
 @ cdecl ferror(ptr)
@@ -2091,7 +2091,7 @@
 @ cdecl ldexp(double long)
 @ cdecl -ret64 ldiv(long long)
 @ cdecl -ret64 llabs(int64)
-@ cdecl lldiv(int64 int64)
+@ cdecl -norelay lldiv(int64 int64)
 @ cdecl localeconv()
 @ cdecl log(double)
 @ cdecl -arch=!i386 logf(float)

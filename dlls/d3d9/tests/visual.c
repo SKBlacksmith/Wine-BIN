@@ -26912,6 +26912,597 @@ static void test_sample_mask(void)
     DestroyWindow(window);
 }
 
+struct dynamic_vb_vertex
+{
+    struct vec3 position;
+    DWORD diffuse;
+};
+
+static void fill_dynamic_vb_quad(struct dynamic_vb_vertex *quad, unsigned int x, unsigned int y)
+{
+    unsigned int i;
+
+    memset(quad, 0, 4 * sizeof(*quad));
+
+    quad[0].position.x = quad[1].position.x = -1.0f + 0.01f * x;
+    quad[2].position.x = quad[3].position.x = -1.0f + 0.01f * (x + 1);
+
+    quad[0].position.y = quad[2].position.y = -1.0f + 0.01f * y;
+    quad[1].position.y = quad[3].position.y = -1.0f + 0.01f * (y + 1);
+
+    for (i = 0; i < 4; ++i)
+        quad[i].diffuse = 0xff00ff00;
+}
+
+static void test_dynamic_map_synchronization(void)
+{
+    IDirect3DVertexBuffer9 *buffer;
+    IDirect3DDevice9 *device;
+    IDirect3DSurface9 *rt;
+    unsigned int x, y;
+    IDirect3D9 *d3d;
+    ULONG refcount;
+    HWND window;
+    HRESULT hr;
+    void *data;
+
+    window = create_window();
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+    if (!(device = create_device(d3d, window, window, TRUE)))
+    {
+        skip("Failed to create a D3D device, skipping tests.\n");
+        IDirect3D9_Release(d3d);
+        DestroyWindow(window);
+        return;
+    }
+
+    hr = IDirect3DDevice9_CreateVertexBuffer(device, 200 * 4 * sizeof(struct dynamic_vb_vertex),
+            D3DUSAGE_DYNAMIC, D3DFVF_XYZ, D3DPOOL_DEFAULT, &buffer, NULL);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = IDirect3DDevice9_Clear(device, 0, NULL, D3DCLEAR_TARGET, 0xffff0000, 0.0f, 0);
+    ok(hr == D3D_OK, "Failed to clear, hr %#x.\n", hr);
+
+    hr = IDirect3DDevice9_BeginScene(device);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    hr = IDirect3DDevice9_SetStreamSource(device, 0, buffer, 0, sizeof(struct dynamic_vb_vertex));
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    hr = IDirect3DDevice9_SetRenderState(device, D3DRS_LIGHTING, FALSE);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    hr = IDirect3DDevice9_SetRenderState(device, D3DRS_ZENABLE, FALSE);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    hr = IDirect3DDevice9_SetFVF(device, D3DFVF_XYZ | D3DFVF_DIFFUSE);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+    for (y = 0; y < 200; ++y)
+    {
+        hr = IDirect3DVertexBuffer9_Lock(buffer, 0, 0, &data, D3DLOCK_DISCARD);
+        ok(hr == D3D_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+        fill_dynamic_vb_quad(data, 0, y);
+
+        hr = IDirect3DVertexBuffer9_Unlock(buffer);
+        ok(hr == D3D_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+        hr = IDirect3DDevice9_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, 0, 2);
+        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+        for (x = 1; x < 200; ++x)
+        {
+            hr = IDirect3DVertexBuffer9_Lock(buffer, 4 * sizeof(struct dynamic_vb_vertex) * x,
+                    4 * sizeof(struct dynamic_vb_vertex), &data, D3DLOCK_NOOVERWRITE);
+            ok(hr == D3D_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+            fill_dynamic_vb_quad(data, x, y);
+
+            hr = IDirect3DVertexBuffer9_Unlock(buffer);
+            ok(hr == D3D_OK, "Failed to map buffer, hr %#x.\n", hr);
+
+            hr = IDirect3DDevice9_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, 4 * x, 2);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        }
+    }
+
+    hr = IDirect3DDevice9_GetRenderTarget(device, 0, &rt);
+    ok(hr == S_OK, "Failed to get render target, hr %#x.\n", hr);
+    check_rt_color(rt, 0x0000ff00);
+    IDirect3DSurface9_Release(rt);
+
+    hr = IDirect3DDevice9_EndScene(device);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+    IDirect3DVertexBuffer9_Release(buffer);
+    refcount = IDirect3DDevice9_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+    IDirect3D9_Release(d3d);
+    DestroyWindow(window);
+}
+
+static void test_filling_convention(void)
+{
+    static const DWORD colour_bottom = 0x00ffff00;
+    static const DWORD colour_clear = 0x000000ff;
+    static const DWORD colour_right = 0x00000000;
+    static const DWORD colour_left = 0x00ff0000;
+    static const DWORD colour_top = 0x0000ff00;
+    IDirect3DSurface9 *rt, *backbuffer, *cur;
+    IDirect3DVertexShader9 *shader = NULL;
+    struct surface_readback rb;
+    IDirect3DDevice9 *device;
+    unsigned int i, j, x, y;
+    DWORD colour, expected;
+    IDirect3D9 *d3d;
+    ULONG refcount;
+    D3DCAPS9 caps;
+    HWND window;
+    HRESULT hr;
+    BOOL todo;
+
+    static const unsigned int vp_size = 8;
+    const D3DVIEWPORT9 vp = { 0, 0, vp_size, vp_size, 0.0, 1.0 };
+    static const DWORD vs_code[] =
+    {
+        0xfffe0101,                                             /* vs_1_1               */
+        0x0000001f, 0x80000000, 0x900f0000,                     /* dcl_position v0      */
+        0x0000001f, 0x8000000a, 0x900f0001,                     /* dcl_color0 v1        */
+        0x00000001, 0xc00f0000, 0x90e40000,                     /* mov oPos, v0         */
+        0x00000001, 0xd00f0000, 0x90e40001,                     /* mov oD0, v1          */
+        0x0000ffff                                              /* end                  */
+    };
+
+    /* This test data follows the examples in MSDN's
+     * "Rasterization Rules (Direct3D 9)" article. */
+    static const float eps = 1.0f / 512.0f;
+    const struct
+    {
+        struct vec3 position;
+        DWORD diffuse;
+    }
+    center_tris[] =
+    {
+        /* left */
+        {{-2.5f / 4.0f, -1.5f / 4.0f, 0.0f}, colour_left},
+        {{-2.5f / 4.0f,  2.5f / 4.0f, 0.0f}, colour_left},
+        {{-1.5f / 4.0f,  0.5f / 4.0f, 0.0f}, colour_left},
+
+        /* top */
+        {{-1.5f / 4.0f,  0.5f / 4.0f, 0.0f}, colour_top},
+        {{-2.5f / 4.0f,  2.5f / 4.0f, 0.0f}, colour_top},
+        {{-0.5f / 4.0f,  2.5f / 4.0f, 0.0f}, colour_top},
+
+        /* right */
+        {{-0.5f / 4.0f, -1.5f / 4.0f, 0.0f}, colour_right},
+        {{-1.5f / 4.0f,  0.5f / 4.0f, 0.0f}, colour_right},
+        {{-0.5f / 4.0f,  2.5f / 4.0f, 0.0f}, colour_right},
+
+        /* bottom */
+        {{-2.5f / 4.0f, -1.5f / 4.0f, 0.0f}, colour_bottom},
+        {{-1.5f / 4.0f,  0.5f / 4.0f, 0.0f}, colour_bottom},
+        {{-0.5f / 4.0f, -1.5f / 4.0f, 0.0f}, colour_bottom},
+
+    },
+    edge_tris[] =
+    {
+        /* left */
+        {{-2.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_left},
+        {{-2.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_left},
+        {{-1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_left},
+
+        /* top */
+        {{-1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_top},
+        {{-2.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_top},
+        {{ 0.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_top},
+
+        /* right */
+        {{ 0.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_right},
+        {{-1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_right},
+        {{ 0.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_right},
+
+        /* bottom */
+        {{-2.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{-1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{ 0.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_bottom},
+    },
+    nudge_right_tris[] =
+    {
+        /* left */
+        {{eps - 2.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_left},
+        {{eps - 2.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_left},
+        {{eps - 1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_left},
+
+        /* top */
+        {{eps - 1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_top},
+        {{eps - 2.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_top},
+        {{eps - 0.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_top},
+
+        /* right */
+        {{eps - 0.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_right},
+        {{eps - 1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_right},
+        {{eps - 0.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_right},
+
+        /* bottom */
+        {{eps - 2.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{eps - 1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{eps - 0.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_bottom},
+    },
+    nudge_left_tris[] =
+    {
+        {{-eps - 2.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_left},
+        {{-eps - 2.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_left},
+        {{-eps - 1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_left},
+
+        /* top */
+        {{-eps - 1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_top},
+        {{-eps - 2.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_top},
+        {{-eps - 0.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_top},
+
+        /* right */
+        {{-eps - 0.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_right},
+        {{-eps - 1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_right},
+        {{-eps - 0.0f / 4.0f,  3.0f / 4.0f, 0.0f}, colour_right},
+
+        /* bottom */
+        {{-eps - 2.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{-eps - 1.0f / 4.0f,  1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{-eps - 0.0f / 4.0f, -1.0f / 4.0f, 0.0f}, colour_bottom},
+    },
+    nudge_top_tris[] =
+    {
+        /* left */
+        {{-2.0f / 4.0f, eps - 1.0f / 4.0f, 0.0f}, colour_left},
+        {{-2.0f / 4.0f, eps + 3.0f / 4.0f, 0.0f}, colour_left},
+        {{-1.0f / 4.0f, eps + 1.0f / 4.0f, 0.0f}, colour_left},
+
+        /* top */
+        {{-1.0f / 4.0f, eps + 1.0f / 4.0f, 0.0f}, colour_top},
+        {{-2.0f / 4.0f, eps + 3.0f / 4.0f, 0.0f}, colour_top},
+        {{ 0.0f / 4.0f, eps + 3.0f / 4.0f, 0.0f}, colour_top},
+
+        /* right */
+        {{ 0.0f / 4.0f, eps - 1.0f / 4.0f, 0.0f}, colour_right},
+        {{-1.0f / 4.0f, eps + 1.0f / 4.0f, 0.0f}, colour_right},
+        {{ 0.0f / 4.0f, eps + 3.0f / 4.0f, 0.0f}, colour_right},
+
+        /* bottom */
+        {{-2.0f / 4.0f, eps - 1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{-1.0f / 4.0f, eps + 1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{ 0.0f / 4.0f, eps - 1.0f / 4.0f, 0.0f}, colour_bottom},
+    },
+    nudge_bottom_tris[] =
+    {
+        /* left */
+        {{-2.0f / 4.0f, -eps - 1.0f / 4.0f, 0.0f}, colour_left},
+        {{-2.0f / 4.0f, -eps + 3.0f / 4.0f, 0.0f}, colour_left},
+        {{-1.0f / 4.0f, -eps + 1.0f / 4.0f, 0.0f}, colour_left},
+
+        /* top */
+        {{-1.0f / 4.0f, -eps + 1.0f / 4.0f, 0.0f}, colour_top},
+        {{-2.0f / 4.0f, -eps + 3.0f / 4.0f, 0.0f}, colour_top},
+        {{ 0.0f / 4.0f, -eps + 3.0f / 4.0f, 0.0f}, colour_top},
+
+        /* right */
+        {{ 0.0f / 4.0f, -eps - 1.0f / 4.0f, 0.0f}, colour_right},
+        {{-1.0f / 4.0f, -eps + 1.0f / 4.0f, 0.0f}, colour_right},
+        {{ 0.0f / 4.0f, -eps + 3.0f / 4.0f, 0.0f}, colour_right},
+
+        /* bottom */
+        {{-2.0f / 4.0f, -eps - 1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{-1.0f / 4.0f, -eps + 1.0f / 4.0f, 0.0f}, colour_bottom},
+        {{ 0.0f / 4.0f, -eps - 1.0f / 4.0f, 0.0f}, colour_bottom},
+    };
+
+    const struct
+    {
+        struct vec4 position;
+        DWORD diffuse;
+    }
+    center_tris_t[] =
+    {
+        /* left */
+        {{ 1.5f,  1.5f, 0.0f, 1.0f}, colour_left},
+        {{ 2.5f,  3.5f, 0.0f, 1.0f}, colour_left},
+        {{ 1.5f,  5.5f, 0.0f, 1.0f}, colour_left},
+
+        /* top */
+        {{ 1.5f,  1.5f, 0.0f, 1.0f}, colour_top},
+        {{ 3.5f,  1.5f, 0.0f, 1.0f}, colour_top},
+        {{ 2.5f,  3.5f, 0.0f, 1.0f}, colour_top},
+
+        /* right */
+        {{ 3.5f,  1.5f, 0.0f, 1.0f}, colour_right},
+        {{ 3.5f,  5.5f, 0.0f, 1.0f}, colour_right},
+        {{ 2.5f,  3.5f, 0.0f, 1.0f}, colour_right},
+
+        /* bottom */
+        {{ 2.5f,  3.5f, 0.0f, 1.0f}, colour_bottom},
+        {{ 3.5f,  5.5f, 0.0f, 1.0f}, colour_bottom},
+        {{ 1.5f,  5.5f, 0.0f, 1.0f}, colour_bottom},
+    },
+    edge_tris_t[] =
+    {
+        /* left */
+        {{ 2.0f,  1.0f, 0.0f, 1.0f}, colour_left},
+        {{ 3.0f,  3.0f, 0.0f, 1.0f}, colour_left},
+        {{ 2.0f,  5.0f, 0.0f, 1.0f}, colour_left},
+
+        /* top */
+        {{ 2.0f,  1.0f, 0.0f, 1.0f}, colour_top},
+        {{ 4.0f,  1.0f, 0.0f, 1.0f}, colour_top},
+        {{ 3.0f,  3.0f, 0.0f, 1.0f}, colour_top},
+
+        /* right */
+        {{ 4.0f,  1.0f, 0.0f, 1.0f}, colour_right},
+        {{ 4.0f,  5.0f, 0.0f, 1.0f}, colour_right},
+        {{ 3.0f,  3.0f, 0.0f, 1.0f}, colour_right},
+
+        /* bottom */
+        {{ 3.0f,  3.0f, 0.0f, 1.0f}, colour_bottom},
+        {{ 4.0f,  5.0f, 0.0f, 1.0f}, colour_bottom},
+        {{ 2.0f,  5.0f, 0.0f, 1.0f}, colour_bottom},
+    };
+
+    const struct
+    {
+        const void *geometry;
+        size_t stride;
+        DWORD fvf;
+        const char *expected[8];
+    }
+    tests[] =
+    {
+        {
+            center_tris,
+            sizeof(center_tris[0]),
+            D3DFVF_XYZ | D3DFVF_DIFFUSE,
+            {
+                "        ",
+                "        ",
+                "  TT    ",
+                "  LR    ",
+                "  LR    ",
+                "  BB    ",
+                "        ",
+                "        "
+            }
+        },
+        {
+            edge_tris,
+            sizeof(edge_tris[0]),
+            D3DFVF_XYZ | D3DFVF_DIFFUSE,
+            {
+                "        ",
+                "  TT    ",
+                "  LT    ",
+                "  LR    ",
+                "  LB    ",
+                "        ",
+                "        ",
+                "        "
+            }
+        },
+        {
+            nudge_right_tris,
+            sizeof(nudge_right_tris[0]),
+            D3DFVF_XYZ | D3DFVF_DIFFUSE,
+            {
+                "        ",
+                "   TT   ",
+                "   TR   ",
+                "   LR   ",
+                "   BR   ",
+                "        ",
+                "        ",
+                "        "
+            }
+        },
+        {
+            nudge_left_tris,
+            sizeof(nudge_left_tris[0]),
+            D3DFVF_XYZ | D3DFVF_DIFFUSE,
+            {
+                "        ",
+                "  TT    ",
+                "  LT    ",
+                "  LR    ",
+                "  LB    ",
+                "        ",
+                "        ",
+                "        "
+            }
+        },
+        {
+            nudge_top_tris,
+            sizeof(nudge_top_tris[0]),
+            D3DFVF_XYZ | D3DFVF_DIFFUSE,
+            {
+                "        ",
+                "  LT    ",
+                "  LT    ",
+                "  LB    ",
+                "  LB    ",
+                "        ",
+                "        ",
+                "        "
+            }
+        },
+        {
+            nudge_bottom_tris,
+            sizeof(nudge_bottom_tris[0]),
+            D3DFVF_XYZ | D3DFVF_DIFFUSE,
+            {
+                "        ",
+                "        ",
+                "  LT    ",
+                "  Lt    ",
+                "  LB    ",
+                "  lB    ",
+                "        ",
+                "        "
+            }
+        },
+        {
+            center_tris_t,
+            sizeof(center_tris_t[0]),
+            D3DFVF_XYZRHW | D3DFVF_DIFFUSE,
+            {
+                "        ",
+                "        ",
+                "  TT    ",
+                "  LR    ",
+                "  LR    ",
+                "  BB    ",
+                "        ",
+                "        "
+            }
+        },
+        {
+            edge_tris_t,
+            sizeof(edge_tris_t[0]),
+            D3DFVF_XYZRHW | D3DFVF_DIFFUSE,
+            {
+                "        ",
+                "  TT    ",
+                "  LT    ",
+                "  LR    ",
+                "  LB    ",
+                "        ",
+                "        ",
+                "        "
+            }
+        },
+    };
+
+    window = create_window();
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+
+    if (!(device = create_device(d3d, window, window, TRUE)))
+    {
+        skip("Failed to create a 3D device.\n");
+        IDirect3D9_Release(d3d);
+        DestroyWindow(window);
+        return;
+    }
+
+    hr = IDirect3DDevice9_CreateRenderTarget(device, vp_size, vp_size,
+            D3DFMT_A8R8G8B8, D3DMULTISAMPLE_NONE, 0, FALSE, &rt, NULL);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    hr = IDirect3DDevice9_GetBackBuffer(device, 0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+    hr = IDirect3DDevice9_GetDeviceCaps(device, &caps);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    if (caps.VertexShaderVersion >= D3DVS_VERSION(1, 1))
+    {
+        hr = IDirect3DDevice9_CreateVertexShader(device, vs_code, &shader);
+        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    }
+    else
+        skip("Skipping vertex shader codepath in filling convention test.\n");
+
+    hr = IDirect3DDevice9_SetRenderState(device, D3DRS_LIGHTING, FALSE);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+    hr = IDirect3DDevice9_SetRenderState(device, D3DRS_ZENABLE, D3DZB_FALSE);
+    ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+    for (i = 0; i < ARRAY_SIZE(tests); ++i)
+    {
+        hr = IDirect3DDevice9_SetFVF(device, tests[i].fvf);
+        ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+        /* Run tests with shader and fixed function vertex processing if shaders are
+         * supported. There's no point in running the XYZRHW tests with a VS though. */
+        if (shader && ((tests[i].fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZ))
+            j = 0;
+        else
+            j = 2;
+
+        for (; j < 4; ++j)
+        {
+            cur = (j & 1) ? rt : backbuffer;
+
+            hr = IDirect3DDevice9_SetVertexShader(device, (j & 2) ? NULL : shader);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+            hr = IDirect3DDevice9_SetRenderTarget(device, 0, cur);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+            hr = IDirect3DDevice9_Clear(device, 0, NULL, D3DCLEAR_TARGET, colour_clear, 0.0f, 0);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+            hr = IDirect3DDevice9_SetViewport(device, &vp);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+            hr = IDirect3DDevice9_BeginScene(device);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+            hr = IDirect3DDevice9_DrawPrimitiveUP(device, D3DPT_TRIANGLELIST, 4, tests[i].geometry, tests[i].stride);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+            hr = IDirect3DDevice9_EndScene(device);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+
+            get_rt_readback(cur, &rb);
+            for (y = 0; y < 8; y++)
+            {
+                for (x = 0; x < 8; x++)
+                {
+                    todo = FALSE;
+                    switch (tests[i].expected[y][x])
+                    {
+                        case 'l': todo = TRUE;
+                        case 'L':
+                            expected = colour_left;
+                            break;
+                        case 't': todo = TRUE;
+                        case 'T':
+                            expected = colour_top;
+                            break;
+                        case 'r': todo = TRUE;
+                        case 'R':
+                            expected = colour_right;
+                            break;
+                        case 'b': todo = TRUE;
+                        case 'B':
+                            expected = colour_bottom;
+                            break;
+                        case ' ':
+                            expected = colour_clear;
+                            break;
+                        default:
+                            ok(0, "Unexpected entry in expected test char\n");
+                            expected = 0xdeadbeef;
+                    }
+                    colour = get_readback_color(&rb, x, y);
+                    /* The nudge-to-bottom test fails on cards that give us a bottom-left
+                     * filling convention. The cause isn't the bottom part of the filling
+                     * convention, but because wined3d will nudge geometry to the left to
+                     * keep diagonals (the 'R' in test case 'edge_tris') intact. */
+                    todo_wine_if(todo && !color_match(colour, expected, 1))
+                        ok(color_match(colour, expected, 1), "Got unexpected colour %08x, %ux%u, case %u, j %u.\n",
+                                colour, x, y, i, j);
+                }
+            }
+            release_surface_readback(&rb);
+
+            /* For debugging */
+            if (cur != backbuffer)
+            {
+                hr = IDirect3DDevice9_StretchRect(device, rt, NULL, backbuffer, NULL, D3DTEXF_POINT);
+                ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+            }
+            hr = IDirect3DDevice9_Present(device, NULL, NULL, NULL, NULL);
+            ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
+        }
+    }
+
+    if (shader)
+        IDirect3DVertexShader9_Release(shader);
+    IDirect3DSurface9_Release(backbuffer);
+    IDirect3DSurface9_Release(rt);
+    refcount = IDirect3DDevice9_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+    IDirect3D9_Release(d3d);
+    DestroyWindow(window);
+}
+
 START_TEST(visual)
 {
     D3DADAPTER_IDENTIFIER9 identifier;
@@ -27060,4 +27651,6 @@ START_TEST(visual)
     test_sample_attached_rendertarget();
     test_alpha_to_coverage();
     test_sample_mask();
+    test_dynamic_map_synchronization();
+    test_filling_convention();
 }

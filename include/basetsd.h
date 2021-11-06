@@ -19,8 +19,8 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#ifndef __WINE_BASETSD_H
-#define __WINE_BASETSD_H
+#ifndef _BASETSD_H_
+#define _BASETSD_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -275,6 +275,10 @@ typedef ULONG_PTR KAFFINITY, *PKAFFINITY;
 # undef  WORDS_BIGENDIAN
 #elif defined(__x86_64__)
 # undef  WORDS_BIGENDIAN
+#elif defined(__powerpc64__) && defined(__BIG_ENDIAN__)
+# define WORDS_BIGENDIAN
+#elif defined(__powerpc64__)
+# undef  WORDS_BIGENDIAN
 #elif defined(__powerpc__)
 # define WORDS_BIGENDIAN
 #elif defined(__ALPHA__)
@@ -299,4 +303,4 @@ typedef ULONG_PTR KAFFINITY, *PKAFFINITY;
 } /* extern "C" */
 #endif /* defined(__cplusplus) */
 
-#endif /* !defined(__WINE_BASETSD_H) */
+#endif /* !defined(_BASETSD_H_) */

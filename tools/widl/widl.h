@@ -21,6 +21,7 @@
 #ifndef __WIDL_WIDL_H
 #define __WIDL_WIDL_H
 
+#include "../tools.h"
 #include "widltypes.h"
 
 #include <time.h>
@@ -76,7 +77,7 @@ extern int char_number;
 
 enum target_cpu
 {
-    CPU_x86, CPU_x86_64, CPU_POWERPC, CPU_ARM, CPU_ARM64, CPU_LAST = CPU_ARM64
+    CPU_x86, CPU_x86_64, CPU_POWERPC, CPU_ARM, CPU_ARM64, CPU_POWERPC64, CPU_LAST = CPU_POWERPC64
 };
 
 extern enum target_cpu target_cpu;

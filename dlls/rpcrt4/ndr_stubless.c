@@ -1023,12 +1023,12 @@ __ASM_GLOBAL_FUNC( NdrClientCall2,
  */
 CLIENT_CALL_RETURN WINAPIV NdrClientCall2( PMIDL_STUB_DESC desc, PFORMAT_STRING format, ... )
 {
-    __ms_va_list args;
+    va_list args;
     LONG_PTR ret;
 
-    __ms_va_start( args, format );
+    va_start( args, format );
     ret = ndr_client_call( desc, format, va_arg( args, void ** ), NULL );
-    __ms_va_end( args );
+    va_end( args );
     return *(CLIENT_CALL_RETURN *)&ret;
 }
 
@@ -1144,7 +1144,6 @@ __ASM_GLOBAL_FUNC( call_server_func,
 #elif defined __arm__
 LONG_PTR __cdecl call_server_func(SERVER_ROUTINE func, unsigned char *args, unsigned int stack_size);
 __ASM_GLOBAL_FUNC( call_server_func,
-                   ".arm\n\t"
                    "push {r4, r5, LR}\n\t"
                    "mov r4, r0\n\t"
                    "mov r5, SP\n\t"
@@ -1153,6 +1152,7 @@ __ASM_GLOBAL_FUNC( call_server_func,
                    "beq 5f\n\t"
                    "sub SP, SP, r2\n\t"
                    "tst r3, #1\n\t"
+                   "it eq\n\t"
                    "subeq SP, SP, #4\n\t"
                    "1:\tsub r2, r2, #4\n\t"
                    "ldr r0, [r1, r2]\n\t"
@@ -1923,12 +1923,12 @@ __ASM_GLOBAL_FUNC( NdrAsyncClientCall,
  */
 CLIENT_CALL_RETURN WINAPIV NdrAsyncClientCall( PMIDL_STUB_DESC desc, PFORMAT_STRING format, ... )
 {
-    __ms_va_list args;
+    va_list args;
     LONG_PTR ret;
 
-    __ms_va_start( args, format );
+    va_start( args, format );
     ret = ndr_async_client_call( desc, format, va_arg( args, void ** ));
-    __ms_va_end( args );
+    va_end( args );
     return *(CLIENT_CALL_RETURN *)&ret;
 }
 
@@ -2263,12 +2263,12 @@ __ASM_GLOBAL_FUNC( NdrClientCall3,
  */
 CLIENT_CALL_RETURN WINAPIV NdrClientCall3( MIDL_STUBLESS_PROXY_INFO *info, ULONG proc, void *retval, ... )
 {
-    __ms_va_list args;
+    va_list args;
     LONG_PTR ret;
 
-    __ms_va_start( args, retval );
+    va_start( args, retval );
     ret = ndr64_client_call( info, proc, retval, va_arg( args, void ** ), NULL );
-    __ms_va_end( args );
+    va_end( args );
     return *(CLIENT_CALL_RETURN *)&ret;
 }
 
@@ -2323,12 +2323,12 @@ __ASM_GLOBAL_FUNC( Ndr64AsyncClientCall,
  */
 CLIENT_CALL_RETURN WINAPIV Ndr64AsyncClientCall( MIDL_STUBLESS_PROXY_INFO *info, ULONG proc, void *retval, ... )
 {
-    __ms_va_list args;
+    va_list args;
     LONG_PTR ret;
 
-    __ms_va_start( args, retval );
+    va_start( args, retval );
     ret = ndr64_async_client_call( info, proc, retval, va_arg( args, void ** ), NULL );
-    __ms_va_end( args );
+    va_end( args );
     return *(CLIENT_CALL_RETURN *)&ret;
 }
 
