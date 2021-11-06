@@ -24,11 +24,11 @@ jobs:
           make
           cd ../wine32
           ../configure --prefix="${pkgdir}" --libdir="${pkgdir}/lib32" --with-x --without-oss --without-vkd3d --disable-tests --with-wine64=../wine64 CFLAGS="${CFLAGS}" CC="ccache gcc"
-          make STRIP=true prefix="${pkgdir}" libdir="${pkgdir}/lib32" dlldir="${pkgdir}/lib32/wine" DESTDIR=builds/wine-crossroads-ubuntu install
+          make STRIP=true prefix="${pkgdir}" libdir="${pkgdir}/lib32" dlldir="${pkgdir}/lib32/wine" DESTDIR=../builds/wine-crossroads-ubuntu install
           cd ../wine64
-          make STRIP=true prefix="${pkgdir}" libdir="${pkgdir}/lib" dlldir="${pkgdir}/lib/wine" DESTDIR=builds/wine-crossroads-ubuntu install
-          sed 's/winemenubuilder.exe -a -r/winemenubuilder.exe -r/g' ~/Wine/Builds/bin/wine-crossroads-ubuntu/share/wine/wine.inf -i
-          sed 's|    LicenseInformation|    LicenseInformation,\\\n    FileOpenAssociations|g;$a \\n[FileOpenAssociations]\nHKCU,Software\\Wine\\FileOpenAssociations,"Enable",,"N"' ~/Wine/Builds/bin/wine-crossroads-ubuntu/share/wine/wine.inf -i
+          make STRIP=true prefix="${pkgdir}" libdir="${pkgdir}/lib" dlldir="${pkgdir}/lib/wine" DESTDIR=../builds/wine-crossroads-ubuntu install
+          sed 's/winemenubuilder.exe -a -r/winemenubuilder.exe -r/g' ../builds/bin/wine-crossroads-ubuntu/share/wine/wine.inf -i
+          sed 's|    LicenseInformation|    LicenseInformation,\\\n    FileOpenAssociations|g;$a \\n[FileOpenAssociations]\nHKCU,Software\\Wine\\FileOpenAssociations,"Enable",,"N"' ../builds/bin/wine-crossroads-ubuntu/share/wine/wine.inf -i
        - name: Archive the artifacts
          uses: actions/upload-artifact@v2
          with:
