@@ -260,6 +260,7 @@ static inline void init_thread_structure( struct thread *thread )
     thread->token           = NULL;
     thread->desc            = NULL;
     thread->desc_len        = 0;
+    thread->exit_poll       = NULL;
 
     thread->creation_time = current_time;
     thread->exit_time     = 0;
@@ -475,6 +476,7 @@ static void destroy_thread( struct object *obj )
     list_remove( &thread->entry );
     cleanup_thread( thread );
     release_object( thread->process );
+    if (thread->exit_poll) remove_timeout_user( thread->exit_poll );
     if (thread->id) free_ptid( thread->id );
     if (thread->token) release_object( thread->token );
 
@@ -495,7 +497,7 @@ static void dump_thread( struct object *obj, int verbose )
 static int thread_signaled( struct object *obj, struct wait_queue_entry *entry )
 {
     struct thread *mythread = (struct thread *)obj;
-    return (mythread->state == TERMINATED);
+    return mythread->state == TERMINATED && !mythread->exit_poll;
 }
 
 static int thread_get_esync_fd( struct object *obj, enum esync_type *type )
@@ -620,19 +622,8 @@ int set_thread_affinity( struct thread *thread, affinity_t affinity )
 
         CPU_ZERO( &set );
         for (i = 0, mask = 1; mask; i++, mask <<= 1)
-            if (affinity & mask)
-            {
-                if (thread->process->cpu_override.cpu_count)
-                {
-                    if (i >= thread->process->cpu_override.cpu_count)
-                        break;
-                    CPU_SET( thread->process->cpu_override.host_cpu_id[i], &set );
-                }
-                else
-                {
-                    CPU_SET( i, &set );
-                }
-            }
+            if (affinity & mask) CPU_SET( i, &set );
+
         ret = sched_setaffinity( thread->unix_tid, sizeof(set), &set );
     }
 #endif
@@ -677,7 +668,10 @@ static void set_thread_info( struct thread *thread,
         if ((req->priority >= min && req->priority <= max) ||
             req->priority == THREAD_PRIORITY_IDLE ||
             req->priority == THREAD_PRIORITY_TIME_CRITICAL)
+        {
             thread->priority = req->priority;
+            set_scheduler_priority( thread );
+        }
         else
             set_error( STATUS_INVALID_PARAMETER );
     }
@@ -1342,6 +1336,26 @@ int thread_get_inflight_fd( struct thread *thread, int client )
     return -1;
 }
 
+static void check_terminated( void *arg )
+{
+    struct thread *thread = arg;
+    assert( thread->obj.ops == &thread_ops );
+    assert( thread->state == TERMINATED );
+
+    /* don't wake up until the thread is really dead, to avoid race conditions */
+    if (thread->unix_tid != -1 && !kill( thread->unix_tid, 0 ))
+    {
+        thread->exit_poll = add_timeout_user( -TICKS_PER_SEC / 1000, check_terminated, thread );
+        return;
+    }
+
+    /* grab reference since object can be destroyed while trying to wake up */
+    grab_object( &thread->obj );
+    thread->exit_poll = NULL;
+    wake_up( &thread->obj, 0 );
+    release_object( &thread->obj );
+}
+
 /* kill a thread on the spot */
 void kill_thread( struct thread *thread, int violent_death )
 {
@@ -1365,8 +1379,12 @@ void kill_thread( struct thread *thread, int violent_death )
         fsync_abandon_mutexes( thread );
     if (do_esync())
         esync_abandon_mutexes( thread );
-    wake_up( &thread->obj, 0 );
-    if (violent_death) send_thread_signal( thread, SIGQUIT );
+    if (violent_death)
+    {
+        send_thread_signal( thread, SIGQUIT );
+        check_terminated( thread );
+    }
+    else wake_up( &thread->obj, 0 );
     cleanup_thread( thread );
     remove_process_thread( thread->process, thread );
     release_object( thread );
@@ -1491,7 +1509,7 @@ DECL_HANDLER(init_first_thread)
 
     if (!process->parent_id)
         process->affinity = current->affinity = get_thread_affinity( current );
-    else if (!process->cpu_override.cpu_count)
+    else
         set_thread_affinity( current, current->affinity );
 
     debug_level = max( debug_level, req->debug_level );
@@ -1520,12 +1538,10 @@ DECL_HANDLER(init_thread)
     current->unix_tid = req->unix_tid;
     current->teb      = req->teb;
     current->entry_point = req->entry;
-    struct process *process = current->process;
 
     init_thread_context( current );
     generate_debug_event( current, DbgCreateThreadStateChange, &req->entry );
-    if (!process->cpu_override.cpu_count)
-        set_thread_affinity( current, current->affinity );
+    set_thread_affinity( current, current->affinity );
 
     reply->suspend = (current->suspend || current->process->suspend || current->context != NULL);
 }
