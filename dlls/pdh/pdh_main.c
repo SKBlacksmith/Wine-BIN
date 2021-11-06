@@ -67,25 +67,6 @@ static inline WCHAR *pdh_strdup_aw( const char *src )
     return dst;
 }
 
-BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved)
-{
-    TRACE("(0x%p, %d, %p)\n",hinstDLL,fdwReason,lpvReserved);
-    switch (fdwReason)
-    {
-    case DLL_WINE_PREATTACH:
-        return FALSE;    /* prefer native version */
-    case DLL_PROCESS_ATTACH:
-        DisableThreadLibraryCalls(hinstDLL);
-        break;
-    case DLL_PROCESS_DETACH:
-        if (lpvReserved) break;
-        DeleteCriticalSection(&pdh_handle_cs);
-        break;
-    }
-
-    return TRUE;
-}
-
 union value
 {
     LONG     longvalue;
@@ -303,7 +284,8 @@ PDH_STATUS WINAPI PdhAddEnglishCounterA( PDH_HQUERY query, LPCSTR path,
 {
     TRACE("%p %s %lx %p\n", query, debugstr_a(path), userdata, counter);
 
-    if (!query) return PDH_INVALID_ARGUMENT;
+    if (!counter) return PDH_INVALID_ARGUMENT;
+    if (!query) return PDH_INVALID_HANDLE;
     return PdhAddCounterA( query, path, userdata, counter );
 }
 
@@ -315,7 +297,8 @@ PDH_STATUS WINAPI PdhAddEnglishCounterW( PDH_HQUERY query, LPCWSTR path,
 {
     TRACE("%p %s %lx %p\n", query, debugstr_w(path), userdata, counter);
 
-    if (!query) return PDH_INVALID_ARGUMENT;
+    if (!counter) return PDH_INVALID_ARGUMENT;
+    if (!query) return PDH_INVALID_HANDLE;
     return PdhAddCounterW( query, path, userdata, counter );
 }
 

@@ -330,6 +330,7 @@ static const tid_t HTMLSelectionObject_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLSelectionObject_dispex = {
+    L"MSSelection",
     NULL,
     IHTMLSelectionObject_tid, /* FIXME: We have a test for that, but it doesn't expose IHTMLSelectionObject2 iface. */
     HTMLSelectionObject_iface_tids
@@ -343,7 +344,8 @@ HRESULT HTMLSelectionObject_Create(HTMLDocumentNode *doc, nsISelection *nsselect
     if(!selection)
         return E_OUTOFMEMORY;
 
-    init_dispex(&selection->dispex, (IUnknown*)&selection->IHTMLSelectionObject_iface, &HTMLSelectionObject_dispex);
+    init_dispatch(&selection->dispex, (IUnknown*)&selection->IHTMLSelectionObject_iface,
+                  &HTMLSelectionObject_dispex, dispex_compat_mode(&doc->node.event_target.dispex));
 
     selection->IHTMLSelectionObject_iface.lpVtbl = &HTMLSelectionObjectVtbl;
     selection->IHTMLSelectionObject2_iface.lpVtbl = &HTMLSelectionObject2Vtbl;

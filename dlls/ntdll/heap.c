@@ -36,7 +36,6 @@
 #include "ntdll_misc.h"
 #include "wine/list.h"
 #include "wine/debug.h"
-#include "wine/server.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(heap);
 
@@ -974,7 +973,7 @@ static SUBHEAP *HEAP_CreateSubHeap( HEAP *heap, LPVOID address, DWORD flags,
             if (!sem) NtCreateSemaphore( &sem, SEMAPHORE_ALL_ACCESS, NULL, 0, 1 );
 
             NtDuplicateObject( NtCurrentProcess(), sem, NtCurrentProcess(), &sem, 0, 0,
-                               DUP_HANDLE_MAKE_GLOBAL | DUP_HANDLE_SAME_ACCESS | DUP_HANDLE_CLOSE_SOURCE );
+                               DUPLICATE_MAKE_GLOBAL | DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE );
             heap->critSection.LockSemaphore = sem;
             RtlFreeHeap( processHeap, 0, heap->critSection.DebugInfo );
             heap->critSection.DebugInfo = NULL;
@@ -1440,7 +1439,7 @@ static BOOL validate_block_pointer( HEAP *heap, SUBHEAP **ret_subheap, const ARE
 /***********************************************************************
  *           heap_set_debug_flags
  */
-void heap_set_debug_flags( HANDLE handle )
+static void heap_set_debug_flags( HANDLE handle )
 {
     HEAP *heap = HEAP_GetPtr( handle );
     ULONG global_flags = RtlGetNtGlobalFlags();
@@ -1508,7 +1507,7 @@ void heap_set_debug_flags( HANDLE handle )
     if ((heap->flags & HEAP_GROWABLE) && !heap->pending_free &&
         ((flags & HEAP_FREE_CHECKING_ENABLED) || RUNNING_ON_VALGRIND))
     {
-        heap->pending_free = RtlAllocateHeap( GetProcessHeap(), HEAP_ZERO_MEMORY,
+        heap->pending_free = RtlAllocateHeap( handle, HEAP_ZERO_MEMORY,
                                               MAX_FREE_PENDING * sizeof(*heap->pending_free) );
         heap->pending_pos = 0;
     }

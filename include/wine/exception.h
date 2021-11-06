@@ -22,6 +22,7 @@
 #define __WINE_WINE_EXCEPTION_H
 
 #include <windef.h>
+#include <winternl.h>
 #include <excpt.h>
 
 #ifdef __cplusplus
@@ -285,22 +286,6 @@ static inline EXCEPTION_REGISTRATION_RECORD *__wine_get_frame(void)
     return teb->ExceptionList;
 #endif
 }
-
-/* Exception handling flags - from OS/2 2.0 exception handling */
-
-/* Win32 seems to use the same flags as ExceptionFlags in an EXCEPTION_RECORD */
-#define EH_NONCONTINUABLE   0x01
-#define EH_UNWINDING        0x02
-#define EH_EXIT_UNWIND      0x04
-#define EH_STACK_INVALID    0x08
-#define EH_NESTED_CALL      0x10
-#define EH_TARGET_UNWIND    0x20
-#define EH_COLLIDED_UNWIND  0x40
-
-/* Wine-specific exceptions codes */
-
-#define EXCEPTION_WINE_STUB       0x80000100  /* stub entry point called */
-#define EXCEPTION_WINE_ASSERTION  0x80000101  /* assertion failed */
 
 #ifdef __cplusplus
 }

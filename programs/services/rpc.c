@@ -35,8 +35,6 @@
 #include "services.h"
 #include "svcctl.h"
 
-extern HANDLE CDECL __wine_make_process_system(void);
-
 WINE_DEFAULT_DEBUG_CHANNEL(service);
 
 static const GENERIC_MAPPING g_scm_generic =
@@ -859,7 +857,7 @@ static void fill_notify(struct sc_notify_handle *notify, struct service_entry *s
     list->cElements = 1;
 
     list->NotifyParamsArray[0].dwInfoLevel = 2;
-    list->NotifyParamsArray[0].u.params = cparams;
+    list->NotifyParamsArray[0].params = cparams;
 
     InterlockedExchangePointer((void**)&notify->params_list, list);
 
@@ -934,12 +932,12 @@ DWORD __cdecl svcctl_ChangeServiceConfig2W( SC_RPC_HANDLE hService, SC_RPC_CONFI
         {
             WCHAR *descr = NULL;
 
-            if (!config.u.descr->lpDescription)
+            if (!config.descr->lpDescription)
                 break;
 
-            if (config.u.descr->lpDescription[0])
+            if (config.descr->lpDescription[0])
             {
-                if (!(descr = strdupW( config.u.descr->lpDescription )))
+                if (!(descr = strdupW( config.descr->lpDescription )))
                     return ERROR_NOT_ENOUGH_MEMORY;
             }
 
@@ -953,15 +951,15 @@ DWORD __cdecl svcctl_ChangeServiceConfig2W( SC_RPC_HANDLE hService, SC_RPC_CONFI
         break;
     case SERVICE_CONFIG_FAILURE_ACTIONS:
         WINE_FIXME( "SERVICE_CONFIG_FAILURE_ACTIONS not implemented: period %u msg %s cmd %s\n",
-                    config.u.actions->dwResetPeriod,
-                    wine_dbgstr_w(config.u.actions->lpRebootMsg),
-                    wine_dbgstr_w(config.u.actions->lpCommand) );
+                    config.actions->dwResetPeriod,
+                    wine_dbgstr_w(config.actions->lpRebootMsg),
+                    wine_dbgstr_w(config.actions->lpCommand) );
         break;
     case SERVICE_CONFIG_PRESHUTDOWN_INFO:
         WINE_TRACE( "changing service %p preshutdown timeout to %d\n",
-                service, config.u.preshutdown->dwPreshutdownTimeout );
+                service, config.preshutdown->dwPreshutdownTimeout );
         service_lock( service->service_entry );
-        service->service_entry->preshutdown_timeout = config.u.preshutdown->dwPreshutdownTimeout;
+        service->service_entry->preshutdown_timeout = config.preshutdown->dwPreshutdownTimeout;
         save_service_config( service->service_entry );
         service_unlock( service->service_entry );
         break;
@@ -981,7 +979,7 @@ DWORD __cdecl svcctl_QueryServiceConfig2W( SC_RPC_HANDLE hService, DWORD level,
 
     memset(buffer, 0, size);
 
-    if ((err = validate_service_handle(hService, SERVICE_QUERY_STATUS, &service)) != 0)
+    if ((err = validate_service_handle(hService, SERVICE_QUERY_CONFIG, &service)) != 0)
         return err;
 
     switch (level)
@@ -1682,7 +1680,7 @@ DWORD __cdecl svcctl_NotifyServiceStatusChange(
     struct sc_handle *hdr = handle;
 
     WINE_TRACE("(%p, NotifyMask: 0x%x, %p, %p, %p, %p)\n", handle,
-            params.u.params->dwNotifyMask, clientprocessguid, scmprocessguid,
+            params.params->dwNotifyMask, clientprocessguid, scmprocessguid,
             createremotequeue, hNotify);
 
     switch (hdr->type)
@@ -1716,7 +1714,7 @@ DWORD __cdecl svcctl_NotifyServiceStatusChange(
 
     notify->event = CreateEventW(NULL, TRUE, FALSE, NULL);
 
-    notify->notify_mask = params.u.params->dwNotifyMask;
+    notify->notify_mask = params.params->dwNotifyMask;
 
     service_lock(service->service_entry);
 
@@ -2135,7 +2133,8 @@ DWORD RPC_Init(void)
         return err;
     }
 
-    exit_event = __wine_make_process_system();
+    NtSetInformationProcess( GetCurrentProcess(), ProcessWineMakeProcessSystem,
+                             &exit_event, sizeof(HANDLE *) );
     return ERROR_SUCCESS;
 }
 

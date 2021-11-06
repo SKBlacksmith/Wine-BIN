@@ -260,28 +260,32 @@ HRESULT WINAPI DllCanUnloadNow(void)
 }
 
 /***********************************************************************
- *          DllRegisterServer (ieframe.@)
- */
-HRESULT WINAPI DllRegisterServer(void)
-{
-    TRACE("()\n");
-    return __wine_register_resources(ieframe_instance);
-}
-
-/***********************************************************************
- *          DllUnregisterServer (ieframe.@)
- */
-HRESULT WINAPI DllUnregisterServer(void)
-{
-    TRACE("()\n");
-    return __wine_unregister_resources(ieframe_instance);
-}
-
-/***********************************************************************
  *          IEGetWriteableHKCU (ieframe.@)
  */
 HRESULT WINAPI IEGetWriteableHKCU(HKEY *pkey)
 {
     FIXME("(%p) stub\n", pkey);
     return E_NOTIMPL;
+}
+
+/***********************************************************************
+ *          SetQueryNetSessionCount (ieframe.@)
+ */
+LONG WINAPI SetQueryNetSessionCount(DWORD session_op)
+{
+    static LONG session_count;
+
+    TRACE("(%x)\n", session_op);
+
+    switch(session_op)
+    {
+    case SESSION_QUERY:
+        return session_count;
+    case SESSION_INCREMENT:
+        return InterlockedIncrement(&session_count);
+    case SESSION_DECREMENT:
+        return InterlockedDecrement(&session_count);
+    };
+
+    return 0;
 }

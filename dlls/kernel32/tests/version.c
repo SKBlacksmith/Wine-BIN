@@ -21,9 +21,14 @@
 #include "wine/test.h"
 #include "winbase.h"
 #include "winternl.h"
+#include "appmodel.h"
 
+static LONG (WINAPI * pGetPackagePath)(const PACKAGE_ID *, const UINT32, UINT32 *, WCHAR *);
+static LONG (WINAPI * pGetPackagesByPackageFamily)(const WCHAR *, UINT32 *, WCHAR **, UINT32 *, WCHAR *);
 static BOOL (WINAPI * pGetProductInfo)(DWORD, DWORD, DWORD, DWORD, DWORD *);
 static UINT (WINAPI * pGetSystemFirmwareTable)(DWORD, DWORD, void *, DWORD);
+static LONG (WINAPI * pPackageFullNameFromId)(const PACKAGE_ID *, UINT32 *, WCHAR *);
+static LONG (WINAPI * pPackageIdFromFullName)(const WCHAR *, UINT32, UINT32 *, BYTE *);
 static NTSTATUS (WINAPI * pNtQuerySystemInformation)(SYSTEM_INFORMATION_CLASS, void *, ULONG, ULONG *);
 static NTSTATUS (WINAPI * pRtlGetVersion)(RTL_OSVERSIONINFOEXW *);
 
@@ -41,8 +46,12 @@ static void init_function_pointers(void)
 
     hmod = GetModuleHandleA("kernel32.dll");
 
+    GET_PROC(GetPackagePath);
+    GET_PROC(GetPackagesByPackageFamily);
     GET_PROC(GetProductInfo);
     GET_PROC(GetSystemFirmwareTable);
+    GET_PROC(PackageFullNameFromId);
+    GET_PROC(PackageIdFromFullName);
 
     hmod = GetModuleHandleA("ntdll.dll");
 
@@ -746,12 +755,556 @@ static void test_GetSystemFirmwareTable(void)
     HeapFree(GetProcessHeap(), 0, smbios_table);
 }
 
+static const struct
+{
+    UINT32 code;
+    const WCHAR *name;
+    BOOL broken;
+}
+arch_data[] =
+{
+    {PROCESSOR_ARCHITECTURE_INTEL,   L"X86"},
+    {PROCESSOR_ARCHITECTURE_ARM,     L"Arm"},
+    {PROCESSOR_ARCHITECTURE_AMD64,   L"X64"},
+    {PROCESSOR_ARCHITECTURE_NEUTRAL, L"Neutral"},
+    {PROCESSOR_ARCHITECTURE_ARM64,   L"Arm64",   TRUE /* Before Win10. */},
+    {PROCESSOR_ARCHITECTURE_UNKNOWN, L"Unknown", TRUE /* Before Win10 1709. */},
+};
+
+static const WCHAR *arch_string_from_code(UINT32 arch)
+{
+    unsigned int i;
+
+    for (i = 0; i < ARRAY_SIZE(arch_data); ++i)
+        if (arch_data[i].code == arch)
+            return arch_data[i].name;
+
+    return NULL;
+}
+
+static unsigned int get_package_str_size(const WCHAR *str)
+{
+    return str ? (lstrlenW(str) + 1) * sizeof(*str) : 0;
+}
+
+static unsigned int get_package_id_size(const PACKAGE_ID *id)
+{
+    return sizeof(*id) + get_package_str_size(id->name)
+            + get_package_str_size(id->resourceId) + 14 * sizeof(WCHAR);
+}
+
+static void packagefullname_from_packageid(WCHAR *buffer, size_t count, const PACKAGE_ID *id)
+{
+    swprintf(buffer, count, L"%s_%u.%u.%u.%u_%s_%s_%s", id->name, id->version.Major,
+            id->version.Minor, id->version.Build, id->version.Revision,
+            arch_string_from_code(id->processorArchitecture), id->resourceId,
+            id->publisherId);
+}
+
+static void test_PackageIdFromFullName(void)
+{
+    static const PACKAGE_ID test_package_id =
+    {
+        0, PROCESSOR_ARCHITECTURE_INTEL,
+                {{.Major = 1, .Minor = 2, .Build = 3, .Revision = 4}},
+                (WCHAR *)L"TestPackage", (WCHAR *)L"TestResource",
+                (WCHAR *)L"TestResourceId", (WCHAR *)L"0abcdefghjkme"
+    };
+    static const WCHAR test_package_fullname[] =
+            L"TestPackage_1.2.3.4_x86_TestResourceId_0abcdefghjkme";
+    UINT32 size, expected_size;
+    PACKAGE_ID test_id;
+    WCHAR fullname[512];
+    BYTE id_buffer[512];
+    unsigned int i;
+    PACKAGE_ID *id;
+    LONG ret;
+
+    if (!pPackageIdFromFullName)
+    {
+        win_skip("PackageIdFromFullName not available.\n");
+        return;
+    }
+
+    packagefullname_from_packageid(fullname, ARRAY_SIZE(fullname), &test_package_id);
+
+    id = (PACKAGE_ID *)id_buffer;
+
+    memset(id_buffer, 0xcc, sizeof(id_buffer));
+    expected_size = get_package_id_size(&test_package_id);
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(fullname, 0, &size, id_buffer);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    ok(size == expected_size, "Got unexpected length %u, expected %u.\n", size, expected_size);
+    ok(!lstrcmpW(id->name, test_package_id.name), "Got unexpected name %s.\n", debugstr_w(id->name));
+    ok(!lstrcmpW(id->resourceId, test_package_id.resourceId), "Got unexpected resourceId %s.\n",
+            debugstr_w(id->resourceId));
+    ok(!lstrcmpW(id->publisherId, test_package_id.publisherId), "Got unexpected publisherId %s.\n",
+            debugstr_w(id->publisherId));
+    ok(!id->publisher, "Got unexpected publisher %s.\n", debugstr_w(id->publisher));
+    ok(id->processorArchitecture == PROCESSOR_ARCHITECTURE_INTEL, "Got unexpected processorArchitecture %u.\n",
+            id->processorArchitecture);
+    ok(id->version.Version == 0x0001000200030004, "Got unexpected Version %s.\n",
+            wine_dbgstr_longlong(id->version.Version));
+    ok((BYTE *)id->name == id_buffer + sizeof(*id), "Got unexpected name %p, buffer %p.\n", id->name, id_buffer);
+    ok((BYTE *)id->resourceId == (BYTE *)id->name + (lstrlenW(id->name) + 1) * 2,
+            "Got unexpected resourceId %p, buffer %p.\n", id->resourceId, id_buffer);
+    ok((BYTE *)id->publisherId == (BYTE *)id->resourceId + (lstrlenW(id->resourceId) + 1) * 2,
+            "Got unexpected publisherId %p, buffer %p.\n", id->resourceId, id_buffer);
+
+    ret = pPackageIdFromFullName(fullname, 0, NULL, id_buffer);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %d.\n", ret);
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(NULL, 0, &size, id_buffer);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %d.\n", ret);
+    ok(size == sizeof(id_buffer), "Got unexpected size %u.\n", size);
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(fullname, 0, &size, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %d.\n", ret);
+    ok(size == sizeof(id_buffer), "Got unexpected size %u.\n", size);
+
+    size = expected_size - 1;
+    ret = pPackageIdFromFullName(fullname, 0, &size, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %d.\n", ret);
+    ok(size == expected_size - 1, "Got unexpected size %u.\n", size);
+
+    size = expected_size - 1;
+    ret = pPackageIdFromFullName(fullname, 0, &size, id_buffer);
+    ok(ret == ERROR_INSUFFICIENT_BUFFER, "Got unexpected ret %d.\n", ret);
+    ok(size == expected_size, "Got unexpected size %u.\n", size);
+
+    size = 0;
+    ret = pPackageIdFromFullName(fullname, 0, &size, NULL);
+    ok(ret == ERROR_INSUFFICIENT_BUFFER, "Got unexpected ret %d.\n", ret);
+    ok(size == expected_size, "Got unexpected size %u.\n", size);
+
+    for (i = 0; i < ARRAY_SIZE(arch_data); ++i)
+    {
+        test_id = test_package_id;
+        test_id.processorArchitecture = arch_data[i].code;
+        packagefullname_from_packageid(fullname, ARRAY_SIZE(fullname), &test_id);
+        size = expected_size;
+        ret = pPackageIdFromFullName(fullname, 0, &size, id_buffer);
+        ok(ret == ERROR_SUCCESS || broken(arch_data[i].broken && ret == ERROR_INVALID_PARAMETER),
+                "Got unexpected ret %u.\n", ret);
+        if (ret != ERROR_SUCCESS)
+            continue;
+        ok(size == expected_size, "Got unexpected length %u, expected %u.\n", size, expected_size);
+        ok(id->processorArchitecture == arch_data[i].code, "Got unexpected processorArchitecture %u, arch %S.\n",
+                id->processorArchitecture, arch_data[i].name);
+    }
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(L"TestPackage_1.2.3.4_X86_TestResourceId_0abcdefghjkme", 0, &size, id_buffer);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(L"TestPackage_1.2.3.4_X86_TestResourceId_abcdefghjkme", 0, &size, id_buffer);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(L"TestPackage_1.2.3.4_X86_TestResourceId_0abcdefghjkmee", 0, &size, id_buffer);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(L"TestPackage_1.2.3_X86_TestResourceId_0abcdefghjkme", 0, &size, id_buffer);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(L"TestPackage_1.2.3.4_X86_TestResourceId_0abcdefghjkme_", 0, &size, id_buffer);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(L"TestPackage_1.2.3.4_X86__0abcdefghjkme", 0, &size, id_buffer);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    ok(!lstrcmpW(id->resourceId, L""), "Got unexpected resourceId %s.\n", debugstr_w(id->resourceId));
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(L"TestPackage_1.2.3.4_X86_0abcdefghjkme", 0, &size, id_buffer);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    ret = pPackageFullNameFromId(&test_package_id, NULL, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    size = sizeof(fullname);
+    ret = pPackageFullNameFromId(&test_package_id, &size, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    size = 0;
+    ret = pPackageFullNameFromId(&test_package_id, &size, NULL);
+    ok(ret == ERROR_INSUFFICIENT_BUFFER, "Got unexpected ret %u.\n", ret);
+    ok(size == lstrlenW(test_package_fullname) + 1, "Got unexpected size %u.\n", size);
+
+    ret = pPackageFullNameFromId(&test_package_id, &size, fullname);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    ok(!lstrcmpW(fullname, test_package_fullname), "Got unexpected fullname %s.\n", debugstr_w(fullname));
+}
+
+#define TEST_VERSION_WIN7   1
+#define TEST_VERSION_WIN8   2
+#define TEST_VERSION_WIN8_1 4
+#define TEST_VERSION_WIN10  8
+
+static const struct
+{
+    unsigned int pe_version_major, pe_version_minor;
+    unsigned int manifest_versions;
+    unsigned int expected_major, expected_minor;
+}
+test_pe_os_version_tests[] =
+{
+    { 4, 0,                         0,  6, 2},
+    { 4, 0,        TEST_VERSION_WIN10, 10, 0},
+    { 6, 3,         TEST_VERSION_WIN8,  6, 2},
+    {10, 0,                         0, 10, 0},
+    { 6, 3,                         0,  6, 3},
+    { 6, 4,                         0,  6, 3},
+    { 9, 0,                         0,  6, 3},
+    {11, 0,                         0, 10, 0},
+    {10, 0,
+            TEST_VERSION_WIN7 | TEST_VERSION_WIN8 | TEST_VERSION_WIN8_1,
+                                        6, 3},
+};
+
+static void test_pe_os_version_child(unsigned int test)
+{
+    OSVERSIONINFOEXA info;
+    BOOL ret;
+
+    info.dwOSVersionInfoSize = sizeof(info);
+    ret = GetVersionExA((OSVERSIONINFOA *)&info);
+    ok(ret, "Got unexpected ret %#x, GetLastError() %u.\n", ret, GetLastError());
+    ok(info.dwMajorVersion == test_pe_os_version_tests[test].expected_major,
+            "Test %u, expected major version %u, got %u.\n", test, test_pe_os_version_tests[test].expected_major,
+            info.dwMajorVersion);
+    ok(info.dwMinorVersion == test_pe_os_version_tests[test].expected_minor,
+            "Test %u, expected minor version %u, got %u.\n", test, test_pe_os_version_tests[test].expected_minor,
+            info.dwMinorVersion);
+}
+
+static void test_pe_os_version(void)
+{
+    static const char manifest_header[] =
+            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+            "<assembly manifestVersion=\"1.0\" xmlns=\"urn:schemas-microsoft-com:asm.v1\""
+                    " xmlns:asmv3=\"urn:schemas-microsoft-com:asm.v3\">\n"
+                "\t<compatibility xmlns=\"urn:schemas-microsoft-com:compatibility.v1\">\n"
+                    "\t\t<application>\n";
+    static const char manifest_footer[] =
+                    "\t\t</application>\n"
+                "\t</compatibility>\n"
+            "</assembly>\n";
+    static const char *version_guids[] =
+    {
+        "{35138b9a-5d96-4fbd-8e2d-a2440225f93a}",
+        "{4a2f28e3-53b9-4441-ba9c-d69d4a4a6e38}",
+        "{1f676c76-80e1-4239-95bb-83d0f6d0da78}",
+        "{8e0f7a12-bfb3-4fe8-b9a5-48fd50a15a9a}",
+    };
+    LONG hdr_offset, offset_major, offset_minor;
+    char str[MAX_PATH], tmp_exe_name[9];
+    RTL_OSVERSIONINFOEXW rtlinfo;
+    STARTUPINFOA si = { 0 };
+    PROCESS_INFORMATION pi;
+    DWORD result, code;
+    unsigned int i, j;
+    HANDLE file;
+    char **argv;
+    DWORD size;
+    BOOL ret;
+
+    winetest_get_mainargs( &argv );
+
+    if (!pRtlGetVersion)
+    {
+        win_skip("RtlGetVersion is not supported, skipping tests.\n");
+        return;
+    }
+
+    rtlinfo.dwOSVersionInfoSize = sizeof(RTL_OSVERSIONINFOEXW);
+    ok(!pRtlGetVersion(&rtlinfo), "RtlGetVersion failed.\n");
+    if (rtlinfo.dwMajorVersion < 10)
+    {
+        skip("Too old Windows version %u.%u, skipping tests.\n", rtlinfo.dwMajorVersion, rtlinfo.dwMinorVersion);
+        return;
+    }
+
+    file = CreateFileA(argv[0], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    ok(file != INVALID_HANDLE_VALUE, "CreateFile failed, GetLastError() %u.\n", GetLastError());
+    SetFilePointer(file, 0x3c, NULL, FILE_BEGIN);
+    ReadFile(file, &hdr_offset, sizeof(hdr_offset), &size, NULL);
+    CloseHandle(file);
+
+    offset_major = hdr_offset + FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader)
+            + FIELD_OFFSET(IMAGE_OPTIONAL_HEADER, MajorOperatingSystemVersion);
+    offset_minor = hdr_offset + FIELD_OFFSET(IMAGE_NT_HEADERS, OptionalHeader)
+            + FIELD_OFFSET(IMAGE_OPTIONAL_HEADER, MinorOperatingSystemVersion);
+
+    si.cb = sizeof(si);
+
+    for (i = 0; i < ARRAY_SIZE(test_pe_os_version_tests); ++i)
+    {
+        sprintf(tmp_exe_name, "tmp%u.exe", i);
+        ret = CopyFileA(argv[0], tmp_exe_name, FALSE);
+        ok(ret, "Got unexpected ret %#x, GetLastError() %u.\n", ret, GetLastError());
+
+        file = CreateFileA(tmp_exe_name, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        ok(file != INVALID_HANDLE_VALUE, "CreateFile failed, GetLastError() %u.\n", GetLastError());
+
+        SetFilePointer(file, offset_major, NULL, FILE_BEGIN);
+        WriteFile(file, &test_pe_os_version_tests[i].pe_version_major,
+                sizeof(test_pe_os_version_tests[i].pe_version_major), &size, NULL);
+        SetFilePointer(file, offset_minor, NULL, FILE_BEGIN);
+        WriteFile(file, &test_pe_os_version_tests[i].pe_version_minor,
+                sizeof(test_pe_os_version_tests[i].pe_version_minor), &size, NULL);
+
+        CloseHandle(file);
+
+        sprintf(str, "%s.manifest", tmp_exe_name);
+        file = CreateFileA(str, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        ok(file != INVALID_HANDLE_VALUE, "CreateFile failed, GetLastError() %u.\n", GetLastError());
+
+        WriteFile(file, manifest_header, strlen(manifest_header), &size, NULL);
+        for (j = 0; j < ARRAY_SIZE(version_guids); ++j)
+        {
+            if (test_pe_os_version_tests[i].manifest_versions & (1 << j))
+            {
+                sprintf(str, "\t\t\t<supportedOS Id=\"%s\"/>\n", version_guids[j]);
+                WriteFile(file, str, strlen(str), &size, NULL);
+            }
+        }
+        WriteFile(file, manifest_footer, strlen(manifest_footer), &size, NULL);
+
+        CloseHandle(file);
+
+        sprintf(str, "%s version pe_os_version %u", tmp_exe_name, i);
+
+        ret = CreateProcessA(NULL, str, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+        ok(ret, "Got unexpected ret %#x, GetLastError() %u.\n", ret, GetLastError());
+        CloseHandle(pi.hThread);
+        result = WaitForSingleObject(pi.hProcess, 10000);
+        ok(result == WAIT_OBJECT_0, "Got unexpected result %#x.\n", result);
+
+        ret = GetExitCodeProcess(pi.hProcess, &code);
+        ok(ret, "Got unexpected ret %#x, GetLastError() %u.\n", ret, GetLastError());
+        ok(!code, "Test %u failed.\n", i);
+
+        CloseHandle(pi.hProcess);
+
+        DeleteFileA(tmp_exe_name);
+        sprintf(str, "%s.manifest", tmp_exe_name);
+        DeleteFileA(str);
+    }
+}
+
+static void test_package_info(void)
+{
+    static const WCHAR package_family_msvc140[] = L"Microsoft.VCLibs.140.00_8wekyb3d8bbwe";
+    UINT32 count, length, curr_length, size, path_length, total_length;
+    WCHAR buffer[2048], path[MAX_PATH];
+    PACKAGE_ID *id, saved_id;
+    WCHAR *full_names[32];
+    BYTE id_buffer[512];
+    DWORD arch, attrib;
+    BOOL arch_found;
+    SYSTEM_INFO si;
+    unsigned int i;
+    LONG ret;
+
+    if (!pGetPackagesByPackageFamily)
+    {
+        win_skip("GetPackagesByPackageFamily not available.\n");
+        return;
+    }
+
+    GetSystemInfo(&si);
+    arch = si.wProcessorArchitecture;
+
+    count = 0;
+    length = 0;
+    ret = pGetPackagesByPackageFamily(L"Unknown_8wekyb3d8bbwe", &count, NULL, &length, NULL);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    ok(!count, "Got unexpected count %u.\n", count);
+    ok(!length, "Got unexpected length %u.\n", length);
+
+    count = 0;
+    length = 0;
+    ret = pGetPackagesByPackageFamily(L"Unknown_iekyb3d8bbwe", &count, NULL, &length, NULL);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    ok(!count, "Got unexpected count %u.\n", count);
+    ok(!length, "Got unexpected length %u.\n", length);
+
+    count = 0xdeadbeef;
+    length = 0xdeadbeef;
+    ret = pGetPackagesByPackageFamily(L"Unknown", &count, NULL, &length, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+    ok(count == 0xdeadbeef, "Got unexpected count %u.\n", count);
+    ok(length == 0xdeadbeef, "Got unexpected length %u.\n", length);
+
+    count = 0;
+    length = 0;
+    ret = pGetPackagesByPackageFamily(L"Unknown", &count, NULL, &length, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+    ok(!count, "Got unexpected count %u.\n", count);
+    ok(!length, "Got unexpected length %u.\n", length);
+
+    count = 0;
+    length = 0;
+    ret = pGetPackagesByPackageFamily(L"Unknown_8wekyb3d8bbwe_b", &count, NULL, &length, NULL);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    ok(!count, "Got unexpected count %u.\n", count);
+    ok(!length, "Got unexpected length %u.\n", length);
+
+    count = 0;
+    length = 0;
+    ret = pGetPackagesByPackageFamily(L"Unknown_", &count, NULL, &length, NULL);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    ok(!count, "Got unexpected count %u.\n", count);
+    ok(!length, "Got unexpected length %u.\n", length);
+
+    length = 0;
+    ret = pGetPackagesByPackageFamily(package_family_msvc140, NULL, NULL, &length, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+    ok(!length, "Got unexpected length %u.\n", length);
+
+    count = 0;
+    ret = pGetPackagesByPackageFamily(package_family_msvc140, &count, NULL, NULL, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+    ok(!count, "Got unexpected count %u.\n", count);
+
+    count = ARRAY_SIZE(full_names);
+    length = ARRAY_SIZE(buffer);
+    ret = pGetPackagesByPackageFamily(package_family_msvc140, &count, NULL, &length, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+    ok(count == ARRAY_SIZE(full_names), "Got unexpected count %u.\n", count);
+    ok(length == ARRAY_SIZE(buffer), "Got unexpected length %u.\n", length);
+
+    ret = pGetPackagesByPackageFamily(package_family_msvc140, &count, full_names, &length, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+    ok(count == ARRAY_SIZE(full_names), "Got unexpected count %u.\n", count);
+    ok(length == ARRAY_SIZE(buffer), "Got unexpected length %u.\n", length);
+
+    ret = pGetPackagesByPackageFamily(package_family_msvc140, &count, NULL, &length, buffer);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+    ok(count == ARRAY_SIZE(full_names), "Got unexpected count %u.\n", count);
+    ok(length == ARRAY_SIZE(buffer), "Got unexpected length %u.\n", length);
+
+    length = 0;
+    ret = pGetPackagePath(NULL, 0, &length, NULL);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    count = 0;
+    length = 0;
+    ret = pGetPackagesByPackageFamily(package_family_msvc140, &count, NULL, &length, NULL);
+    if (!ret && !count && !length)
+    {
+        win_skip("Package VCLibs.140.00 is not installed.\n");
+        return;
+    }
+
+    ok(ret == ERROR_INSUFFICIENT_BUFFER, "Got unexpected ret %u.\n", ret);
+    ok(count >= 1, "Got unexpected count %u.\n", count);
+    ok(length > 1, "Got unexpected length %u.\n", length);
+
+    ret = pGetPackagesByPackageFamily(package_family_msvc140, &count, full_names, &length, buffer);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    ok(count >= 1, "Got unexpected count %u.\n", count);
+    ok(length > 1, "Got unexpected length %u.\n", length);
+
+    total_length = length;
+    id = (PACKAGE_ID *)id_buffer;
+    curr_length = 0;
+    arch_found = FALSE;
+    for (i = 0; i < count; ++i)
+    {
+        curr_length += lstrlenW(full_names[i]) + 1;
+
+        size = sizeof(id_buffer);
+        ret = pPackageIdFromFullName(full_names[i], 0, &size, id_buffer);
+        ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+
+        if (id->processorArchitecture == arch)
+            arch_found = TRUE;
+
+        path_length = 0;
+        ret = pGetPackagePath(id, 0, &path_length, NULL);
+        ok(ret == ERROR_INSUFFICIENT_BUFFER, "Got unexpected ret %u.\n", ret);
+        ok(path_length > 1, "Got unexpected path_length %u.\n", path_length);
+
+        length = path_length;
+        ret = pGetPackagePath(id, 0, &length, path);
+        ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+        ok(length == path_length, "Got unexpected length %u.\n", length);
+        attrib = GetFileAttributesW(path);
+        ok(attrib != INVALID_FILE_ATTRIBUTES && attrib & FILE_ATTRIBUTE_DIRECTORY,
+                "Got unexpected attrib %#x, GetLastError() %u.\n", attrib, GetLastError());
+    }
+    ok(curr_length == total_length, "Got unexpected length %u.\n", length);
+    ok(arch_found, "Did not find package for current arch.\n");
+
+    size = sizeof(id_buffer);
+    ret = pPackageIdFromFullName(full_names[0], 0, &size, id_buffer);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+    saved_id = *id;
+
+    id->publisherId = NULL;
+    length = ARRAY_SIZE(path);
+    ret = pGetPackagePath(id, 0, &length, path);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    *id = saved_id;
+    id->name = NULL;
+    length = ARRAY_SIZE(path);
+    ret = pGetPackagePath(id, 0, &length, path);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    *id = saved_id;
+    id->publisher = NULL;
+    length = ARRAY_SIZE(path);
+    ret = pGetPackagePath(id, 0, &length, path);
+    ok(ret == ERROR_SUCCESS, "Got unexpected ret %u.\n", ret);
+
+    *id = saved_id;
+    id->processorArchitecture = ~0u;
+    length = ARRAY_SIZE(path);
+    ret = pGetPackagePath(id, 0, &length, path);
+    ok(ret == ERROR_INVALID_PARAMETER, "Got unexpected ret %u.\n", ret);
+
+    *id = saved_id;
+    id->name[0] = L'X';
+    length = ARRAY_SIZE(path);
+    ret = pGetPackagePath(id, 0, &length, path);
+    ok(ret == ERROR_NOT_FOUND, "Got unexpected ret %u.\n", ret);
+}
+
 START_TEST(version)
 {
+    char **argv;
+    int argc;
+
+    argc = winetest_get_mainargs( &argv );
+
     init_function_pointers();
+
+    if (argc >= 4)
+    {
+        if (!strcmp(argv[2], "pe_os_version"))
+        {
+            unsigned int test;
+
+            test = atoi(argv[3]);
+            test_pe_os_version_child(test);
+        }
+        return;
+    }
 
     test_GetProductInfo();
     test_GetVersionEx();
     test_VerifyVersionInfo();
+    test_pe_os_version();
     test_GetSystemFirmwareTable();
+    test_PackageIdFromFullName();
+    test_package_info();
 }

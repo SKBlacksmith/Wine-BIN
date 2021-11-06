@@ -33,14 +33,12 @@
 #define WIN32_NO_STATUS
 #include "windef.h"
 #include "winbase.h"
+#include "winternl.h"
 #include "winnls.h"
 #include "winerror.h"
 #include "wincon.h"
 #include "wine/condrv.h"
-#include "wine/server.h"
-#include "wine/exception.h"
 #include "wine/debug.h"
-#include "excpt.h"
 #include "kernel_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(console);
@@ -54,12 +52,12 @@ WINE_DEFAULT_DEBUG_CHANNEL(console);
  */
 HWND WINAPI GetConsoleWindow(void)
 {
-    struct condrv_input_info info;
+    condrv_handle_t win;
     BOOL ret;
 
     ret = DeviceIoControl( RtlGetCurrentPeb()->ProcessParameters->ConsoleHandle,
-                           IOCTL_CONDRV_GET_INPUT_INFO, NULL, 0, &info, sizeof(info), NULL, NULL );
-    return ret ? wine_server_ptr_handle(info.win) : NULL;
+                           IOCTL_CONDRV_GET_WINDOW, NULL, 0, &win, sizeof(win), NULL, NULL );
+    return ret ? LongToHandle( win ) : NULL;
 }
 
 

@@ -20,6 +20,7 @@
 #include "windef.h"
 #include "winbase.h"
 #define COBJMACROS
+#define DBINITCONSTANTS
 #include "initguid.h"
 #include "ocidl.h"
 #include "objbase.h"
@@ -50,6 +51,7 @@ struct connection
     _Connection               Connection_iface;
     ISupportErrorInfo         ISupportErrorInfo_iface;
     IConnectionPointContainer IConnectionPointContainer_iface;
+    ADOConnectionConstruction15 ADOConnectionConstruction15_iface;
     LONG                      refs;
     ObjectStateEnum           state;
     LONG                      timeout;
@@ -74,6 +76,11 @@ static inline struct connection *impl_from_ISupportErrorInfo( ISupportErrorInfo 
 static inline struct connection *impl_from_IConnectionPointContainer( IConnectionPointContainer *iface )
 {
     return CONTAINING_RECORD( iface, struct connection, IConnectionPointContainer_iface );
+}
+
+static inline struct connection *impl_from_ADOConnectionConstruction15( ADOConnectionConstruction15 *iface )
+{
+    return CONTAINING_RECORD( iface, struct connection, ADOConnectionConstruction15_iface );
 }
 
 static inline struct connection_point *impl_from_IConnectionPoint( IConnectionPoint *iface )
@@ -128,6 +135,10 @@ static HRESULT WINAPI connection_QueryInterface( _Connection *iface, REFIID riid
     else if (IsEqualGUID( riid, &IID_IConnectionPointContainer ))
     {
         *obj = &connection->IConnectionPointContainer_iface;
+    }
+    else if (IsEqualGUID( riid, &IID_ADOConnectionConstruction15 ))
+    {
+        *obj = &connection->ADOConnectionConstruction15_iface;
     }
     else if (IsEqualGUID( riid, &IID_IRunnableObject ))
     {
@@ -284,8 +295,54 @@ static HRESULT WINAPI connection_Close( _Connection *iface )
 static HRESULT WINAPI connection_Execute( _Connection *iface, BSTR command, VARIANT *records_affected,
                                           LONG options, _Recordset **record_set )
 {
-    FIXME( "%p, %s, %p, %08x, %p\n", iface, debugstr_w(command), records_affected, options, record_set );
-    return E_NOTIMPL;
+    struct connection *connection = impl_from_Connection( iface );
+    HRESULT hr;
+    _Recordset *recordset;
+    VARIANT source, active;
+    IDispatch *dispatch;
+
+    FIXME( "%p, %s, %p, 0x%08x, %p Semi-stub\n", iface, debugstr_w(command), records_affected, options, record_set );
+
+    if (connection->state == adStateClosed) return MAKE_ADO_HRESULT( adErrObjectClosed );
+
+    hr = Recordset_create( (void**)&recordset);
+    if (FAILED(hr))
+    {
+        return hr;
+    }
+
+    _Recordset_put_CursorLocation(recordset, connection->location);
+
+    V_VT(&source) = VT_BSTR;
+    V_BSTR(&source) = command;
+
+    hr = _Connection_QueryInterface(&connection->Connection_iface, &IID_IDispatch, (void**)&dispatch);
+    if (FAILED(hr))
+    {
+        _Recordset_Release(recordset);
+        return hr;
+    }
+
+    V_VT(&active) = VT_DISPATCH;
+    V_DISPATCH(&active) = dispatch;
+
+    hr = _Recordset_Open(recordset, source, active, adOpenDynamic, adLockPessimistic, 0);
+    VariantClear(&active);
+    if (FAILED(hr))
+    {
+        _Recordset_Release(recordset);
+        return hr;
+    }
+
+    if (records_affected)
+    {
+        V_VT(records_affected) = VT_I4;
+        _Recordset_get_RecordCount(recordset, &V_I4(records_affected));
+    }
+
+    *record_set = recordset;
+
+    return hr;
 }
 
 static HRESULT WINAPI connection_BeginTrans( _Connection *iface, LONG *transaction_level )
@@ -743,6 +800,60 @@ static const IConnectionPointVtbl connpoint_vtbl =
     connpoint_EnumConnections
 };
 
+static HRESULT WINAPI adoconstruct_QueryInterface(ADOConnectionConstruction15 *iface, REFIID riid, void **obj)
+{
+    struct connection *connection = impl_from_ADOConnectionConstruction15( iface );
+    return _Connection_QueryInterface( &connection->Connection_iface, riid, obj );
+}
+
+static ULONG WINAPI adoconstruct_AddRef(ADOConnectionConstruction15 *iface)
+{
+    struct connection *connection = impl_from_ADOConnectionConstruction15( iface );
+    return _Connection_AddRef( &connection->Connection_iface );
+}
+
+static ULONG WINAPI adoconstruct_Release(ADOConnectionConstruction15 *iface)
+{
+    struct connection *connection = impl_from_ADOConnectionConstruction15( iface );
+    return _Connection_Release( &connection->Connection_iface );
+}
+
+static HRESULT WINAPI adoconstruct_get_DSO(ADOConnectionConstruction15 *iface, IUnknown **dso)
+{
+    struct connection *connection = impl_from_ADOConnectionConstruction15( iface );
+    FIXME("%p, %p\n", connection, dso);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI adoconstruct_get_Session(ADOConnectionConstruction15 *iface, IUnknown **session)
+{
+    struct connection *connection = impl_from_ADOConnectionConstruction15( iface );
+    TRACE("%p, %p\n", connection, session);
+
+    *session = connection->session;
+    if (*session)
+        IUnknown_AddRef(*session);
+    return S_OK;
+}
+
+static HRESULT WINAPI adoconstruct_WrapDSOandSession(ADOConnectionConstruction15 *iface, IUnknown *dso,
+        IUnknown *session)
+{
+    struct connection *connection = impl_from_ADOConnectionConstruction15( iface );
+    FIXME("%p, %p, %p\n", connection, dso, session);
+    return E_NOTIMPL;
+}
+
+struct ADOConnectionConstruction15Vtbl ado_construct_vtbl =
+{
+    adoconstruct_QueryInterface,
+    adoconstruct_AddRef,
+    adoconstruct_Release,
+    adoconstruct_get_DSO,
+    adoconstruct_get_Session,
+    adoconstruct_WrapDSOandSession
+};
+
 HRESULT Connection_create( void **obj )
 {
     struct connection *connection;
@@ -751,6 +862,7 @@ HRESULT Connection_create( void **obj )
     connection->Connection_iface.lpVtbl = &connection_vtbl;
     connection->ISupportErrorInfo_iface.lpVtbl = &support_error_vtbl;
     connection->IConnectionPointContainer_iface.lpVtbl = &connpointcontainer_vtbl;
+    connection->ADOConnectionConstruction15_iface.lpVtbl = &ado_construct_vtbl;
     connection->refs = 1;
     connection->state = adStateClosed;
     connection->timeout = 30;

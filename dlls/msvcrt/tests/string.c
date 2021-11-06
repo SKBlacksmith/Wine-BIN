@@ -33,6 +33,7 @@
 
 /* make it use a definition from string.h */
 #undef strncpy
+#undef wcsncpy
 #include "winbase.h"
 #include "winnls.h"
 #include "winuser.h"
@@ -1684,6 +1685,14 @@ static void test_strtok(void)
                 "third call string (%p) \'%s\' return %p\n",
                 teststr, testcases_strtok[i].string, strret);
     }
+
+    strcpy( teststr, "test a=b" );
+    strret = strtok( teststr, " " );
+    ok( strret == teststr, "strret = %p, expected %p\n", strret, teststr );
+    strret = strtok( NULL, "ab=" );
+    ok( !strret, "strret = %p, expected NULL\n", strret );
+    strret = strtok( NULL, "=" );
+    ok( !strret, "strret = %p, expected NULL\n", strret );
 }
 
 static void test_strtol(void)
@@ -4457,6 +4466,17 @@ static void test__mbbtype(void)
     }
 }
 
+static void test_wcsncpy(void)
+{
+    wchar_t dst[6], *p;
+
+    memset(dst, 0xff, sizeof(dst));
+    p = wcsncpy(dst, L"1234567", 6);
+    ok(p == dst, "Unexpected return value.\n");
+    ok(!memcmp(dst, L"123456", sizeof(dst)), "unexpected buffer %s\n",
+            wine_dbgstr_wn(dst, ARRAY_SIZE(dst)));
+}
+
 START_TEST(string)
 {
     char mem[100];
@@ -4612,4 +4632,5 @@ START_TEST(string)
     test___STRINGTOLD();
     test_SpecialCasing();
     test__mbbtype();
+    test_wcsncpy();
 }

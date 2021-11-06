@@ -111,10 +111,12 @@ ws	[ \f\t\r]
 #define YY_NO_UNISTD_H
 #endif
 
+#include "../tools.h"
 #include "wrc.h"
 #include "utils.h"
 #include "parser.h"
 #include "newstruc.h"
+#include "wpp_private.h"
 
 #include "parser.tab.h"
 
@@ -429,7 +431,7 @@ L\"			{
 				yy_push_state(tklstr);
 				wbufidx = 0;
 				if(!win32)
-					parser_error("16bit resource contains unicode strings\n");
+					parser_error("16bit resource contains unicode strings");
 			}
 <tklstr>\"{ws}+	|
 <tklstr>\"		{

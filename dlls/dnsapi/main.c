@@ -22,13 +22,35 @@
 #include <stdarg.h>
 
 #include "windef.h"
+#include "winternl.h"
 #include "winbase.h"
 #include "winerror.h"
 #include "windns.h"
+#include "dnsapi.h"
 
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(dnsapi);
+
+unixlib_handle_t resolv_handle = 0;
+
+BOOL WINAPI DllMain( HINSTANCE hinst, DWORD reason, LPVOID reserved )
+{
+    TRACE( "(%p,%u,%p)\n", hinst, reason, reserved );
+
+    switch (reason)
+    {
+    case DLL_PROCESS_ATTACH:
+        DisableThreadLibraryCalls( hinst );
+        if (NtQueryVirtualMemory( GetCurrentProcess(), hinst, MemoryWineUnixFuncs,
+                                  &resolv_handle, sizeof(resolv_handle), NULL ))
+            ERR( "No libresolv support, expect problems\n" );
+        break;
+    case DLL_PROCESS_DETACH:
+        break;
+    }
+    return TRUE;
+}
 
 /******************************************************************************
  * DnsAcquireContextHandle_A              [DNSAPI.@]
@@ -128,32 +150,6 @@ BOOL WINAPI DnsGetCacheDataTable( PDNS_CACHE_ENTRY* entry )
 VOID WINAPI DnsReleaseContextHandle( HANDLE context )
 {
     FIXME( "(%p) stub\n", context );
-}
-
-/******************************************************************************
- * DnsExtractRecordsFromMessage_UTF8       [DNSAPI.@]
- *
- */
-DNS_STATUS WINAPI DnsExtractRecordsFromMessage_UTF8( PDNS_MESSAGE_BUFFER buffer,
-                                                     WORD len, PDNS_RECORDA *record )
-{
-    FIXME( "(%p,%d,%p) stub\n", buffer, len, record );
-
-    *record = NULL;
-    return ERROR_SUCCESS;
-}
-
-/******************************************************************************
- * DnsExtractRecordsFromMessage_W          [DNSAPI.@]
- *
- */
-DNS_STATUS WINAPI DnsExtractRecordsFromMessage_W( PDNS_MESSAGE_BUFFER buffer,
-                                                  WORD len, PDNS_RECORDW *record )
-{
-    FIXME( "(%p,%d,%p) stub\n", buffer, len, record );
-
-    *record = NULL;
-    return ERROR_SUCCESS;
 }
 
 /******************************************************************************

@@ -17,7 +17,6 @@
  */
 
 #include <stdarg.h>
-#include <assert.h>
 
 #define COBJMACROS
 
@@ -1716,6 +1715,7 @@ static const tid_t HTMLTxtRange_iface_tids[] = {
     0
 };
 static dispex_static_data_t HTMLTxtRange_dispex = {
+    L"TextRange",
     NULL,
     IHTMLTxtRange_tid,
     HTMLTxtRange_iface_tids
@@ -1729,7 +1729,8 @@ HRESULT HTMLTxtRange_Create(HTMLDocumentNode *doc, nsIDOMRange *nsrange, IHTMLTx
     if(!ret)
         return E_OUTOFMEMORY;
 
-    init_dispex(&ret->dispex, (IUnknown*)&ret->IHTMLTxtRange_iface, &HTMLTxtRange_dispex);
+    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLTxtRange_iface, &HTMLTxtRange_dispex,
+                                 dispex_compat_mode(&doc->node.event_target.dispex));
 
     ret->IHTMLTxtRange_iface.lpVtbl = &HTMLTxtRangeVtbl;
     ret->IOleCommandTarget_iface.lpVtbl = &OleCommandTargetVtbl;
@@ -2060,12 +2061,13 @@ static const tid_t HTMLDOMRange_iface_tids[] = {
 };
 
 static dispex_static_data_t HTMLDOMRange_dispex = {
+    L"Range",
     NULL,
     DispHTMLDOMRange_tid,
     HTMLDOMRange_iface_tids
 };
 
-HRESULT HTMLDOMRange_Create(nsIDOMRange *nsrange, IHTMLDOMRange **p)
+HRESULT create_dom_range(nsIDOMRange *nsrange, compat_mode_t compat_mode, IHTMLDOMRange **p)
 {
     HTMLDOMRange *ret;
 
@@ -2073,7 +2075,7 @@ HRESULT HTMLDOMRange_Create(nsIDOMRange *nsrange, IHTMLDOMRange **p)
     if(!ret)
         return E_OUTOFMEMORY;
 
-    init_dispex(&ret->dispex, (IUnknown*)&ret->IHTMLDOMRange_iface, &HTMLDOMRange_dispex);
+    init_dispatch(&ret->dispex, (IUnknown*)&ret->IHTMLDOMRange_iface, &HTMLDOMRange_dispex, compat_mode);
 
     ret->IHTMLDOMRange_iface.lpVtbl = &HTMLDOMRangeVtbl;
     ret->ref = 1;

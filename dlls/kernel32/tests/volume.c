@@ -18,14 +18,17 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include "wine/test.h"
+#include <stdio.h>
+#include "ntstatus.h"
+#define WIN32_NO_STATUS
+#include "windef.h"
 #include "winbase.h"
 #include "winioctl.h"
 #include "ntddstor.h"
 #include "winternl.h"
-#include <stdio.h>
 #include "ddk/ntddcdvd.h"
 #include "ddk/mountmgr.h"
+#include "wine/test.h"
 
 #include <pshpack1.h>
 struct COMPLETE_DVD_LAYER_DESCRIPTOR
@@ -1522,6 +1525,7 @@ static void test_GetVolumeInformationByHandle(void)
     FILE_FS_VOLUME_INFORMATION *volume_info = (void *)buffer;
     DWORD serial, filename_len, flags;
     WCHAR label[20], fsname[20];
+    char volume[MAX_PATH+1];
     IO_STATUS_BLOCK io;
     HANDLE file;
     NTSTATUS status;
@@ -1578,6 +1582,125 @@ static void test_GetVolumeInformationByHandle(void)
             "expected label length %u, got %u\n", volume_info->VolumeLabelLength / sizeof(WCHAR), wcslen( label ));
 
     CloseHandle( file );
+
+    /* get the unique volume name for the windows drive  */
+    ret = GetVolumeNameForVolumeMountPointA("C:\\", volume, MAX_PATH);
+    ok(ret == TRUE, "GetVolumeNameForVolumeMountPointA failed\n");
+
+    /* try again with unique volume name */
+
+    file = CreateFileA( volume, 0, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL,
+            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL );
+    ok(file != INVALID_HANDLE_VALUE, "failed to open file, error %u\n", GetLastError());
+
+    ret = pGetVolumeInformationByHandleW( file, label, ARRAY_SIZE(label), &serial,
+            &filename_len, &flags, fsname, ARRAY_SIZE(fsname) );
+    ok(ret, "got error %u\n", GetLastError());
+
+    memset(buffer, 0, sizeof(buffer));
+    status = NtQueryVolumeInformationFile( file, &io, buffer, sizeof(buffer), FileFsVolumeInformation );
+    ok(!status, "got status %#x\n", status);
+    ok(serial == volume_info->VolumeSerialNumber, "expected serial %08x, got %08x\n",
+            volume_info->VolumeSerialNumber, serial);
+    ok(!wcscmp( label, volume_info->VolumeLabel ), "expected label %s, got %s\n",
+            debugstr_w( volume_info->VolumeLabel ), debugstr_w( label ));
+    ok(wcslen( label ) == volume_info->VolumeLabelLength / sizeof(WCHAR),
+            "expected label length %u, got %u\n", volume_info->VolumeLabelLength / sizeof(WCHAR), wcslen( label ));
+
+    memset(buffer, 0, sizeof(buffer));
+    status = NtQueryVolumeInformationFile( file, &io, buffer, sizeof(buffer), FileFsAttributeInformation );
+    ok(!status, "got status %#x\n", status);
+    ok(flags == attr_info->FileSystemAttributes, "expected flags %#x, got %#x\n",
+            attr_info->FileSystemAttributes, flags);
+    ok(filename_len == attr_info->MaximumComponentNameLength, "expected filename_len %u, got %u\n",
+            attr_info->MaximumComponentNameLength, filename_len);
+    ok(!wcscmp( fsname, attr_info->FileSystemName ), "expected fsname %s, got %s\n",
+            debugstr_w( attr_info->FileSystemName ), debugstr_w( fsname ));
+    ok(wcslen( fsname ) == attr_info->FileSystemNameLength / sizeof(WCHAR),
+            "expected fsname length %u, got %u\n", attr_info->FileSystemNameLength / sizeof(WCHAR), wcslen( fsname ));
+
+    CloseHandle( file );
+}
+
+static void test_mountmgr_query_points(void)
+{
+    char input_buffer[64];
+    MOUNTMGR_MOUNT_POINTS *output;
+    MOUNTMGR_MOUNT_POINT *input = (MOUNTMGR_MOUNT_POINT *)input_buffer;
+    IO_STATUS_BLOCK io;
+    NTSTATUS status;
+    HANDLE file;
+
+    output = malloc(1024);
+
+    file = CreateFileW( MOUNTMGR_DOS_DEVICE_NAME, 0, 0, NULL, OPEN_EXISTING, 0, NULL );
+    ok(file != INVALID_HANDLE_VALUE, "failed to open mountmgr, error %u\n", GetLastError());
+
+    io.Status = 0xdeadf00d;
+    io.Information = 0xdeadf00d;
+    status = NtDeviceIoControlFile( file, NULL, NULL, NULL, &io,
+            IOCTL_MOUNTMGR_QUERY_POINTS, NULL, 0, NULL, 0 );
+    ok(status == STATUS_INVALID_PARAMETER, "got %#x\n", status);
+    ok(io.Status == 0xdeadf00d, "got status %#x\n", io.Status);
+    ok(io.Information == 0xdeadf00d, "got information %#Ix\n", io.Information);
+
+    memset( input, 0, sizeof(*input) );
+
+    io.Status = 0xdeadf00d;
+    io.Information = 0xdeadf00d;
+    status = NtDeviceIoControlFile( file, NULL, NULL, NULL, &io,
+            IOCTL_MOUNTMGR_QUERY_POINTS, input, sizeof(*input) - 1, NULL, 0 );
+    ok(status == STATUS_INVALID_PARAMETER, "got %#x\n", status);
+    ok(io.Status == 0xdeadf00d, "got status %#x\n", io.Status);
+    ok(io.Information == 0xdeadf00d, "got information %#Ix\n", io.Information);
+
+    io.Status = 0xdeadf00d;
+    io.Information = 0xdeadf00d;
+    status = NtDeviceIoControlFile( file, NULL, NULL, NULL, &io,
+            IOCTL_MOUNTMGR_QUERY_POINTS, input, sizeof(*input), NULL, 0 );
+    ok(status == STATUS_INVALID_PARAMETER, "got %#x\n", status);
+    ok(io.Status == 0xdeadf00d, "got status %#x\n", io.Status);
+    ok(io.Information == 0xdeadf00d, "got information %#Ix\n", io.Information);
+
+    io.Status = 0xdeadf00d;
+    io.Information = 0xdeadf00d;
+    memset(output, 0xcc, sizeof(*output));
+    status = NtDeviceIoControlFile( file, NULL, NULL, NULL, &io,
+            IOCTL_MOUNTMGR_QUERY_POINTS, input, sizeof(*input), output, sizeof(*output) - 1 );
+    ok(status == STATUS_INVALID_PARAMETER, "got %#x\n", status);
+    ok(io.Status == 0xdeadf00d, "got status %#x\n", io.Status);
+    ok(io.Information == 0xdeadf00d, "got information %#Ix\n", io.Information);
+    ok(output->Size == 0xcccccccc, "got size %u\n", output->Size);
+    ok(output->NumberOfMountPoints == 0xcccccccc, "got count %u\n", output->NumberOfMountPoints);
+
+    io.Status = 0xdeadf00d;
+    io.Information = 0xdeadf00d;
+    memset(output, 0xcc, sizeof(*output));
+    status = NtDeviceIoControlFile( file, NULL, NULL, NULL, &io,
+            IOCTL_MOUNTMGR_QUERY_POINTS, input, sizeof(*input), output, sizeof(*output) );
+    ok(status == STATUS_BUFFER_OVERFLOW, "got %#x\n", status);
+    ok(io.Status == STATUS_BUFFER_OVERFLOW, "got status %#x\n", io.Status);
+    todo_wine ok(io.Information == offsetof(MOUNTMGR_MOUNT_POINTS, MountPoints[0]), "got information %#Ix\n", io.Information);
+    ok(output->Size > offsetof(MOUNTMGR_MOUNT_POINTS, MountPoints[0]), "got size %u\n", output->Size);
+    todo_wine ok(output->NumberOfMountPoints && output->NumberOfMountPoints != 0xcccccccc,
+            "got count %u\n", output->NumberOfMountPoints);
+
+    output = realloc(output, output->Size);
+
+    io.Status = 0xdeadf00d;
+    io.Information = 0xdeadf00d;
+    status = NtDeviceIoControlFile( file, NULL, NULL, NULL, &io,
+            IOCTL_MOUNTMGR_QUERY_POINTS, input, sizeof(*input), output, output->Size );
+    ok(!status, "got %#x\n", status);
+    ok(!io.Status, "got status %#x\n", io.Status);
+    ok(io.Information == output->Size, "got size %u, information %#Ix\n", output->Size, io.Information);
+    ok(output->Size > offsetof(MOUNTMGR_MOUNT_POINTS, MountPoints[0]), "got size %u\n", output->Size);
+    ok(output->NumberOfMountPoints && output->NumberOfMountPoints != 0xcccccccc,
+            "got count %u\n", output->NumberOfMountPoints);
+
+    CloseHandle( file );
+
+    free(output);
 }
 
 START_TEST(volume)
@@ -1611,4 +1734,5 @@ START_TEST(volume)
     test_cdrom_ioctl();
     test_mounted_folder();
     test_GetVolumeInformationByHandle();
+    test_mountmgr_query_points();
 }

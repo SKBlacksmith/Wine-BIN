@@ -54,6 +54,8 @@ static void wined3d_vertex_declaration_destroy_object(void *object)
 {
     struct wined3d_vertex_declaration *declaration = object;
 
+    TRACE("declaration %p.\n", declaration);
+
     heap_free(declaration->elements);
     heap_free(declaration);
 }
@@ -66,9 +68,11 @@ ULONG CDECL wined3d_vertex_declaration_decref(struct wined3d_vertex_declaration 
 
     if (!refcount)
     {
+        wined3d_mutex_lock();
         declaration->parent_ops->wined3d_object_destroyed(declaration->parent);
         wined3d_cs_destroy_object(declaration->device->cs,
                 wined3d_vertex_declaration_destroy_object, declaration);
+        wined3d_mutex_unlock();
     }
 
     return refcount;
@@ -226,10 +230,10 @@ static HRESULT vertexdeclaration_init(struct wined3d_vertex_declaration *declara
 
         if (!(e->format->flags[WINED3D_GL_RES_TYPE_BUFFER] & WINED3DFMT_FLAG_VERTEX_ATTRIBUTE))
         {
-            FIXME("The application tries to use an unsupported format (%s), returning E_FAIL.\n",
+            FIXME("The application tries to use an unsupported format (%s).\n",
                     debug_d3dformat(elements[i].format));
             heap_free(declaration->elements);
-            return E_FAIL;
+            return E_INVALIDARG;
         }
 
         if (e->offset == WINED3D_APPEND_ALIGNED_ELEMENT)
@@ -254,7 +258,7 @@ static HRESULT vertexdeclaration_init(struct wined3d_vertex_declaration *declara
             WARN("Declaration element %u with format %s and offset %u is not %u byte aligned.\n",
                     i, debug_d3dformat(elements[i].format), e->offset, alignment);
             heap_free(declaration->elements);
-            return E_FAIL;
+            return E_INVALIDARG;
         }
     }
 

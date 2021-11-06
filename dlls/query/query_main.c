@@ -36,19 +36,6 @@
 
 WINE_DEFAULT_DEBUG_CHANNEL(query);
 
-BOOL WINAPI DllMain(HINSTANCE hInstDLL, DWORD fdwReason, LPVOID lpv)
-{
-    switch(fdwReason)
-    {
-    case DLL_WINE_PREATTACH:
-        return FALSE;  /* prefer native version */
-    case DLL_PROCESS_ATTACH:
-        DisableThreadLibraryCalls(hInstDLL);
-        break;
-    }
-    return TRUE;
-}
-
 /***********************************************************************
  *             DllGetClassObject (QUERY.@)
  */
@@ -57,17 +44,6 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID iid, LPVOID *ppv)
     FIXME("%s %s %p\n", debugstr_guid(rclsid), debugstr_guid(iid), ppv);
 
     return CLASS_E_CLASSNOTAVAILABLE;
-}
-
-HRESULT WINAPI DllCanUnloadNow(void)
-{
-    return S_FALSE;
-}
-
-HRESULT WINAPI DllRegisterServer(void)
-{
-    FIXME("\n");
-    return S_OK;
 }
 
 HRESULT WINAPI CIState( WCHAR const *pwcsCat, WCHAR const *pwcsMachine, CI_STATE *pCiState)

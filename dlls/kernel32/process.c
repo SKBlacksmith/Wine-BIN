@@ -34,12 +34,13 @@
 #include "wincon.h"
 #include "kernel_private.h"
 #include "psapi.h"
-#include "wine/exception.h"
-#include "wine/server.h"
+#include "ddk/wdm.h"
 #include "wine/asm.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(process);
+
+static const struct _KUSER_SHARED_DATA *user_shared_data = (struct _KUSER_SHARED_DATA *)0x7ffe0000;
 
 typedef struct
 {
@@ -270,7 +271,7 @@ HANDLE WINAPI ConvertToGlobalHandle(HANDLE hSrc)
 {
     HANDLE ret = INVALID_HANDLE_VALUE;
     DuplicateHandle( GetCurrentProcess(), hSrc, GetCurrentProcess(), &ret, 0, FALSE,
-                     DUP_HANDLE_MAKE_GLOBAL | DUP_HANDLE_SAME_ACCESS | DUP_HANDLE_CLOSE_SOURCE );
+                     DUPLICATE_MAKE_GLOBAL | DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE );
     return ret;
 }
 
@@ -553,18 +554,25 @@ DWORD WINAPI WTSGetActiveConsoleSessionId(void)
  */
 DEP_SYSTEM_POLICY_TYPE WINAPI GetSystemDEPPolicy(void)
 {
-    FIXME("stub\n");
-    return OptIn;
+    return user_shared_data->NXSupportPolicy;
 }
 
 /**********************************************************************
  *           SetProcessDEPPolicy     (KERNEL32.@)
  */
-BOOL WINAPI SetProcessDEPPolicy(DWORD newDEP)
+BOOL WINAPI SetProcessDEPPolicy( DWORD flags )
 {
-    FIXME("(%d): stub\n", newDEP);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return FALSE;
+    ULONG dep_flags = 0;
+
+    TRACE("%#x\n", flags);
+
+    if (flags & PROCESS_DEP_ENABLE)
+        dep_flags |= MEM_EXECUTE_OPTION_DISABLE | MEM_EXECUTE_OPTION_PERMANENT;
+    if (flags & PROCESS_DEP_DISABLE_ATL_THUNK_EMULATION)
+        dep_flags |= MEM_EXECUTE_OPTION_DISABLE_THUNK_EMULATION;
+
+    return set_ntstatus( NtSetInformationProcess( GetCurrentProcess(), ProcessExecuteFlags,
+                                                  &dep_flags, sizeof(dep_flags) ) );
 }
 
 /**********************************************************************
@@ -595,13 +603,39 @@ HRESULT WINAPI RegisterApplicationRecoveryCallback(APPLICATION_RECOVERY_CALLBACK
     return S_OK;
 }
 
+static SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *get_logical_processor_info(void)
+{
+    DWORD size = 0;
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *info;
+
+    GetLogicalProcessorInformationEx( RelationGroup, NULL, &size );
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) return NULL;
+    if (!(info = HeapAlloc( GetProcessHeap(), 0, size ))) return NULL;
+    if (!GetLogicalProcessorInformationEx( RelationGroup, info, &size ))
+    {
+        HeapFree( GetProcessHeap(), 0, info );
+        return NULL;
+    }
+    return info;
+}
+
+
 /***********************************************************************
  *           GetActiveProcessorGroupCount (KERNEL32.@)
  */
 WORD WINAPI GetActiveProcessorGroupCount(void)
 {
-    FIXME("semi-stub, always returning 1\n");
-    return 1;
+    WORD groups;
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *info;
+
+    TRACE("()\n");
+
+    if (!(info = get_logical_processor_info())) return 0;
+
+    groups = info->Group.ActiveGroupCount;
+
+    HeapFree(GetProcessHeap(), 0, info);
+    return groups;
 }
 
 /***********************************************************************
@@ -609,9 +643,25 @@ WORD WINAPI GetActiveProcessorGroupCount(void)
  */
 DWORD WINAPI GetActiveProcessorCount(WORD group)
 {
-    DWORD cpus = system_info.NumberOfProcessors;
+    DWORD cpus = 0;
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *info;
 
-    FIXME("semi-stub, returning %u\n", cpus);
+    TRACE("(0x%x)\n", group);
+
+    if (!(info = get_logical_processor_info())) return 0;
+
+    if (group == ALL_PROCESSOR_GROUPS)
+    {
+        for (group = 0; group < info->Group.ActiveGroupCount; group++)
+            cpus += info->Group.GroupInfo[group].ActiveProcessorCount;
+    }
+    else
+    {
+        if (group < info->Group.ActiveGroupCount)
+            cpus = info->Group.GroupInfo[group].ActiveProcessorCount;
+    }
+
+    HeapFree(GetProcessHeap(), 0, info);
     return cpus;
 }
 
@@ -620,10 +670,44 @@ DWORD WINAPI GetActiveProcessorCount(WORD group)
  */
 DWORD WINAPI GetMaximumProcessorCount(WORD group)
 {
-    DWORD cpus = system_info.NumberOfProcessors;
+    DWORD cpus = 0;
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *info;
 
-    FIXME("semi-stub, returning %u\n", cpus);
+    TRACE("(0x%x)\n", group);
+
+    if (!(info = get_logical_processor_info())) return 0;
+
+    if (group == ALL_PROCESSOR_GROUPS)
+    {
+        for (group = 0; group < info->Group.MaximumGroupCount; group++)
+            cpus += info->Group.GroupInfo[group].MaximumProcessorCount;
+    }
+    else
+    {
+        if (group < info->Group.MaximumGroupCount)
+            cpus = info->Group.GroupInfo[group].MaximumProcessorCount;
+    }
+
+    HeapFree(GetProcessHeap(), 0, info);
     return cpus;
+}
+
+/***********************************************************************
+ *           GetMaximumProcessorGroupCount (KERNEL32.@)
+ */
+WORD WINAPI GetMaximumProcessorGroupCount(void)
+{
+    WORD groups;
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *info;
+
+    TRACE("()\n");
+
+    if (!(info = get_logical_processor_info())) return 0;
+
+    groups = info->Group.MaximumGroupCount;
+
+    HeapFree(GetProcessHeap(), 0, info);
+    return groups;
 }
 
 /***********************************************************************

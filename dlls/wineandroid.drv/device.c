@@ -26,6 +26,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <sys/ioctl.h>
+#include <unistd.h>
 
 #define NONAMELESSUNION
 #define NONAMELESSSTRUCT
@@ -332,7 +333,7 @@ static int duplicate_fd( HANDLE client, int fd )
 
     if (!wine_server_fd_to_handle( dup(fd), GENERIC_READ | SYNCHRONIZE, 0, &handle ))
         DuplicateHandle( GetCurrentProcess(), handle, client, &ret,
-                         DUPLICATE_SAME_ACCESS, FALSE, DUP_HANDLE_CLOSE_SOURCE );
+                         0, FALSE, DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE );
 
     if (!ret) return -1;
     return HandleToLong( ret );
@@ -348,7 +349,7 @@ static int map_native_handle( union native_handle_buffer *dest, const native_han
     {
         HANDLE ret = 0;
         if (!DuplicateHandle( GetCurrentProcess(), mapping, client, &ret,
-                              DUPLICATE_SAME_ACCESS, FALSE, DUP_HANDLE_CLOSE_SOURCE ))
+                              0, FALSE, DUPLICATE_SAME_ACCESS | DUPLICATE_CLOSE_SOURCE ))
             return -ENOSPC;
         dest->handle.numFds = 0;
         dest->handle.numInts = 1;

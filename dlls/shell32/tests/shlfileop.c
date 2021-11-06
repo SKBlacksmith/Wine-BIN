@@ -22,7 +22,6 @@
 #include <stdio.h>
 
 #define COBJMACROS
-#define WINE_NOWINSOCK
 #include <windows.h>
 #include "shellapi.h"
 #include "shlobj.h"
@@ -2662,10 +2661,47 @@ static void test_unicode(void)
 static void
 test_shlmenu(void) {
 	HRESULT hres;
+	HMENU src_menu, dst_menu;
+	int count;
+	MENUITEMINFOA item_info;
+	BOOL bres;
+
 	hres = Shell_MergeMenus (0, 0, 0x42, 0x4242, 0x424242, 0);
 	ok (hres == 0x4242, "expected 0x4242 but got %x\n", hres);
 	hres = Shell_MergeMenus ((HMENU)42, 0, 0x42, 0x4242, 0x424242, 0);
 	ok (hres == 0x4242, "expected 0x4242 but got %x\n", hres);
+
+	src_menu = CreatePopupMenu ();
+	ok (src_menu != NULL, "CreatePopupMenu() failed, error %d\n", GetLastError ());
+
+	dst_menu = CreatePopupMenu ();
+	ok (dst_menu != NULL, "CreatePopupMenu() failed, error %d\n", GetLastError ());
+	bres = InsertMenuA (src_menu, -1, MF_BYPOSITION | MF_STRING, 10, "item1");
+        ok (bres, "InsertMenuA failed, error %d\n", GetLastError());
+	bres = InsertMenuA (src_menu, -1, MF_BYPOSITION | MF_STRING, 11, "item2");
+        ok (bres, "InsertMenuA failed, error %d\n", GetLastError());
+	hres = Shell_MergeMenus (dst_menu, src_menu, 0, 123, 133, MM_SUBMENUSHAVEIDS);
+	ok (hres == 134, "got %d\n", hres);
+	count = GetMenuItemCount (dst_menu);
+	ok (count == 1, "got %d\n", count);
+	memset (&item_info, 0, sizeof(item_info));
+	item_info.cbSize = sizeof(item_info);
+	item_info.fMask = MIIM_ID;
+	bres = GetMenuItemInfoA (dst_menu, 0, TRUE, &item_info);
+	ok (bres, "GetMenuItemInfoA failed, error %d\n", GetLastError ());
+	ok (item_info.wID == 133, "got %d\n", item_info.wID);
+	DestroyMenu (dst_menu);
+
+	/* integer overflow: Shell_MergeMenus() return value is wrong, but items are still added */
+	dst_menu = CreatePopupMenu ();
+	ok (dst_menu != NULL, "CreatePopupMenu() failed, error %d\n", GetLastError ());
+	hres = Shell_MergeMenus (dst_menu, src_menu, 0, -1, 133, MM_SUBMENUSHAVEIDS);
+	ok (hres == -1, "got %d\n", hres);
+	count = GetMenuItemCount (dst_menu);
+	ok (count == 2, "got %d\n", count);
+	DestroyMenu (dst_menu);
+
+	DestroyMenu (src_menu);
 }
 
 /* Check for old shell32 (4.0.x) */
@@ -2704,6 +2740,29 @@ static BOOL is_old_shell32(void)
         return TRUE;
 
     return FALSE;
+}
+
+static void test_file_operation(void)
+{
+    IFileOperation *operation;
+    IUnknown *unk;
+    HRESULT hr;
+
+    hr = CoCreateInstance(&CLSID_FileOperation, NULL, CLSCTX_INPROC_SERVER,
+            &IID_IFileOperation, (void **)&operation);
+    ok(hr == S_OK || broken(hr == REGDB_E_CLASSNOTREG) /* before vista */,
+        "Got hr %#x.\n", hr);
+    if (hr == REGDB_E_CLASSNOTREG)
+    {
+        win_skip("IFileOperation isn't supported.\n");
+        return;
+    }
+
+    hr = IFileOperation_QueryInterface(operation, &IID_IUnknown, (void **)&unk);
+    ok(hr == S_OK, "Got hr %#x.\n", hr);
+    IUnknown_Release(unk);
+
+    IFileOperation_Release(operation);
 }
 
 START_TEST(shlfileop)
@@ -2751,4 +2810,10 @@ START_TEST(shlfileop)
     test_unicode();
 
     test_shlmenu();
+
+    CoInitialize(NULL);
+
+    test_file_operation();
+
+    CoUninitialize();
 }

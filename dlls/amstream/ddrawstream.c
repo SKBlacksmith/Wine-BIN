@@ -24,7 +24,7 @@
 #include "wine/debug.h"
 #include "wine/strmbase.h"
 
-WINE_DEFAULT_DEBUG_CHANNEL(amstream);
+WINE_DEFAULT_DEBUG_CHANNEL(quartz);
 
 static const WCHAR sink_id[] = L"I{A35FF56A-9FDA-11D0-8FDF-00C04FD9189D}";
 
@@ -1180,22 +1180,35 @@ static HRESULT WINAPI ddraw_sink_EndOfStream(IPin *iface)
 
     LeaveCriticalSection(&stream->cs);
 
+    /* Calling IMediaStreamFilter::EndOfStream() inside the critical section
+     * would invert the locking order, so we must leave it first to avoid
+     * the streaming thread deadlocking on the filter's critical section. */
+    IMediaStreamFilter_EndOfStream(stream->filter);
+
     return S_OK;
 }
 
 static HRESULT WINAPI ddraw_sink_BeginFlush(IPin *iface)
 {
     struct ddraw_stream *stream = impl_from_IPin(iface);
+    BOOL cancel_eos;
 
     TRACE("stream %p.\n", stream);
 
     EnterCriticalSection(&stream->cs);
+
+    cancel_eos = stream->eos;
 
     stream->flushing = TRUE;
     stream->eos = FALSE;
     WakeConditionVariable(&stream->update_queued_cv);
 
     LeaveCriticalSection(&stream->cs);
+
+    /* Calling IMediaStreamFilter::Flush() inside the critical section would
+     * invert the locking order, so we must leave it first to avoid the
+     * application thread deadlocking on the filter's critical section. */
+    IMediaStreamFilter_Flush(stream->filter, cancel_eos);
 
     return S_OK;
 }
