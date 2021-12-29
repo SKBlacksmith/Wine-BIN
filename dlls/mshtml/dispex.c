@@ -1043,7 +1043,7 @@ static HRESULT get_builtin_id(DispatchEx *This, BSTR name, DWORD grfdex, DISPID 
     return DISP_E_UNKNOWNNAME;
 }
 
-static HRESULT change_type(VARIANT *dst, VARIANT *src, VARTYPE vt, IServiceProvider *caller)
+HRESULT change_type(VARIANT *dst, VARIANT *src, VARTYPE vt, IServiceProvider *caller)
 {
     V_VT(dst) = VT_EMPTY;
 
@@ -1463,13 +1463,18 @@ HRESULT remove_attribute(DispatchEx *This, DISPID id, VARIANT_BOOL *success)
             *success = VARIANT_TRUE;
             return S_OK;
         }
+        *success = VARIANT_TRUE;
 
         V_VT(&var) = VT_EMPTY;
         hres = builtin_propput(This, func, &dp, NULL);
-        if(FAILED(hres))
-            return hres;
-
-        *success = VARIANT_TRUE;
+        if(FAILED(hres)) {
+            VARIANT *ref;
+            hres = dispex_get_dprop_ref(This, func->name, FALSE, &ref);
+            if(FAILED(hres) || V_VT(ref) != VT_BSTR)
+                *success = VARIANT_FALSE;
+            else
+                VariantClear(ref);
+        }
         return S_OK;
     }
     default:

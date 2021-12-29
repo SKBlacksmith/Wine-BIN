@@ -486,8 +486,7 @@ enum apc_type
     APC_MAP_VIEW,
     APC_UNMAP_VIEW,
     APC_CREATE_THREAD,
-    APC_DUP_HANDLE,
-    APC_BREAK_PROCESS
+    APC_DUP_HANDLE
 };
 
 typedef struct
@@ -832,6 +831,12 @@ typedef struct
     lparam_t info;
 } cursor_pos_t;
 
+struct cpu_topology_override
+{
+    unsigned int cpu_count;
+    unsigned char host_cpu_id[64];
+};
+
 /****************************************************************/
 /* Request declarations */
 
@@ -892,6 +897,7 @@ typedef struct
 
 /* Signal the end of the process initialization */
 @REQ(init_process_done)
+    VARARG(cpu_override,cpu_topology_override); /* Overridden CPUs to host CPUs mapping. */
     client_ptr_t teb;          /* TEB of new thread (in process address space) */
     client_ptr_t peb;          /* PEB of new process (in process address space) */
     client_ptr_t ldt_copy;     /* address of LDT copy (in process address space) */
@@ -1122,6 +1128,13 @@ typedef struct
 @END
 
 
+/* Test if two handles refer to the same object */
+@REQ(compare_objects)
+    obj_handle_t first;         /* first object handle */
+    obj_handle_t second;        /* second object handle */
+@END
+
+
 /* Make an object temporary */
 @REQ(make_temporary)
     obj_handle_t handle;       /* handle to the object */
@@ -1340,7 +1353,6 @@ enum event_op { PULSE_EVENT, SET_EVENT, RESET_EVENT };
 /* Get the Unix name from a file handle */
 @REQ(get_handle_unix_name)
     obj_handle_t   handle;      /* file handle */
-    int            nofollow;    /* do not follow symlinks (return the link) */
 @REPLY
     data_size_t    name_len;    /* unix name length */
     VARARG(name,string);        /* unix name */
@@ -1360,7 +1372,6 @@ enum server_fd_type
 {
     FD_TYPE_INVALID,  /* invalid file (no associated fd) */
     FD_TYPE_FILE,     /* regular file */
-    FD_TYPE_SYMLINK,  /* symbolic link */
     FD_TYPE_DIR,      /* directory */
     FD_TYPE_SOCKET,   /* socket */
     FD_TYPE_SERIAL,   /* serial port */
@@ -2044,7 +2055,6 @@ enum message_type
     VARARG(keystate,bytes);    /* global state array for all the keys */
 @END
 #define SEND_HWMSG_INJECTED    0x01
-#define SEND_HWMSG_RAWINPUT    0x02
 
 
 /* Get a message from the current queue */
@@ -2493,13 +2503,6 @@ enum coords_relative
 @REQ(set_window_region)
     user_handle_t  window;        /* handle to the window */
     int            redraw;        /* redraw the window? */
-    VARARG(region,rectangles);    /* list of rectangles for the region (in window coords) */
-@END
-
-
-/* Set the layer region */
-@REQ(set_layer_region)
-    user_handle_t  window;        /* handle to the window */
     VARARG(region,rectangles);    /* list of rectangles for the region (in window coords) */
 @END
 
@@ -3734,6 +3737,7 @@ struct handle_info
 @REQ(resume_process)
     obj_handle_t handle;       /* process handle */
 @END
+
 
 /* Iterate thread list for process */
 @REQ(get_next_thread)

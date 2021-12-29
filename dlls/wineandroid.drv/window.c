@@ -24,7 +24,6 @@
 #define NONAMELESSSTRUCT
 
 #include "config.h"
-#include "wine/port.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -42,7 +41,6 @@
 #include "winbase.h"
 #include "wingdi.h"
 #include "winuser.h"
-#include "wine/unicode.h"
 
 #include "android.h"
 #include "wine/server.h"
@@ -428,7 +426,6 @@ static int process_events( DWORD mask )
     DPI_AWARENESS_CONTEXT context;
     struct java_event *event, *next, *previous;
     unsigned int count = 0;
-    RAWINPUT rawinput;
 
     assert( GetCurrentThreadId() == desktop_tid );
 
@@ -522,7 +519,7 @@ static int process_events( DWORD mask )
                     }
                     SERVER_END_REQ;
                 }
-                __wine_send_input( capture ? capture : event->data.motion.hwnd, &event->data.motion.input, &rawinput );
+                __wine_send_input( capture ? capture : event->data.motion.hwnd, &event->data.motion.input, NULL );
             }
             break;
 
@@ -536,7 +533,7 @@ static int process_events( DWORD mask )
                       event->data.kbd.input.u.ki.wVk, event->data.kbd.input.u.ki.wVk,
                       event->data.kbd.input.u.ki.wScan );
             update_keyboard_lock_state( event->data.kbd.input.u.ki.wVk, event->data.kbd.lock_state );
-            __wine_send_input( 0, &event->data.kbd.input, &rawinput );
+            __wine_send_input( 0, &event->data.kbd.input, NULL );
             break;
 
         default:

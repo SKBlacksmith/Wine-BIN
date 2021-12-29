@@ -26,12 +26,8 @@
  */
 
 #include "config.h"
-#include "wine/port.h"
 
 #include <stdio.h>
-#ifdef HAVE_FLOAT_H
-# include <float.h>
-#endif
 
 #include "wined3d_private.h"
 
@@ -2046,31 +2042,42 @@ static void state_tessellation(struct wined3d_context *context, const struct win
                 state->render_states[WINED3D_RS_ENABLEADAPTIVETESSELLATION]);
 }
 
-static void depth_bounds(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
+static void state_nvdb(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     const struct wined3d_gl_info *gl_info = wined3d_context_gl(context)->gl_info;
-    float zmin = state->depth_bounds.min, zmax = state->depth_bounds.max;
-
-    /* If zmin is larger than zmax, an INVALID_VALUE error is generated.
-     * In d3d9, the test is not performed in this case. */
-    if (state->depth_bounds.enable && zmin <= zmax)
+    union
     {
-        gl_info->gl_ops.gl.p_glEnable(GL_DEPTH_BOUNDS_TEST_EXT);
-        checkGLcall("glEnable(GL_DEPTH_BOUNDS_TEST_EXT)");
-        GL_EXTCALL(glDepthBoundsEXT(zmin, zmax));
-        checkGLcall("glDepthBoundsEXT(...)");
+        uint32_t d;
+        float f;
+    } zmin, zmax;
+
+    if (state->render_states[WINED3D_RS_ADAPTIVETESS_X] == WINED3DFMT_NVDB)
+    {
+        zmin.d = state->render_states[WINED3D_RS_ADAPTIVETESS_Z];
+        zmax.d = state->render_states[WINED3D_RS_ADAPTIVETESS_W];
+
+        /* If zmin is larger than zmax INVALID_VALUE error is generated.
+         * In d3d9 test is not performed in this case*/
+        if (zmin.f <= zmax.f)
+        {
+            gl_info->gl_ops.gl.p_glEnable(GL_DEPTH_BOUNDS_TEST_EXT);
+            checkGLcall("glEnable(GL_DEPTH_BOUNDS_TEST_EXT)");
+            GL_EXTCALL(glDepthBoundsEXT(zmin.f, zmax.f));
+            checkGLcall("glDepthBoundsEXT(...)");
+        }
+        else
+        {
+            gl_info->gl_ops.gl.p_glDisable(GL_DEPTH_BOUNDS_TEST_EXT);
+            checkGLcall("glDisable(GL_DEPTH_BOUNDS_TEST_EXT)");
+        }
     }
     else
     {
         gl_info->gl_ops.gl.p_glDisable(GL_DEPTH_BOUNDS_TEST_EXT);
         checkGLcall("glDisable(GL_DEPTH_BOUNDS_TEST_EXT)");
     }
-}
 
-static void depth_bounds_w(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
-{
-    if (state->depth_bounds.enable)
-        WARN("Depth bounds test is not supported by this GL implementation.\n");
+    state_tessellation(context, state, STATE_RENDER(WINED3D_RS_ENABLEADAPTIVETESSELLATION));
 }
 
 static void state_wrapu(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
@@ -4454,7 +4461,7 @@ static void indexbuffer(struct wined3d_context *context, const struct wined3d_st
 {
     const struct wined3d_gl_info *gl_info = wined3d_context_gl(context)->gl_info;
     const struct wined3d_stream_info *stream_info = &context->stream_info;
-    struct wined3d_buffer_gl *buffer_gl;
+    struct wined3d_buffer *buffer;
 
     if (!state->index_buffer || !stream_info->all_vbo)
     {
@@ -4462,9 +4469,16 @@ static void indexbuffer(struct wined3d_context *context, const struct wined3d_st
         return;
     }
 
-    buffer_gl = wined3d_buffer_gl(state->index_buffer);
-    GL_EXTCALL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, buffer_gl->bo.id));
-    buffer_gl->b.bo_user.valid = true;
+    buffer = state->index_buffer;
+    if (buffer->buffer_object)
+    {
+        GL_EXTCALL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, wined3d_bo_gl(buffer->buffer_object)->id));
+        buffer->bo_user.valid = true;
+    }
+    else
+    {
+        GL_EXTCALL(glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0));
+    }
 }
 
 static void depth_clip(const struct wined3d_rasterizer_state *r, const struct wined3d_gl_info *gl_info)
@@ -4557,15 +4571,11 @@ static void state_cb(struct wined3d_context *context, const struct wined3d_state
 {
     const struct wined3d_gl_info *gl_info = wined3d_context_gl(context)->gl_info;
     enum wined3d_shader_type shader_type;
-    struct wined3d_buffer_gl *buffer_gl;
+    struct wined3d_buffer *buffer;
     unsigned int i, base, count;
+    struct wined3d_bo_gl *bo_gl;
 
     TRACE("context %p, state %p, state_id %#x.\n", context, state, state_id);
-    if (context->d3d_info->wined3d_creation_flags & WINED3D_LEGACY_SHADER_CONSTANTS)
-    {
-        WARN("Called in legacy shader constant mode.\n");
-        return;
-    }
 
     if (STATE_IS_GRAPHICS_CONSTANT_BUFFER(state_id))
         shader_type = state_id - STATE_GRAPHICS_CONSTANT_BUFFER(0);
@@ -4583,10 +4593,11 @@ static void state_cb(struct wined3d_context *context, const struct wined3d_state
             continue;
         }
 
-        buffer_gl = wined3d_buffer_gl(buffer_state->buffer);
-        GL_EXTCALL(glBindBufferRange(GL_UNIFORM_BUFFER, base + i, buffer_gl->bo.id,
-                buffer_state->offset, buffer_state->size));
-        buffer_gl->b.bo_user.valid = true;
+        buffer = buffer_state->buffer;
+        bo_gl = wined3d_bo_gl(buffer->buffer_object);
+        GL_EXTCALL(glBindBufferRange(GL_UNIFORM_BUFFER, base + i,
+                bo_gl->id, bo_gl->b.buffer_offset + buffer_state->offset, buffer_state->size));
+        buffer->bo_user.valid = true;
     }
     checkGLcall("bind constant buffers");
 }
@@ -4636,8 +4647,9 @@ static void state_so(struct wined3d_context *context, const struct wined3d_state
 {
     struct wined3d_context_gl *context_gl = wined3d_context_gl(context);
     const struct wined3d_gl_info *gl_info = context_gl->gl_info;
-    struct wined3d_buffer_gl *buffer_gl;
+    struct wined3d_buffer *buffer;
     unsigned int offset, size, i;
+    struct wined3d_bo_gl *bo_gl;
 
     TRACE("context %p, state %p, state_id %#x.\n", context, state, state_id);
 
@@ -4651,16 +4663,18 @@ static void state_so(struct wined3d_context *context, const struct wined3d_state
             continue;
         }
 
-        buffer_gl = wined3d_buffer_gl(state->stream_output[i].buffer);
+        buffer = state->stream_output[i].buffer;
         offset = state->stream_output[i].offset;
+        bo_gl = wined3d_bo_gl(buffer->buffer_object);
         if (offset == ~0u)
         {
             FIXME("Appending to stream output buffers not implemented.\n");
             offset = 0;
         }
-        size = buffer_gl->b.resource.size - offset;
-        GL_EXTCALL(glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, i, buffer_gl->bo.id, offset, size));
-        buffer_gl->b.bo_user.valid = true;
+        size = buffer->resource.size - offset;
+        GL_EXTCALL(glBindBufferRange(GL_TRANSFORM_FEEDBACK_BUFFER, i,
+                bo_gl->id, bo_gl->b.buffer_offset + offset, size));
+        buffer->bo_user.valid = true;
     }
     checkGLcall("bind transform feedback buffers");
 }
@@ -4702,8 +4716,6 @@ const struct wined3d_state_entry_template misc_state_template_gl[] =
     { STATE_DEPTH_STENCIL,                                { STATE_DEPTH_STENCIL,                                depth_stencil_2s    }, EXT_STENCIL_TWO_SIDE            },
     { STATE_DEPTH_STENCIL,                                { STATE_DEPTH_STENCIL,                                depth_stencil       }, WINED3D_GL_EXT_NONE             },
     { STATE_STENCIL_REF,                                  { STATE_DEPTH_STENCIL,                                NULL                }, WINED3D_GL_EXT_NONE             },
-    { STATE_DEPTH_BOUNDS,                                 { STATE_DEPTH_BOUNDS,                                 depth_bounds        }, EXT_DEPTH_BOUNDS_TEST           },
-    { STATE_DEPTH_BOUNDS,                                 { STATE_DEPTH_BOUNDS,                                 depth_bounds_w      }, WINED3D_GL_EXT_NONE             },
     { STATE_STREAMSRC,                                    { STATE_STREAMSRC,                                    streamsrc           }, WINED3D_GL_EXT_NONE             },
     { STATE_VDECL,                                        { STATE_VDECL,                                        vdecl_miscpart      }, WINED3D_GL_EXT_NONE             },
     { STATE_RASTERIZER,                                   { STATE_RASTERIZER,                                   rasterizer_cc       }, ARB_CLIP_CONTROL                },
@@ -4817,6 +4829,7 @@ const struct wined3d_state_entry_template misc_state_template_gl[] =
     { STATE_RENDER(WINED3D_RS_ADAPTIVETESS_Y),            { STATE_RENDER(WINED3D_RS_ENABLEADAPTIVETESSELLATION),NULL                }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_ADAPTIVETESS_Z),            { STATE_RENDER(WINED3D_RS_ENABLEADAPTIVETESSELLATION),NULL                }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_ADAPTIVETESS_W),            { STATE_RENDER(WINED3D_RS_ENABLEADAPTIVETESSELLATION),NULL                }, WINED3D_GL_EXT_NONE             },
+    { STATE_RENDER(WINED3D_RS_ENABLEADAPTIVETESSELLATION),{ STATE_RENDER(WINED3D_RS_ENABLEADAPTIVETESSELLATION),state_nvdb          }, EXT_DEPTH_BOUNDS_TEST           },
     { STATE_RENDER(WINED3D_RS_ENABLEADAPTIVETESSELLATION),{ STATE_RENDER(WINED3D_RS_ENABLEADAPTIVETESSELLATION),state_tessellation  }, WINED3D_GL_EXT_NONE             },
     { STATE_RENDER(WINED3D_RS_MULTISAMPLEANTIALIAS),      { STATE_RENDER(WINED3D_RS_MULTISAMPLEANTIALIAS),      state_msaa          }, ARB_MULTISAMPLE                 },
     { STATE_RENDER(WINED3D_RS_MULTISAMPLEANTIALIAS),      { STATE_RENDER(WINED3D_RS_MULTISAMPLEANTIALIAS),      state_msaa_w        }, WINED3D_GL_EXT_NONE             },
@@ -5558,8 +5571,7 @@ static void prune_invalid_states(struct wined3d_state_entry *state_table, const 
         state_table[i].apply = state_undefined;
     }
 
-    start = STATE_TRANSFORM(WINED3D_TS_WORLD_MATRIX(max(d3d_info->limits.ffp_vertex_blend_matrices,
-            d3d_info->limits.ffp_max_vertex_blend_matrix_index + 1)));
+    start = STATE_TRANSFORM(WINED3D_TS_WORLD_MATRIX(d3d_info->limits.ffp_vertex_blend_matrices));
     last = STATE_TRANSFORM(WINED3D_TS_WORLD_MATRIX(255));
     for (i = start; i <= last; ++i)
     {

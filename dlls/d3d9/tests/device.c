@@ -6936,10 +6936,13 @@ static void test_vertex_shader_constant(void)
     ok(consts_swvp == 8192, "Unexpected consts_swvp %u.\n", consts_swvp);
 
     hr = IDirect3DDevice9_SetVertexShaderConstantF(device, consts + 0, c, 1);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
     hr = IDirect3DDevice9_SetVertexShaderConstantF(device, consts + 1, c, 1);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
     hr = IDirect3DDevice9_SetVertexShaderConstantF(device, consts - 1, d, 4);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
     hr = IDirect3DDevice9_SetVertexShaderConstantF(device, consts_swvp - 1, c, 1);
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
@@ -6964,6 +6967,7 @@ static void test_vertex_shader_constant(void)
 
     IDirect3DDevice9_SetSoftwareVertexProcessing(device, 0);
     hr = IDirect3DDevice9_SetVertexShaderConstantF(device, consts + 0, c, 1);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
     hr = IDirect3DDevice9_SetVertexShaderConstantF(device, consts_swvp - 1, c, 1);
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
@@ -6971,6 +6975,7 @@ static void test_vertex_shader_constant(void)
     IDirect3DDevice9_SetSoftwareVertexProcessing(device, 1);
 
     hr = IDirect3DDevice9_SetVertexShaderConstantF(device, consts + 0, c, 1);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
     hr = IDirect3DDevice9_SetVertexShaderConstantF(device, consts_swvp - 1, c, 1);
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
@@ -7425,11 +7430,15 @@ float4 main(const float4 color : COLOR) : SV_TARGET
 
     vs = NULL;
     hr = IDirect3DDevice9_CreateVertexShader(device, vs_1_256, &vs);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-    IDirect3DVertexShader9_Release(vs);
+    if (vs)
+        IDirect3DVertexShader9_Release(vs);
     hr = IDirect3DDevice9_CreateVertexShader(device, vs_3_256, &vs);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-    IDirect3DVertexShader9_Release(vs);
+    if (vs)
+        IDirect3DVertexShader9_Release(vs);
 
     refcount = IDirect3DDevice9_Release(device);
     ok(!refcount, "Device has %u references left.\n", refcount);
@@ -7446,16 +7455,20 @@ float4 main(const float4 color : COLOR) : SV_TARGET
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
 
     hr = IDirect3DDevice9_CreateVertexShader(device, vs_1_256, &vs);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
     hr = IDirect3DDevice9_SetVertexShader(device, vs);
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-    IDirect3DVertexShader9_Release(vs);
+    if (vs)
+        IDirect3DVertexShader9_Release(vs);
 
     hr = IDirect3DDevice9_CreateVertexShader(device, vs_3_256, &vs);
+    todo_wine
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
     hr = IDirect3DDevice9_SetVertexShader(device, vs);
     ok(hr == D3D_OK, "Got unexpected hr %#x.\n", hr);
-    IDirect3DVertexShader9_Release(vs);
+    if (vs)
+        IDirect3DVertexShader9_Release(vs);
 
 cleanup:
     refcount = IDirect3DDevice9_Release(device);
@@ -14559,10 +14572,10 @@ static void test_window_position(void)
 {
     unsigned int adapter_idx, adapter_count;
     struct device_desc device_desc;
+    RECT window_rect, new_rect;
     IDirect3DDevice9 *device;
     MONITORINFO monitor_info;
     HMONITOR monitor;
-    RECT window_rect;
     IDirect3D9 *d3d;
     HWND window;
     HRESULT hr;
@@ -14596,6 +14609,42 @@ static void test_window_position(void)
         ret = GetWindowRect(window, &window_rect);
         ok(ret, "Adapter %u: GetWindowRect failed, error %#x.\n", adapter_idx, GetLastError());
         ok(EqualRect(&window_rect, &monitor_info.rcMonitor),
+                "Adapter %u: Expect window rect %s, got %s.\n", adapter_idx,
+                wine_dbgstr_rect(&monitor_info.rcMonitor), wine_dbgstr_rect(&window_rect));
+
+        new_rect = window_rect;
+        --new_rect.right;
+        --new_rect.bottom;
+
+        ret = MoveWindow(window, new_rect.left, new_rect.top, new_rect.right - new_rect.left,
+                new_rect.bottom - new_rect.top, TRUE);
+        ok(ret, "Got unexpected ret %#x, error %#x, Adapter %u.\n", ret, GetLastError(), adapter_idx);
+        ret = GetWindowRect(window, &window_rect);
+        ok(ret, "Got unexpected ret %#x, error %#x, Adapter %u.\n", ret, GetLastError(), adapter_idx);
+        ok(EqualRect(&window_rect, &new_rect),
+                "Adapter %u: Expect window rect %s, got %s.\n", adapter_idx,
+                wine_dbgstr_rect(&monitor_info.rcMonitor), wine_dbgstr_rect(&window_rect));
+        /* After processing window events window rectangle gets restored. But only once, the size set
+         * on the second resize remains. */
+        flush_events();
+        ret = GetWindowRect(window, &window_rect);
+        ok(ret, "Got unexpected ret %#x, error %#x, Adapter %u.\n", ret, GetLastError(), adapter_idx);
+        todo_wine ok(EqualRect(&window_rect, &monitor_info.rcMonitor),
+                "Adapter %u: Expect window rect %s, got %s.\n", adapter_idx,
+                wine_dbgstr_rect(&monitor_info.rcMonitor), wine_dbgstr_rect(&window_rect));
+
+        ret = MoveWindow(window, new_rect.left, new_rect.top, new_rect.right - new_rect.left,
+                new_rect.bottom - new_rect.top, TRUE);
+        ok(ret, "Got unexpected ret %#x, error %#x, Adapter %u.\n", ret, GetLastError(), adapter_idx);
+        ret = GetWindowRect(window, &window_rect);
+        ok(ret, "Got unexpected ret %#x, error %#x, Adapter %u.\n", ret, GetLastError(), adapter_idx);
+        ok(EqualRect(&window_rect, &new_rect),
+                "Adapter %u: Expect window rect %s, got %s.\n", adapter_idx,
+                wine_dbgstr_rect(&monitor_info.rcMonitor), wine_dbgstr_rect(&window_rect));
+        flush_events();
+        ret = GetWindowRect(window, &window_rect);
+        ok(ret, "Got unexpected ret %#x, error %#x, Adapter %u.\n", ret, GetLastError(), adapter_idx);
+        ok(EqualRect(&window_rect, &new_rect),
                 "Adapter %u: Expect window rect %s, got %s.\n", adapter_idx,
                 wine_dbgstr_rect(&monitor_info.rcMonitor), wine_dbgstr_rect(&window_rect));
 

@@ -212,7 +212,7 @@ static const WORD *DIALOG_GetControl32( const WORD *p, DLG_CONTROL_INFO *info,
 static BOOL DIALOG_CreateControls32( HWND hwnd, LPCSTR template, const DLG_TEMPLATE *dlgTemplate,
                                      HINSTANCE hInst, BOOL unicode )
 {
-    DIALOGINFO *dlgInfo = DIALOG_get_info( hwnd, FALSE );
+    DIALOGINFO *dlgInfo = DIALOG_get_info( hwnd, TRUE );
     DLG_CONTROL_INFO info;
     HWND hwndCtrl, hwndDefButton = 0;
     INT items = dlgTemplate->nbItems;
@@ -703,7 +703,6 @@ static HWND DIALOG_CreateIndirect( HINSTANCE hInst, LPCVOID dlgTemplate,
         if (template.style & WS_VISIBLE && !(GetWindowLongW( hwnd, GWL_STYLE ) & WS_VISIBLE))
         {
            ShowWindow( hwnd, SW_SHOWNORMAL );   /* SW_SHOW doesn't always work */
-            UpdateWindow( hwnd );
         }
         return hwnd;
     }
@@ -1199,7 +1198,7 @@ BOOL WINAPI IsDialogMessageW( HWND hwndDlg, LPMSG msg )
                  * do so but I presume someone has)
                  */
                 if (fIsDialog)
-                    SendMessageW( hwndDlg, WM_NEXTDLGCTL, (GetKeyState(VK_SHIFT) & 0x8000), 0 );
+                    SendMessageW( hwndDlg, WM_NEXTDLGCTL, (NtUserGetKeyState(VK_SHIFT) & 0x8000), 0 );
                 else
                 {
                     /* It would appear that GetNextDlgTabItem can handle being
@@ -1209,7 +1208,7 @@ BOOL WINAPI IsDialogMessageW( HWND hwndDlg, LPMSG msg )
                     HWND hwndFocus = GetFocus();
                     HWND hwndNext = GetNextDlgTabItem (hwndDlg,
                             hwndFocus == hwndDlg ? NULL : hwndFocus,
-                            GetKeyState (VK_SHIFT) & 0x8000);
+                            NtUserGetKeyState (VK_SHIFT) & 0x8000);
                     if (hwndNext)
                     {
                         dlgCode = SendMessageW (hwndNext, WM_GETDLGCODE,

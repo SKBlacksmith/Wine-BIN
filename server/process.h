@@ -53,6 +53,7 @@ struct process
     process_id_t         group_id;        /* group id of the process */
     unsigned int         session_id;      /* session id */
     struct timeout_user *sigkill_timeout; /* timeout for final SIGKILL */
+    timeout_t            sigkill_delay;   /* delay before final SIGKILL */
     unsigned short       machine;         /* client machine type */
     int                  unix_pid;        /* Unix pid for final SIGKILL */
     int                  exit_code;       /* process exit code */
@@ -90,6 +91,7 @@ struct process
     struct list          kernel_object;   /* list of kernel object pointers */
     int                  esync_fd;        /* esync file descriptor (signaled on exit) */
     unsigned int         fsync_idx;
+    struct cpu_topology_override cpu_override; /* Overridden CPUs to host CPUs mapping. */
 };
 
 /* process functions */

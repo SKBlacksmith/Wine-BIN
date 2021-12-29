@@ -131,9 +131,7 @@ enum alg_id
     ALG_ID_RSA,
 
     /* secret agreement */
-    ALG_ID_DH,
     ALG_ID_ECDH_P256,
-    ALG_ID_ECDH_P384,
 
     /* signature */
     ALG_ID_RSA_SIGN,
@@ -172,8 +170,6 @@ struct key_symmetric
 };
 
 #define KEY_FLAG_LEGACY_DSA_V2  0x00000001
-#define KEY_FLAG_DH_PARAMS_SET  0x00000002
-#define KEY_FLAG_FINALIZED      0x00000004
 
 struct key_asymmetric
 {
@@ -181,7 +177,6 @@ struct key_asymmetric
     ULONG             flags;
     UCHAR            *pubkey;
     ULONG             pubkey_len;
-    UCHAR            *privkey;    /* Used for DH private key only. */
     DSSSEED           dss_seed;
 };
 
@@ -189,7 +184,7 @@ struct key
 {
     struct object hdr;
     enum alg_id   alg_id;
-    void         *private[2];  /* private data for backend */
+    UINT64        private[2];  /* private data for backend */
     union
     {
         struct key_symmetric s;
@@ -200,8 +195,6 @@ struct key
 struct secret
 {
     struct object hdr;
-    UCHAR *data;
-    ULONG  data_len;
 };
 
 struct key_symmetric_set_auth_data_params
@@ -281,6 +274,7 @@ struct key_export_params
     UCHAR       *buf;
     ULONG        len;
     ULONG       *ret_len;
+    BOOL         full;
 };
 
 struct key_import_params
@@ -288,13 +282,6 @@ struct key_import_params
     struct key  *key;
     UCHAR       *buf;
     ULONG        len;
-};
-
-struct key_secret_agreement_params
-{
-    struct key *privkey;
-    struct key *pubkey;
-    struct secret *secret;
 };
 
 enum key_funcs
@@ -315,10 +302,10 @@ enum key_funcs
     unix_key_asymmetric_destroy,
     unix_key_export_dsa_capi,
     unix_key_export_ecc,
+    unix_key_export_rsa,
     unix_key_import_dsa_capi,
     unix_key_import_ecc,
     unix_key_import_rsa,
-    unix_key_secret_agreement,
 };
 
 #endif /* __BCRYPT_INTERNAL_H */

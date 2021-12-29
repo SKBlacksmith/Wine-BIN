@@ -83,9 +83,6 @@ static NTSTATUS (WINAPI *pLdrGetDllPath)(LPCWSTR,ULONG,LPWSTR*,LPWSTR*);
 static BOOL (WINAPI *pCheckNameLegalDOS8Dot3W)(const WCHAR *, char *, DWORD, BOOL *, BOOL *);
 static BOOL (WINAPI *pCheckNameLegalDOS8Dot3A)(const char *, char *, DWORD, BOOL *, BOOL *);
 
-/* Present in Vista+ */
-static BOOL (WINAPI *pCreateSymbolicLinkW)(LPCWSTR, LPCWSTR, DWORD);
-
 /* a structure to deal with wine todos somewhat cleanly */
 typedef struct {
   DWORD shortlen;
@@ -2151,7 +2148,6 @@ static void init_pointers(void)
     MAKEFUNC(SetDefaultDllDirectories);
     MAKEFUNC(CheckNameLegalDOS8Dot3W);
     MAKEFUNC(CheckNameLegalDOS8Dot3A);
-    MAKEFUNC(CreateSymbolicLinkW);
     mod = GetModuleHandleA("ntdll.dll");
     MAKEFUNC(LdrGetDllPath);
     MAKEFUNC(RtlGetExePath);
@@ -2413,10 +2409,12 @@ static void test_SetSearchPathMode(void)
 
 static const WCHAR pathW[] = {'P','A','T','H',0};
 
-static void build_search_path( WCHAR *buffer, UINT size, const WCHAR *dlldir, BOOL safe )
+static void build_search_path( WCHAR *buffer, UINT size, const WCHAR *module, const WCHAR *dlldir, BOOL safe )
 {
     WCHAR *p;
-    GetModuleFileNameW( NULL, buffer, size );
+
+    if (module) lstrcpynW( buffer, module, size );
+    else GetModuleFileNameW( NULL, buffer, size );
     if (!(p = wcsrchr( buffer, '\\' ))) return;
     *p++ = ';';
     if (dlldir)
@@ -2475,7 +2473,7 @@ static void test_RtlGetSearchPath(void)
     GetWindowsDirectoryW( buffer, ARRAY_SIZE(buffer) );
     lstrcpynW( dlldir, buffer, ARRAY_SIZE(dlldir) );
 
-    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, TRUE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, TRUE );
     path = (WCHAR *)0xdeadbeef;
     ret = pRtlGetSearchPath( &path );
     ok( !ret, "RtlGetSearchPath failed %x\n", ret );
@@ -2483,7 +2481,7 @@ static void test_RtlGetSearchPath(void)
     pRtlReleasePath( path );
 
     SetEnvironmentVariableA( "PATH", "foo" );
-    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, TRUE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, TRUE );
     path = (WCHAR *)0xdeadbeef;
     ret = pRtlGetSearchPath( &path );
     ok( !ret, "RtlGetSearchPath failed %x\n", ret );
@@ -2493,7 +2491,7 @@ static void test_RtlGetSearchPath(void)
     if (pSetDllDirectoryW)
     {
         ok( pSetDllDirectoryW( dlldir ), "SetDllDirectoryW failed\n" );
-        build_search_path( buffer, ARRAY_SIZE(buffer), NULL, TRUE );
+        build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, TRUE );
         path = (WCHAR *)0xdeadbeef;
         ret = pRtlGetSearchPath( &path );
         ok( !ret, "RtlGetSearchPath failed %x\n", ret );
@@ -2524,14 +2522,14 @@ static void test_RtlGetExePath(void)
     lstrcpynW( dlldir, buffer, ARRAY_SIZE(dlldir) );
     SetEnvironmentVariableA( "NoDefaultCurrentDirectoryInExePath", NULL );
 
-    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, FALSE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, FALSE );
     path = (WCHAR *)0xdeadbeef;
     ret = pRtlGetExePath( fooW, &path );
     ok( !ret, "RtlGetExePath failed %x\n", ret );
     ok( path_equal( path, buffer ), "got %s expected %s\n", wine_dbgstr_w(path), wine_dbgstr_w(buffer));
     pRtlReleasePath( path );
 
-    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, FALSE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, FALSE );
     path = (WCHAR *)0xdeadbeef;
     ret = pRtlGetExePath( fooW + 1, &path );
     ok( !ret, "RtlGetExePath failed %x\n", ret );
@@ -2540,14 +2538,14 @@ static void test_RtlGetExePath(void)
 
     SetEnvironmentVariableA( "NoDefaultCurrentDirectoryInExePath", "yes" );
 
-    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, FALSE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, FALSE );
     path = (WCHAR *)0xdeadbeef;
     ret = pRtlGetExePath( fooW, &path );
     ok( !ret, "RtlGetExePath failed %x\n", ret );
     ok( path_equal( path, buffer ), "got %s expected %s\n", wine_dbgstr_w(path), wine_dbgstr_w(buffer));
     pRtlReleasePath( path );
 
-    build_search_path( buffer, ARRAY_SIZE(buffer), emptyW, TRUE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, emptyW, TRUE );
     path = (WCHAR *)0xdeadbeef;
     ret = pRtlGetExePath( fooW + 1, &path );
     ok( !ret, "RtlGetExePath failed %x\n", ret );
@@ -2555,7 +2553,7 @@ static void test_RtlGetExePath(void)
     pRtlReleasePath( path );
 
     SetEnvironmentVariableA( "PATH", "foo" );
-    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, FALSE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, FALSE );
     path = (WCHAR *)0xdeadbeef;
     ret = pRtlGetExePath( fooW, &path );
     ok( !ret, "RtlGetExePath failed %x\n", ret );
@@ -2565,7 +2563,7 @@ static void test_RtlGetExePath(void)
     if (pSetDllDirectoryW)
     {
         ok( pSetDllDirectoryW( dlldir ), "SetDllDirectoryW failed\n" );
-        build_search_path( buffer, ARRAY_SIZE(buffer), NULL, FALSE );
+        build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, FALSE );
         path = (WCHAR *)0xdeadbeef;
         ret = pRtlGetExePath( fooW, &path );
         ok( !ret, "RtlGetExePath failed %x\n", ret );
@@ -2593,7 +2591,7 @@ static void test_LdrGetDllPath(void)
     GetWindowsDirectoryW( buffer, ARRAY_SIZE(buffer) );
     lstrcpynW( dlldir, buffer, ARRAY_SIZE(dlldir) );
 
-    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, TRUE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, TRUE );
 
     path = unknown_ptr = (WCHAR *)0xdeadbeef;
     ret = pLdrGetDllPath( 0, 0, &path, &unknown_ptr );
@@ -2603,7 +2601,7 @@ static void test_LdrGetDllPath(void)
     pRtlReleasePath( path );
 
     SetEnvironmentVariableA( "PATH", "foo" );
-    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, TRUE );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, TRUE );
     ret = pLdrGetDllPath( 0, 0, &path, &unknown_ptr );
     ok( !ret, "LdrGetDllPath failed %x\n", ret );
     ok( !unknown_ptr, "unknown ptr %p\n", unknown_ptr );
@@ -2613,7 +2611,7 @@ static void test_LdrGetDllPath(void)
     if (pSetDllDirectoryW)
     {
         ok( pSetDllDirectoryW( dlldir ), "SetDllDirectoryW failed\n" );
-        build_search_path( buffer, ARRAY_SIZE(buffer), dlldir, TRUE );
+        build_search_path( buffer, ARRAY_SIZE(buffer), NULL, dlldir, TRUE );
         ret = pLdrGetDllPath( 0, 0, &path, &unknown_ptr );
         ok( !ret, "LdrGetDllPath failed %x\n", ret );
         ok( !unknown_ptr, "unknown ptr %p\n", unknown_ptr );
@@ -2658,6 +2656,47 @@ static void test_LdrGetDllPath(void)
     ok( !lstrcmpW( path, L"\\\\?\\c:" ), "got %s expected \\\\?\\c:\n", wine_dbgstr_w(path));
     pRtlReleasePath( path );
 
+    ret = pLdrGetDllPath( fooW, LOAD_WITH_ALTERED_SEARCH_PATH, &path, &unknown_ptr );
+    ok( !ret, "LdrGetDllPath failed %x\n", ret );
+    ok( !unknown_ptr, "unknown ptr %p\n", unknown_ptr );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, TRUE );
+    ok( path_equal( path, buffer ), "got %s expected %s\n", wine_dbgstr_w(path), wine_dbgstr_w(buffer));
+    pRtlReleasePath( path );
+
+    ret = pLdrGetDllPath( L"temp/foo", LOAD_WITH_ALTERED_SEARCH_PATH, &path, &unknown_ptr );
+    ok( !ret, "LdrGetDllPath failed %x\n", ret );
+    ok( !unknown_ptr, "unknown ptr %p\n", unknown_ptr );
+    build_search_path( buffer, ARRAY_SIZE(buffer), NULL, NULL, TRUE );
+    ok( path_equal( path, buffer ), "got %s expected %s\n", wine_dbgstr_w(path), wine_dbgstr_w(buffer));
+    pRtlReleasePath( path );
+
+    ret = pLdrGetDllPath( L".\\foo\\foobar", LOAD_WITH_ALTERED_SEARCH_PATH, &path, &unknown_ptr );
+    ok( !ret, "LdrGetDllPath failed %x\n", ret );
+    ok( !unknown_ptr, "unknown ptr %p\n", unknown_ptr );
+    build_search_path( buffer, ARRAY_SIZE(buffer), L".\\foo\\foobar", NULL, TRUE );
+    ok( path_equal( path, buffer ), "got %s expected %s\n", wine_dbgstr_w(path), wine_dbgstr_w(buffer));
+    pRtlReleasePath( path );
+
+    ret = pLdrGetDllPath( L"temp\\foo", LOAD_WITH_ALTERED_SEARCH_PATH, &path, &unknown_ptr );
+    ok( !ret, "LdrGetDllPath failed %x\n", ret );
+    ok( !unknown_ptr, "unknown ptr %p\n", unknown_ptr );
+    build_search_path( buffer, ARRAY_SIZE(buffer), L"temp\\foo", NULL, TRUE );
+    ok( path_equal( path, buffer ), "got %s expected %s\n", wine_dbgstr_w(path), wine_dbgstr_w(buffer));
+    pRtlReleasePath( path );
+
+    ret = pLdrGetDllPath( L"c:\\temp\\foo", LOAD_WITH_ALTERED_SEARCH_PATH, &path, &unknown_ptr );
+    ok( !ret, "LdrGetDllPath failed %x\n", ret );
+    ok( !unknown_ptr, "unknown ptr %p\n", unknown_ptr );
+    build_search_path( buffer, ARRAY_SIZE(buffer), L"c:\\temp\\foo", NULL, TRUE );
+    ok( path_equal( path, buffer ), "got %s expected %s\n", wine_dbgstr_w(path), wine_dbgstr_w(buffer));
+    pRtlReleasePath( path );
+
+    lstrcpyW( buffer, fooW );
+    ret = pLdrGetDllPath( buffer, LOAD_WITH_ALTERED_SEARCH_PATH | LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, &path, &unknown_ptr );
+    ok( ret == STATUS_INVALID_PARAMETER, "got %x expected %x\n", ret, STATUS_INVALID_PARAMETER );
+    ok( !unknown_ptr, "unknown ptr %p\n", unknown_ptr );
+    pRtlReleasePath( path );
+
     lstrcpyW( buffer, dlldir );
     p = buffer + lstrlenW(buffer);
     *p++ = '\\';
@@ -2695,95 +2734,6 @@ static void test_LdrGetDllPath(void)
     SetEnvironmentVariableW( pathW, old_path );
 }
 
-static void test_CreateSymbolicLink(void)
-{
-    static const WCHAR target_fileW[] = {'t','a','r','g','e','t','_','f','i','l','e',0};
-    static const WCHAR target_dirW[] = {'t','a','r','g','e','t','_','d','i','r',0};
-    static const WCHAR linkW[] = {'l','i','n','k',0};
-    static const WCHAR fooW[] = {'f','o','o',0};
-    static WCHAR volW[] = {'c',':','\\',0};
-    static const WCHAR dotW[] = {'.',0};
-    WCHAR path[MAX_PATH], old_path[MAX_PATH], tmp[MAX_PATH];
-    DWORD dwLen, dwFlags;
-    TOKEN_PRIVILEGES tp;
-    HANDLE token;
-    LUID luid;
-    BOOL bret;
-    HANDLE h;
-
-    if (!pCreateSymbolicLinkW)
-    {
-        win_skip( "CreateSymbolicLink isn't available\n" );
-        return;
-    }
-
-    /* Create a temporary folder for the symlink tests */
-    GetTempFileNameW( dotW, fooW, 0, path );
-    DeleteFileW( path );
-    if (!CreateDirectoryW( path, NULL ))
-    {
-        win_skip("Unable to create a temporary reparse point directory.\n");
-        return;
-    }
-    GetCurrentDirectoryW( sizeof(old_path)/sizeof(WCHAR), old_path );
-    SetCurrentDirectoryW( path );
-
-    /* Check that the volume this folder is located on supports reparse points */
-    GetFullPathNameW( path, sizeof(tmp)/sizeof(WCHAR), tmp, NULL );
-    volW[0] = tmp[0];
-    GetVolumeInformationW( volW, 0, 0, 0, &dwLen, &dwFlags, 0, 0 );
-    if (!(dwFlags & FILE_SUPPORTS_REPARSE_POINTS))
-    {
-        skip("File system does not support reparse points.\n");
-        goto cleanup;
-    }
-
-    /* Establish permissions for symlink creation */
-    bret = OpenProcessToken( GetCurrentProcess(), TOKEN_ALL_ACCESS, &token );
-    ok(bret, "OpenProcessToken failed: %u\n", GetLastError());
-    bret = LookupPrivilegeValueA( NULL, "SeCreateSymbolicLinkPrivilege", &luid );
-    todo_wine ok(bret || broken(!bret && GetLastError() == ERROR_NO_SUCH_PRIVILEGE) /* winxp */,
-                 "LookupPrivilegeValue failed: %u\n", GetLastError());
-    if (bret)
-    {
-        tp.PrivilegeCount = 1;
-        tp.Privileges[0].Luid = luid;
-        tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
-        bret = AdjustTokenPrivileges( token, FALSE, &tp, 0, NULL, NULL );
-        ok(bret, "AdjustTokenPrivileges failed: %u\n", GetLastError());
-    }
-    if ((!bret && GetLastError() != ERROR_NO_SUCH_PRIVILEGE) || GetLastError() == ERROR_NOT_ALL_ASSIGNED)
-    {
-        win_skip("Insufficient permissions to perform symlink tests.\n");
-        goto cleanup;
-    }
-
-    /* Create a destination folder and file for symlinks to target */
-    bret = CreateDirectoryW( target_dirW, NULL );
-    ok(bret, "Failed to create symlink target directory.\n");
-    h = CreateFileW( target_fileW, GENERIC_WRITE, 0, NULL, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, NULL );
-    ok(h != INVALID_HANDLE_VALUE, "Failed to create symlink target file.\n");
-    CloseHandle( h );
-
-    /* Create a directory symbolic link */
-    bret = CreateSymbolicLinkW( linkW, target_dirW, SYMBOLIC_LINK_FLAG_DIRECTORY );
-    ok(bret, "Failed to create directory symbolic link! (0x%x)\n", GetLastError());
-    bret = RemoveDirectoryW( linkW );
-    ok(bret, "Failed to remove directory symbolic link! (0x%x)\n", GetLastError());
-
-    /* Create a file symbolic link */
-    bret = CreateSymbolicLinkW( linkW, target_fileW, 0x0 );
-    ok(bret, "Failed to create file symbolic link! (0x%x)\n", GetLastError());
-    bret = DeleteFileW( linkW );
-    ok(bret, "Failed to remove file symbolic link! (0x%x)\n", GetLastError());
-
-cleanup:
-    DeleteFileW( target_fileW );
-    RemoveDirectoryW( target_dirW );
-    SetCurrentDirectoryW( old_path );
-    RemoveDirectoryW( path );
-}
-
 START_TEST(path)
 {
     CHAR origdir[MAX_PATH],curdir[MAX_PATH], curDrive, otherDrive;
@@ -2813,5 +2763,4 @@ START_TEST(path)
     test_RtlGetSearchPath();
     test_RtlGetExePath();
     test_LdrGetDllPath();
-    test_CreateSymbolicLink();
 }

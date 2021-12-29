@@ -181,8 +181,6 @@ static HRESULT DirectSoundDevice_Create(DirectSoundDevice ** ppDevice)
 
     InitializeSRWLock(&device->buffer_list_lock);
 
-    init_eax_device(device);
-
    *ppDevice = device;
 
     return DS_OK;
@@ -235,8 +233,6 @@ static ULONG DirectSoundDevice_Release(DirectSoundDevice * device)
         if(device->mmdevice)
             IMMDevice_Release(device->mmdevice);
         CloseHandle(device->sleepev);
-
-        HeapFree(GetProcessHeap(), 0, device->dsp_buffer);
         HeapFree(GetProcessHeap(), 0, device->tmp_buffer);
         HeapFree(GetProcessHeap(), 0, device->cp_buffer);
         HeapFree(GetProcessHeap(), 0, device->buffer);
@@ -376,12 +372,12 @@ static HRESULT DirectSoundDevice_Initialize(DirectSoundDevice ** ppDevice, LPCGU
     device->drvcaps.dwPrimaryBuffers = 1;
     device->drvcaps.dwMinSecondarySampleRate = DSBFREQUENCY_MIN;
     device->drvcaps.dwMaxSecondarySampleRate = DSBFREQUENCY_MAX;
-    device->drvcaps.dwMaxHwMixingAllBuffers = 16;
+    device->drvcaps.dwMaxHwMixingAllBuffers = 1;
     device->drvcaps.dwMaxHwMixingStaticBuffers = device->drvcaps.dwMaxHwMixingAllBuffers;
     device->drvcaps.dwMaxHwMixingStreamingBuffers = device->drvcaps.dwMaxHwMixingAllBuffers;
-    device->drvcaps.dwFreeHwMixingAllBuffers = device->drvcaps.dwMaxHwMixingAllBuffers;
-    device->drvcaps.dwFreeHwMixingStaticBuffers = device->drvcaps.dwMaxHwMixingStaticBuffers;
-    device->drvcaps.dwFreeHwMixingStreamingBuffers = device->drvcaps.dwMaxHwMixingStreamingBuffers;
+    device->drvcaps.dwFreeHwMixingAllBuffers = 0;
+    device->drvcaps.dwFreeHwMixingStaticBuffers = 0;
+    device->drvcaps.dwFreeHwMixingStreamingBuffers = 0;
 
     ZeroMemory(&device->volpan, sizeof(device->volpan));
 
@@ -438,11 +434,10 @@ static HRESULT DirectSoundDevice_CreateSoundBuffer(
     }
 
     if (!(dsbd->dwFlags & DSBCAPS_PRIMARYBUFFER) &&
-        dsbd->dwFlags & DSBCAPS_LOCHARDWARE &&
-        device->drvcaps.dwFreeHwMixingAllBuffers == 0)
+        dsbd->dwFlags & DSBCAPS_LOCHARDWARE)
     {
-        WARN("ran out of emulated hardware buffers\n");
-        return DSERR_ALLOCATED;
+        WARN("unable to create hardware buffer\n");
+        return DSERR_UNSUPPORTED;
     }
 
     if (dsbd->dwFlags & DSBCAPS_PRIMARYBUFFER) {

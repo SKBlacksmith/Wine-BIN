@@ -237,9 +237,6 @@ static void dump_apc_call( const char *prefix, const apc_call_t *call )
                  call->dup_handle.src_handle, call->dup_handle.dst_process, call->dup_handle.access,
                  call->dup_handle.attributes, call->dup_handle.options );
         break;
-    case APC_BREAK_PROCESS:
-        fprintf( stderr, "APC_BREAK_PROCESS" );
-        break;
     default:
         fprintf( stderr, "type=%u", call->type );
         break;
@@ -323,9 +320,6 @@ static void dump_apc_result( const char *prefix, const apc_result_t *result )
     case APC_DUP_HANDLE:
         fprintf( stderr, "APC_DUP_HANDLE,status=%s,handle=%04x",
                  get_status_name( result->dup_handle.status ), result->dup_handle.handle );
-        break;
-    case APC_BREAK_PROCESS:
-        fprintf( stderr, "APC_BREAK_PROCESS,status=%s", get_status_name( result->break_process.status ) );
         break;
     default:
         fprintf( stderr, "type=%u", result->type );
@@ -1432,6 +1426,24 @@ static void dump_varargs_poll_socket_output( const char *prefix, data_size_t siz
     fputc( '}', stderr );
 }
 
+static void dump_varargs_cpu_topology_override( const char *prefix, data_size_t size )
+{
+    const struct cpu_topology_override *cpu_topology = cur_data;
+    unsigned int i;
+
+    if (size < sizeof(*cpu_topology))
+        return;
+
+    fprintf( stderr,"%s{", prefix );
+    for (i = 0; i < cpu_topology->cpu_count; ++i)
+    {
+        if (i) fputc( ',', stderr );
+        fprintf( stderr, "%u", cpu_topology->host_cpu_id[i] );
+    }
+    fputc( '}', stderr );
+    remove_data( size );
+}
+
 typedef void (*dump_func)( const void *req );
 
 /* Everything below this line is generated automatically by tools/make_requests */
@@ -1502,7 +1514,8 @@ static void dump_get_startup_info_reply( const struct get_startup_info_reply *re
 
 static void dump_init_process_done_request( const struct init_process_done_request *req )
 {
-    dump_uint64( " teb=", &req->teb );
+    dump_varargs_cpu_topology_override( " cpu_override=", cur_size );
+    dump_uint64( ", teb=", &req->teb );
     dump_uint64( ", peb=", &req->peb );
     dump_uint64( ", ldt_copy=", &req->ldt_copy );
 }
@@ -1753,6 +1766,12 @@ static void dump_dup_handle_request( const struct dup_handle_request *req )
 static void dump_dup_handle_reply( const struct dup_handle_reply *req )
 {
     fprintf( stderr, " handle=%04x", req->handle );
+}
+
+static void dump_compare_objects_request( const struct compare_objects_request *req )
+{
+    fprintf( stderr, " first=%04x", req->first );
+    fprintf( stderr, ", second=%04x", req->second );
 }
 
 static void dump_make_temporary_request( const struct make_temporary_request *req )
@@ -2017,7 +2036,6 @@ static void dump_alloc_file_handle_reply( const struct alloc_file_handle_reply *
 static void dump_get_handle_unix_name_request( const struct get_handle_unix_name_request *req )
 {
     fprintf( stderr, " handle=%04x", req->handle );
-    fprintf( stderr, ", nofollow=%d", req->nofollow );
 }
 
 static void dump_get_handle_unix_name_reply( const struct get_handle_unix_name_reply *req )
@@ -3195,12 +3213,6 @@ static void dump_set_window_region_request( const struct set_window_region_reque
 {
     fprintf( stderr, " window=%08x", req->window );
     fprintf( stderr, ", redraw=%d", req->redraw );
-    dump_varargs_rectangles( ", region=", cur_size );
-}
-
-static void dump_set_layer_region_request( const struct set_layer_region_request *req )
-{
-    fprintf( stderr, " window=%08x", req->window );
     dump_varargs_rectangles( ", region=", cur_size );
 }
 
@@ -4703,6 +4715,7 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_close_handle_request,
     (dump_func)dump_set_handle_info_request,
     (dump_func)dump_dup_handle_request,
+    (dump_func)dump_compare_objects_request,
     (dump_func)dump_make_temporary_request,
     (dump_func)dump_open_process_request,
     (dump_func)dump_open_thread_request,
@@ -4828,7 +4841,6 @@ static const dump_func req_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_surface_region_request,
     (dump_func)dump_get_window_region_request,
     (dump_func)dump_set_window_region_request,
-    (dump_func)dump_set_layer_region_request,
     (dump_func)dump_get_update_region_request,
     (dump_func)dump_update_window_zorder_request,
     (dump_func)dump_redraw_window_request,
@@ -4992,6 +5004,7 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_set_handle_info_reply,
     (dump_func)dump_dup_handle_reply,
     NULL,
+    NULL,
     (dump_func)dump_open_process_reply,
     (dump_func)dump_open_thread_reply,
     (dump_func)dump_select_reply,
@@ -5115,7 +5128,6 @@ static const dump_func reply_dumpers[REQ_NB_REQUESTS] = {
     (dump_func)dump_get_visible_region_reply,
     (dump_func)dump_get_surface_region_reply,
     (dump_func)dump_get_window_region_reply,
-    NULL,
     NULL,
     (dump_func)dump_get_update_region_reply,
     NULL,
@@ -5279,6 +5291,7 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "close_handle",
     "set_handle_info",
     "dup_handle",
+    "compare_objects",
     "make_temporary",
     "open_process",
     "open_thread",
@@ -5404,7 +5417,6 @@ static const char * const req_names[REQ_NB_REQUESTS] = {
     "get_surface_region",
     "get_window_region",
     "set_window_region",
-    "set_layer_region",
     "get_update_region",
     "update_window_zorder",
     "redraw_window",
@@ -5629,6 +5641,7 @@ static const struct
     { "NOT_MAPPED_VIEW",             STATUS_NOT_MAPPED_VIEW },
     { "NOT_REGISTRY_FILE",           STATUS_NOT_REGISTRY_FILE },
     { "NOT_SAME_DEVICE",             STATUS_NOT_SAME_DEVICE },
+    { "NOT_SAME_OBJECT",             STATUS_NOT_SAME_OBJECT },
     { "NOT_SUPPORTED",               STATUS_NOT_SUPPORTED },
     { "NO_DATA_DETECTED",            STATUS_NO_DATA_DETECTED },
     { "NO_IMPERSONATION_TOKEN",      STATUS_NO_IMPERSONATION_TOKEN },

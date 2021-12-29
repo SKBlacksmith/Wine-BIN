@@ -4,27 +4,14 @@ dnl For detailed change history, see the git commit logs.
 
 m4_define(WINE_VERSION,regexp(m4_include(VERSION),[version \([-.0-9A-Za-z]+\)],[\1]))
 
-dnl autoconf versions before 2.62 don't handle source dir symlinks correctly
-AC_PREREQ(2.62)
+dnl autoconf versions before 2.63b don't have AS_VAR_APPEND or AS_VAR_IF
+AC_PREREQ(2.63b)
 AC_INIT([Wine Crossroads],[WINE_VERSION],[alice@newalive.org],[wine-crossroads],[https://www.newalive.net])
 AC_CONFIG_SRCDIR(server/atom.c)
 AC_CONFIG_HEADERS(include/config.h)
 AC_CONFIG_AUX_DIR(tools)
 
 libwine_version="1.0"
-
-dnl autoconf versions before 2.63b don't have AS_VAR_APPEND or AS_VAR_IF
-m4_ifdef([AS_VAR_APPEND],,[as_fn_append () { eval $[1]=\$$[1]\$[2]; }
-AC_DEFUN([AS_VAR_APPEND],[as_fn_append $1 $2])])dnl
-m4_ifdef([AS_VAR_IF],,[AC_DEFUN([AS_VAR_IF],
-[AS_LITERAL_IF([$1],
-  [AS_IF([test "x$$1" = x""$2], [$3], [$4])],
-  [eval as_val=\$$1
-   AS_IF([test "x$as_val" = x""$2], [$3], [$4])])])])dnl
-dnl autoconf versions before 2.64 don't have AC_PACKAGE_URL
-m4_ifdef([AC_PACKAGE_URL],,
-  [AC_DEFINE([PACKAGE_URL], ["https://www.newalive.net"], [Define to the home page for this package.])
-   AC_SUBST([PACKAGE_URL], ["https://www.newalive.net"])])dnl
 
 dnl **** Command-line arguments ****
 
@@ -45,7 +32,6 @@ AC_ARG_WITH(dbus,      AS_HELP_STRING([--without-dbus],[do not use DBus (dynamic
 AC_ARG_WITH(float-abi, AS_HELP_STRING([--with-float-abi=abi],[specify the ABI (soft|softfp|hard) for ARM platforms]))
 AC_ARG_WITH(fontconfig,AS_HELP_STRING([--without-fontconfig],[do not use fontconfig]))
 AC_ARG_WITH(freetype,  AS_HELP_STRING([--without-freetype],[do not use the FreeType library]))
-AC_ARG_WITH(gcrypt,    AS_HELP_STRING([--without-gcrypt],[do not use libgcrypt]))
 AC_ARG_WITH(gettext,   AS_HELP_STRING([--without-gettext],[do not use gettext]))
 AC_ARG_WITH(gettextpo, AS_HELP_STRING([--with-gettextpo],[use the GetTextPO library to rebuild po files]),
             [if test "x$withval" = "xno"; then ac_cv_header_gettext_po_h=no; fi])
@@ -53,7 +39,6 @@ AC_ARG_WITH(gphoto,    AS_HELP_STRING([--without-gphoto],[do not use gphoto (Dig
 AC_ARG_WITH(gnutls,    AS_HELP_STRING([--without-gnutls],[do not use GnuTLS (schannel support)]))
 AC_ARG_WITH(gssapi,    AS_HELP_STRING([--without-gssapi],[do not use GSSAPI (Kerberos SSP support)]))
 AC_ARG_WITH(gstreamer, AS_HELP_STRING([--without-gstreamer],[do not use GStreamer (codecs support)]))
-AC_ARG_WITH(hal,       AS_HELP_STRING([--without-hal],[do not use HAL (dynamic device support)]))
 AC_ARG_WITH(inotify,   AS_HELP_STRING([--without-inotify],[do not use inotify (filesystem change notifications)]))
 AC_ARG_WITH(krb5,      AS_HELP_STRING([--without-krb5],[do not use krb5 (Kerberos)]))
 AC_ARG_WITH(ldap,      AS_HELP_STRING([--without-ldap],[do not use LDAP]),
@@ -72,7 +57,6 @@ AC_ARG_WITH(pcap,      AS_HELP_STRING([--without-pcap],[do not use the Packet Ca
 AC_ARG_WITH(pthread,   AS_HELP_STRING([--without-pthread],[do not use the pthread library]),
             [if test "x$withval" = "xno"; then ac_cv_header_pthread_h=no; fi])
 AC_ARG_WITH(pulse,     AS_HELP_STRING([--without-pulse],[do not use PulseAudio sound support]))
-AC_ARG_WITH(quicktime, AS_HELP_STRING([--without-quicktime],[do not use QuickTime support]))
 AC_ARG_WITH(sane,      AS_HELP_STRING([--without-sane],[do not use SANE (scanner support)]))
 AC_ARG_WITH(sdl,       AS_HELP_STRING([--without-sdl],[do not use SDL]))
 AC_ARG_WITH(udev,      AS_HELP_STRING([--without-udev],[do not use udev (plug and play support)]))
@@ -81,7 +65,6 @@ AC_ARG_WITH(usb,       AS_HELP_STRING([--without-usb],[do not use the libusb lib
 AC_ARG_WITH(v4l2,      AS_HELP_STRING([--without-v4l2],[do not use v4l2 (video capture)]))
 AC_ARG_WITH(vkd3d,     AS_HELP_STRING([--without-vkd3d],[do not use vkd3d (Direct3D 12 support)]))
 AC_ARG_WITH(vulkan,    AS_HELP_STRING([--without-vulkan],[do not use Vulkan]))
-AC_ARG_WITH(xattr,     AS_HELP_STRING([--without-xattr],[do not use xattr (security attributes support)]))
 AC_ARG_WITH(xcomposite,AS_HELP_STRING([--without-xcomposite],[do not use the Xcomposite extension]),
             [if test "x$withval" = "xno"; then ac_cv_header_X11_extensions_Xcomposite_h=no; fi])
 AC_ARG_WITH(xcursor,   AS_HELP_STRING([--without-xcursor],[do not use the Xcursor extension]),
@@ -105,10 +88,17 @@ AC_ARG_WITH(xshm,      AS_HELP_STRING([--without-xshm],[do not use XShm (shared 
 AC_ARG_WITH(xxf86vm,   AS_HELP_STRING([--without-xxf86vm],[do not use XFree video mode extension]),
             [if test "x$withval" = "xno"; then ac_cv_header_X11_extensions_xf86vmode_h=no; ac_cv_header_X11_extensions_xf86vmproto_h=no; fi])
 
+AC_ARG_WITH(system-dllpath,AS_HELP_STRING([--with-system-dllpath=PATH],[load external PE dependencies from colon-separated path PATH]),
+            AC_SUBST(system_dllpath,[$withval]))
 AC_ARG_WITH(wine-tools,AS_HELP_STRING([--with-wine-tools=DIR],[use Wine tools from directory DIR]))
 AC_ARG_WITH(wine64,    AS_HELP_STRING([--with-wine64=DIR],[use the 64-bit Wine in DIR for a Wow64 build]))
 
 AC_CANONICAL_HOST
+
+AC_SUBST(dlldir,[\${libdir}/wine])
+AC_SUBST(fontdir,[\${datadir}/wine/fonts])
+AC_SUBST(nlsdir,[\${datadir}/wine/nls])
+AC_SUBST(srcdir)
 
 dnl **** Check for some programs ****
 
@@ -221,12 +211,6 @@ enable_win16=${enable_win16:-no}
 enable_win64=${enable_win64:-no}
 enable_wow64=${enable_wow64:-no}
 enable_wow64win=${enable_wow64win:-no}
-if test "x$enable_win64" != "xyes"
-then
-  enable_win32="yes"
-else
-  enable_win32="no"
-fi
 enable_wow64cpu=${enable_wow64cpu:-no}
 
 dnl Disable winetest too if tests are disabled
@@ -239,6 +223,11 @@ then
 --enable-win64 should be used in the 64-bit build tree, --with-wine64 in the 32-bit Wow64 build tree.])
 fi
 
+case $build_os in
+  cygwin*|mingw32*) AC_SUBST(toolsext,".exe") ;;
+  *) AC_SUBST(toolsext,"") ;;
+esac
+
 AC_CACHE_CHECK([for the directory containing the Wine tools], wine_cv_toolsdir,
   [wine_cv_toolsdir="$with_wine_tools"
    if test -z "$with_wine_tools"; then
@@ -249,16 +238,20 @@ AC_CACHE_CHECK([for the directory containing the Wine tools], wine_cv_toolsdir,
      fi
    fi])
 if test -z "$wine_cv_toolsdir"; then
-    wine_makedep=tools/makedep
-    AC_SUBST(TOOLSDIR,".")
+    wine_makedep=tools/makedep$toolsext
 elif test -d "$wine_cv_toolsdir/tools/winebuild"; then
-    wine_makedep=$wine_cv_toolsdir/tools/makedep
-    AC_SUBST(TOOLSDIR,$wine_cv_toolsdir)
+    wine_makedep=$wine_cv_toolsdir/tools/makedep$toolsext
     enable_tools=${enable_tools:-no}
     test -f "$wine_makedep" || AC_MSG_ERROR([the Wine tools have not yet been built in $wine_cv_toolsdir])
 else
     AC_MSG_ERROR([could not find Wine tools in $wine_cv_toolsdir])
 fi
+AC_SUBST(toolsdir,[$wine_cv_toolsdir])
+AC_SUBST(MAKEDEP,[$wine_makedep])
+AC_SUBST(RUNTESTFLAGS,["-q -P wine"])
+AC_SUBST(SED_CMD,["LC_ALL=C sed -e 's,@bindir@,\${bindir},g' -e 's,@dlldir@,\${dlldir},g' -e 's,@PACKAGE_STRING@,$PACKAGE_STRING,g' -e 's,@PACKAGE_VERSION@,$PACKAGE_VERSION,g'"])
+AC_SUBST(api_manext,[3w])
+
 if test -n "$host_alias" -a "$host_alias" != "$build_alias"
 then
     TARGETFLAGS="-b $host_alias $TARGETFLAGS"
@@ -433,7 +426,6 @@ AC_CHECK_HEADERS(\
 	IOKit/hid/IOHIDLib.h \
 	OpenAL/al.h \
 	CL/opencl.h \
-	QuickTime/ImageCompression.h \
 	Security/Security.h \
 	SystemConfiguration/SCDynamicStoreCopyDHCPInfo.h \
 	SystemConfiguration/SCNetworkConfiguration.h \
@@ -458,7 +450,6 @@ AC_CHECK_HEADERS(\
 	linux/joystick.h \
 	linux/major.h \
 	linux/param.h \
-	linux/seccomp.h \
 	linux/serial.h \
 	linux/types.h \
 	linux/ucdrom.h \
@@ -685,20 +676,6 @@ AC_CHECK_HEADERS([libprocstat.h],,,
 #include <sys/socket.h>
 #endif])
 
-if test "x$with_xattr" != "xno"
-then
-    AC_CHECK_HEADERS(attr/xattr.h sys/extattr.h, [HAVE_XATTR=1])
-    AC_CHECK_HEADERS(sys/xattr.h, [HAVE_XATTR=1]
-        [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <sys/xattr.h>]], [[getxattr("", "", "", 0, 0, 0);]])],
-            [AC_DEFINE(XATTR_ADDITIONAL_OPTIONS, 1, [Define if xattr functions take additional arguments (Mac OS X)])])])
-fi
-if test "x$with_xattr" = "xyes"
-then
-    WINE_ERROR_WITH(xattr,[test "x$HAVE_XATTR" = "x"],[xattr ${notice_platform}development files \
-not found. Wine will be built without extended attribute support, which probably isn't what you \
-want. You will need to install ${notice_platform}development packages of libattr at the very least.])
-fi
-
 dnl **** Check for working dll ****
 
 AC_SUBST(DLLFLAGS,"")
@@ -808,27 +785,6 @@ case $host_os in
         AC_CHECK_FUNCS(IOHIDManagerCreate)
         LIBS="$ac_save_LIBS"
     fi
-
-    dnl *** Check for QuickTime ***
-    if test "x$with_quicktime" != "xno"
-    then
-        if test "$ac_cv_header_QuickTime_ImageCompression_h" = "yes"
-        then
-            dnl Make sure we can actually use the QuickTime framework
-            ac_save_LIBS="$LIBS"
-            LIBS="-framework QuickTime -framework ApplicationServices -framework CoreVideo $LIBS"
-            AC_MSG_CHECKING([for the QuickTime framework])
-            AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <QuickTime/ImageCompression.h>]],[[CodecManagerVersion(NULL);]])],
-                           [AC_MSG_RESULT([yes])
-                            AC_SUBST(QUICKTIME_LIBS,"-framework QuickTime -framework ApplicationServices -framework CoreVideo")
-                            enable_wineqtdecoder=${enable_wineqtdecoder:-yes}],
-                           [AC_MSG_RESULT([no])
-                            ac_cv_header_QuickTime_ImageCompression_h=no])
-            LIBS="$ac_save_LIBS"
-        fi
-    fi
-    WINE_NOTICE_WITH(quicktime,[test "$ac_cv_header_QuickTime_ImageCompression_h" != "yes"],
-                     [QuickTime ${notice_platform}development files not found, video decoding won't be supported.])
 
     if test "$ac_cv_header_Carbon_Carbon_h" = "yes"
     then
@@ -942,7 +898,6 @@ case $host_os in
 esac
 
 enable_winecoreaudio_drv=${enable_winecoreaudio_drv:-no}
-enable_wineqtdecoder=${enable_wineqtdecoder:-no}
 enable_wineandroid_drv=${enable_wineandroid_drv:-no}
 enable_winemac_drv=${enable_winemac_drv:-no}
 test "$ac_cv_header_linux_joystick_h" = "yes" -o "$ac_cv_header_IOKit_hid_IOHIDLib_h" = "yes" || enable_winejoystick_drv=${enable_winejoystick_drv:-no}
@@ -1079,6 +1034,105 @@ WINE_NOTICE_WITH(mingw,[test "x$CROSSTARGET" = "x"],
 
 dnl **** External libraries ****
 
+if test "x$with_system_dllpath" != "x" -a "$CROSSCC" != "false"
+then
+    WINE_MINGW_PACKAGE_FLAGS(FAUDIO,[FAudio],[-lFAudio],
+        [WINE_CHECK_MINGW_HEADER(FAudio.h,
+            [WINE_CHECK_MINGW_LIB(FAudio,FAudio_CommitOperationSet,[:],[FAUDIO_PE_CFLAGS=""; FAUDIO_PE_LIBS=""],[$FAUDIO_PE_LIBS])],
+            [FAUDIO_PE_CFLAGS=""; FAUDIO_PE_LIBS=""])])
+    if test "x$FAUDIO_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([FAudio ${notice_platform}MinGW development files not found (or too old); using bundled version.])
+    fi
+
+    WINE_MINGW_PACKAGE_FLAGS(JPEG,[libjpeg],,
+        [WINE_CHECK_MINGW_HEADER(jpeglib.h,
+            [WINE_CHECK_MINGW_LIB(jpeg,jpeg_start_decompress,[:],[JPEG_PE_CFLAGS=""; JPEG_PE_LIBS=""],[$JPEG_PE_LIBS])],
+            [JPEG_PE_CFLAGS=""; JPEG_PE_LIBS=""],
+            [#include <stddef.h>
+             #include <stdio.h>])])
+    if test "x$JPEG_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([libjpeg ${notice_platform}MinGW development files not found; using bundled version.])
+    fi
+
+    WINE_MINGW_PACKAGE_FLAGS(LCMS2,[lcms2],[-llcms2],
+        [WINE_CHECK_MINGW_HEADER(lcms2.h,
+            [WINE_CHECK_MINGW_LIB(lcms2,cmsOpenProfileFromFile,[:],[LCMS2_PE_CFLAGS=""; LCMS2_PE_LIBS=""],[$LCMS2_PE_LIBS])],
+            [LCMS2_PE_CFLAGS=""; LCMS2_PE_LIBS=""])])
+    if test "x$LCMS2_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([liblcms2 ${notice_platform}MinGW development files not found; using bundled version.])
+    fi
+
+    WINE_MINGW_PACKAGE_FLAGS(MPG123,[libmpg123],[-lmpg123],
+        [WINE_CHECK_MINGW_HEADER(mpg123.h,
+            [WINE_CHECK_MINGW_LIB(mpg123,mpg123_feed,[:],[MPG123_PE_CFLAGS=""; MPG123_PE_LIBS=""],[$MPG123_PE_LIBS])],
+            [MPG123_PE_CFLAGS=""; MPG123_PE_LIBS=""])])
+    if test "x$MPG123_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([libmpg123 ${notice_platform}MinGW development files not found (or too old); using bundled version.])
+    fi
+
+    WINE_MINGW_PACKAGE_FLAGS(PNG,[libpng],,
+        [WINE_CHECK_MINGW_HEADER(png.h,
+            [WINE_CHECK_MINGW_LIB(png,png_create_read_struct,[:],[PNG_PE_CFLAGS=""; PNG_PE_LIBS=""],[$PNG_PE_LIBS])],
+            [PNG_PE_CFLAGS=""; PNG_PE_LIBS=""])])
+    if test "x$PNG_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([libpng ${notice_platform}MinGW development files not found; using bundled version.])
+    fi
+
+    WINE_MINGW_PACKAGE_FLAGS(TIFF,[libtiff-4],,
+        [WINE_CHECK_MINGW_HEADER(tiffio.h,
+            [WINE_CHECK_MINGW_LIB(tiff,TIFFClientOpen,[:],[TIFF_PE_CFLAGS=""; TIFF_PE_LIBS=""],[$TIFF_PE_LIBS])],
+            [TIFF_PE_CFLAGS=""; TIFF_PE_LIBS=""])])
+    if test "x$TIFF_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([libtiff ${notice_platform}MinGW development files not found; using bundled version.])
+    fi
+
+    WINE_MINGW_PACKAGE_FLAGS(XML2,[libxml-2.0],[-lxml2],
+        [WINE_CHECK_MINGW_HEADER(libxml/parser.h)
+        WINE_CHECK_MINGW_HEADER(libxml/xmlsave.h)
+        WINE_CHECK_MINGW_HEADER(libxml/SAX2.h)
+        if test "$ac_cv_mingw_header_libxml_parser_h" = "yes" -a "$ac_cv_mingw_header_libxml_xmlsave_h" = "yes" -a "$ac_cv_mingw_header_libxml_SAX2_h" = "yes"
+        then
+            WINE_CHECK_MINGW_LIB(xml2,xmlFirstElementChild,[:],[XML2_PE_CFLAGS=""; XML2_PE_LIBS=""],[$XML2_PE_LIBS])
+        else
+            XML2_PE_CFLAGS=""
+            XML2_PE_LIBS=""
+        fi])
+    if test "x$XML2_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([libxml2 ${notice_platform}MinGW development files not found (or too old); using bundled version.])
+    fi
+
+    WINE_MINGW_PACKAGE_FLAGS(XSLT,[libxslt],[-lxslt],
+        [WINE_CHECK_MINGW_HEADER(libxslt/pattern.h)
+        WINE_CHECK_MINGW_HEADER(libxslt/transform.h)
+        if test "$ac_cv_mingw_header_libxslt_pattern_h" = "yes" -a "$ac_cv_mingw_header_libxslt_transform_h" = "yes"
+        then
+            WINE_CHECK_MINGW_LIB(xslt,xsltCompilePattern,[:],[XSLT_PE_CFLAGS=""; XSLT_PE_LIBS=""],[$XSLT_PE_LIBS])
+        else
+            XSLT_PE_CFLAGS=""
+            XSLT_PE_LIBS=""
+        fi])
+    if test "x$XSLT_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([libxslt ${notice_platform}MinGW development files not found; using bundled version.])
+    fi
+
+    WINE_MINGW_PACKAGE_FLAGS(ZLIB,[zlib],[-lz],
+        [WINE_CHECK_MINGW_HEADER(zlib.h,
+            [WINE_CHECK_MINGW_LIB(z,inflate,[:],[ZLIB_PE_CFLAGS=""; ZLIB_PE_LIBS=""],[$ZLIB_PE_LIBS])],
+            [ZLIB_PE_CFLAGS=""; ZLIB_PE_LIBS=""])])
+    if test "x$ZLIB_PE_LIBS" = "x"
+    then
+        WINE_NOTICE([zlib ${notice_platform}MinGW development files not found; using bundled version.])
+    fi
+fi
+
 WINE_EXTLIB_FLAGS(FAUDIO, faudio, "faudio mfplat mfreadwrite mfuuid propsys", "-I\$(top_srcdir)/libs/faudio/include")
 WINE_EXTLIB_FLAGS(GSM, gsm, gsm, "-I\$(top_srcdir)/libs/gsm/inc")
 WINE_EXTLIB_FLAGS(JPEG, jpeg, jpeg, "-I\$(top_srcdir)/libs/jpeg")
@@ -1087,8 +1141,8 @@ WINE_EXTLIB_FLAGS(LCMS2, lcms2, lcms2, "-I\$(top_srcdir)/libs/lcms2/include")
 WINE_EXTLIB_FLAGS(MPG123, mpg123, mpg123, "-I\$(top_srcdir)/libs/mpg123/src/libmpg123")
 WINE_EXTLIB_FLAGS(PNG, png, "png \$(ZLIB_PE_LIBS)", "-I\$(top_srcdir)/libs/png")
 WINE_EXTLIB_FLAGS(TIFF, tiff, tiff, "-I\$(top_srcdir)/libs/tiff/libtiff")
-WINE_EXTLIB_FLAGS(XML2, libxml2, xml2, "-I\$(top_srcdir)/libs/xml2/include -DLIBXML_STATIC")
-WINE_EXTLIB_FLAGS(XSLT, libxslt, xslt, "-I\$(top_srcdir)/libs/xslt -DLIBXSLT_STATIC")
+WINE_EXTLIB_FLAGS(XML2, xml2, xml2, "-I\$(top_srcdir)/libs/xml2/include -DLIBXML_STATIC")
+WINE_EXTLIB_FLAGS(XSLT, xslt, xslt, "-I\$(top_srcdir)/libs/xslt -DLIBXSLT_STATIC")
 WINE_EXTLIB_FLAGS(ZLIB, zlib, z, "-I\$(top_srcdir)/libs/zlib -DFAR= -DZ_SOLO")
 
 dnl **** Check for pthread ****
@@ -1345,18 +1399,6 @@ WINE_NOTICE_WITH(dbus,[test "x$ac_cv_lib_soname_dbus_1" = "x" -a \
                             "x$ac_cv_header_DiskArbitration_DiskArbitration_h" != "xyes"],
                  [libdbus ${notice_platform}development files not found, no dynamic device support.])
 
-dnl **** Check for libhal ****
-if test "x$with_hal" != "xno" -a "x$ac_cv_lib_soname_dbus_1" != x
-then
-    WINE_PACKAGE_FLAGS(HAL,[hal],[-ldbus-1],,,
-        [AC_CHECK_HEADER([hal/libhal.h],
-            [WINE_CHECK_SONAME(hal, libhal_ctx_new,,[HAL_CFLAGS=""],[$HAL_LIBS])],
-            [HAL_CFLAGS=""])])
-    WINE_NOTICE_WITH(hal,[test "x$ac_cv_lib_soname_hal" = "x" -a \
-                               "x$ac_cv_header_DiskArbitration_DiskArbitration_h" != "xyes"],
-                     [libhal ${notice_platform}development files not found, no legacy dynamic device support.])
-fi
-
 dnl **** Check for libgnutls ****
 if test "x$with_gnutls" != "xno"
 then
@@ -1371,14 +1413,6 @@ then
 fi
 WINE_WARNING_WITH(gnutls,[test "x$ac_cv_lib_soname_gnutls" = "x"],
                  [libgnutls ${notice_platform}development files not found, no schannel support.])
-
-dnl **** Check for libgmp ****
-if test "x$with_gnutls" != "xno"
-then
-    WINE_PACKAGE_FLAGS(GMP,[gmp],[-lgmp],,,
-        [AC_CHECK_HEADERS([gmp.h],
-            [WINE_CHECK_SONAME(gmp,__gmpz_init,,[GMP_CFLAGS=""],[$GMP_LIBS],[[libgmp-*]])])])
-fi
 
 dnl **** Check for SANE ****
 if test "x$with_sane" != "xno"
@@ -1545,12 +1579,9 @@ then
                  ac_glib2_broken=yes
                  WINE_NOTICE([glib-2.0 pkgconfig configuration is for the wrong architecture, winegstreamer won't be built.])])])])
 fi
-if test "x$with_gstreamer" = xyes -o "x$with_quicktime" = xno -o "x$ac_cv_header_QuickTime_ImageCompression_h" != xyes
-then
-    WINE_NOTICE_WITH(gstreamer,[test "x$ac_glib2_broken" != xyes -a "x$ac_cv_lib_gstreamer_1_0_gst_pad_new" != xyes],
-                     [gstreamer-1.0 base plugins ${notice_platform}development files not found, GStreamer won't be supported.])
-fi
-test "x$ac_cv_lib_gstreamer_1_0_gst_pad_new" = xyes || enable_winegstreamer=${enable_winegstreamer:-no}
+WINE_NOTICE_WITH(gstreamer,[test "x$ac_glib2_broken" != xyes -a "x$ac_cv_lib_gstreamer_1_0_gst_pad_new" != xyes],
+                 [gstreamer-1.0 base plugins ${notice_platform}development files not found, GStreamer won't be supported.],
+                 [enable_winegstreamer])
 
 dnl **** Check for ALSA 1.x ****
 AC_SUBST(ALSA_LIBS,"")
@@ -1753,6 +1784,10 @@ then
     WINE_PACKAGE_FLAGS(NETAPI,[netapi],,,,
       [WINE_CHECK_SONAME(netapi,libnetapi_init,,[AC_DEFINE_UNQUOTED(SONAME_LIBNETAPI,["libnetapi.$LIBEXT"])],[$NETAPI_LIBS])])
 fi
+WINE_NOTICE_WITH(netapi,[test "x$ac_cv_lib_soname_netapi" = "x"],
+                 [libnetapi not found, Samba NetAPI won't be supported.],
+                 [enable_netapi])
+
 
 dnl **** Check for any sound system ****
 if test "x$enable_winealsa_drv$enable_winecoreaudio_drv$enable_winepulse_drv$enable_wineoss_drv$enable_wineandroid_drv" = xnonononono -a \
@@ -1784,19 +1819,6 @@ fi
 WINE_NOTICE_WITH(vkd3d,[test "x$ac_cv_lib_soname_vkd3d" = "x"],
                  [vkd3d ${notice_platform}development files not found (or too old), Direct3D 12 won't be supported.])
 test "x$ac_cv_lib_soname_vkd3d" != "x" || enable_d3d12=${enable_d3d12:-no}
-
-dnl **** Check for gcrypt ****
-if test "x$with_gcrypt" != "xno"
-then
-    WINE_PACKAGE_FLAGS(GCRYPT,[libgcrypt],,,,
-        [AC_CHECK_HEADERS([gcrypt.h])
-        if test "$ac_cv_header_gcrypt_h" = "yes"
-        then
-            WINE_CHECK_SONAME(gcrypt,gcry_sexp_build,,,[$GCRYPT_LIBS])
-        fi])
-fi
-WINE_NOTICE_WITH(gcrypt,[test "x$ac_cv_lib_soname_gcrypt" = "x"],
-                 [libgcrypt ${notice_platform}development files not found, GCRYPT won't be supported.])
 
 dnl **** Check for gcc specific options ****
 
@@ -1957,10 +1979,6 @@ fi
 
 dnl **** Platform-specific checks ****
 
-case $build_os in
-  cygwin*|mingw32*) AC_SUBST(TOOLSEXT,".exe") ;;
-esac
-
 case $host_os in
   linux*)
     case $host_cpu in
@@ -1995,15 +2013,13 @@ AC_CHECK_FUNCS(\
 	ppoll \
 	prctl \
 	proc_pidinfo \
-	renameat \
-	renameat2 \
+	sched_yield \
 	setproctitle \
 	setprogname \
 	sigprocmask \
 	sysinfo \
 	tcdrain \
-	thr_kill2 \
-	utimensat
+	thr_kill2
 )
 CFLAGS="$ac_save_CFLAGS"
 
@@ -2453,27 +2469,11 @@ AH_BOTTOM([#endif /* __WINE_CONFIG_H */])
 AC_CONFIG_COMMANDS([include/stamp-h], [echo timestamp > include/stamp-h])
 AS_ECHO_N("creating Makefile rules...") >&AS_MESSAGE_FD
 
-AC_SUBST([ALL_VARS_RULES],
-"m4_set_foreach([_AC_SUBST_VARS],[var],[m4_if(m4_bregexp(m4_defn([var]),[\(_CFLAGS\|_LIBS\)$]),-1,,[var = $var
-])])")
-
 makedep_flags=""
 test "x$enable_silent_rules" = xyes && makedep_flags="$makedep_flags -S"
 
-dnl Main makefile
-
-WINE_APPEND_RULE([
-# Rules automatically generated by configure
-
-.INIT: Makefile
-.MAKEFILEDEPS:
-all: Makefile
-Makefile: $srcdir/Makefile.in config.status \$(MAKEDEP)
-	@./config.status Make.tmp Makefile
-depend: \$(MAKEDEP)
-	\$(MAKEDEP)$makedep_flags
-dummy:
-.PHONY: depend dummy])
+wine_srcdir=
+test "$srcdir" = . || wine_srcdir="$srcdir/"
 
 WINE_CONFIG_SYMLINK(wine,tools/winewrapper)
 WINE_CONFIG_SYMLINK(wine64,tools/winewrapper,["x$enable_win64" != xno -o -n "$with_wine64"])
@@ -2495,6 +2495,7 @@ WINE_CONFIG_MAKEFILE(dlls/amsi)
 WINE_CONFIG_MAKEFILE(dlls/amstream)
 WINE_CONFIG_MAKEFILE(dlls/amstream/tests)
 WINE_CONFIG_MAKEFILE(dlls/api-ms-win-appmodel-identity-l1-1-0)
+WINE_CONFIG_MAKEFILE(dlls/api-ms-win-appmodel-runtime-l1-1-0)
 WINE_CONFIG_MAKEFILE(dlls/api-ms-win-appmodel-runtime-l1-1-1)
 WINE_CONFIG_MAKEFILE(dlls/api-ms-win-appmodel-runtime-l1-1-2)
 WINE_CONFIG_MAKEFILE(dlls/api-ms-win-core-apiquery-l1-1-0)
@@ -2789,7 +2790,6 @@ WINE_CONFIG_MAKEFILE(dlls/crypt32/tests)
 WINE_CONFIG_MAKEFILE(dlls/cryptdlg)
 WINE_CONFIG_MAKEFILE(dlls/cryptdll)
 WINE_CONFIG_MAKEFILE(dlls/cryptext)
-WINE_CONFIG_MAKEFILE(dlls/cryptext/tests)
 WINE_CONFIG_MAKEFILE(dlls/cryptnet)
 WINE_CONFIG_MAKEFILE(dlls/cryptnet/tests)
 WINE_CONFIG_MAKEFILE(dlls/cryptsp)
@@ -2964,8 +2964,6 @@ WINE_CONFIG_MAKEFILE(dlls/dxdiagn)
 WINE_CONFIG_MAKEFILE(dlls/dxdiagn/tests)
 WINE_CONFIG_MAKEFILE(dlls/dxgi)
 WINE_CONFIG_MAKEFILE(dlls/dxgi/tests)
-WINE_CONFIG_MAKEFILE(dlls/dxgkrnl.sys)
-WINE_CONFIG_MAKEFILE(dlls/dxgmms1.sys)
 WINE_CONFIG_MAKEFILE(dlls/dxtrans)
 WINE_CONFIG_MAKEFILE(dlls/dxva2)
 WINE_CONFIG_MAKEFILE(dlls/dxva2/tests)
@@ -2974,7 +2972,6 @@ WINE_CONFIG_MAKEFILE(dlls/evr)
 WINE_CONFIG_MAKEFILE(dlls/evr/tests)
 WINE_CONFIG_MAKEFILE(dlls/explorerframe)
 WINE_CONFIG_MAKEFILE(dlls/explorerframe/tests)
-WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-appmodel-usercontext-l1-1-0)
 WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-authz-context-l1-1-0)
 WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-domainjoin-netjoin-l1-1-0)
 WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-dwmapi-ext-l1-1-0)
@@ -3027,7 +3024,6 @@ WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-shell-comctl32-init-l1-1-0)
 WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-shell-comdlg32-l1-1-0)
 WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-shell-shell32-l1-2-0)
 WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-uxtheme-themes-l1-1-0)
-WINE_CONFIG_MAKEFILE(dlls/ext-ms-win-xaml-pal-l1-1-0)
 WINE_CONFIG_MAKEFILE(dlls/faultrep)
 WINE_CONFIG_MAKEFILE(dlls/faultrep/tests)
 WINE_CONFIG_MAKEFILE(dlls/feclient)
@@ -3067,7 +3063,6 @@ WINE_CONFIG_MAKEFILE(dlls/icmp)
 WINE_CONFIG_MAKEFILE(dlls/ieframe)
 WINE_CONFIG_MAKEFILE(dlls/ieframe/tests)
 WINE_CONFIG_MAKEFILE(dlls/ieproxy)
-WINE_CONFIG_MAKEFILE(dlls/iertutil)
 WINE_CONFIG_MAKEFILE(dlls/ifsmgr.vxd,enable_win16)
 WINE_CONFIG_MAKEFILE(dlls/imaadp32.acm)
 WINE_CONFIG_MAKEFILE(dlls/imagehlp)
@@ -3173,6 +3168,7 @@ WINE_CONFIG_MAKEFILE(dlls/mscoree/tests)
 WINE_CONFIG_MAKEFILE(dlls/mscorwks)
 WINE_CONFIG_MAKEFILE(dlls/msctf)
 WINE_CONFIG_MAKEFILE(dlls/msctf/tests)
+WINE_CONFIG_MAKEFILE(dlls/msctfmonitor)
 WINE_CONFIG_MAKEFILE(dlls/msctfp)
 WINE_CONFIG_MAKEFILE(dlls/msdaps)
 WINE_CONFIG_MAKEFILE(dlls/msdasql)
@@ -3232,6 +3228,7 @@ WINE_CONFIG_MAKEFILE(dlls/msvcp71)
 WINE_CONFIG_MAKEFILE(dlls/msvcp80)
 WINE_CONFIG_MAKEFILE(dlls/msvcp90)
 WINE_CONFIG_MAKEFILE(dlls/msvcp90/tests)
+WINE_CONFIG_MAKEFILE(dlls/msvcp_win)
 WINE_CONFIG_MAKEFILE(dlls/msvcr100)
 WINE_CONFIG_MAKEFILE(dlls/msvcr100/tests)
 WINE_CONFIG_MAKEFILE(dlls/msvcr110)
@@ -3435,7 +3432,6 @@ WINE_CONFIG_MAKEFILE(dlls/sti)
 WINE_CONFIG_MAKEFILE(dlls/sti/tests)
 WINE_CONFIG_MAKEFILE(dlls/storage.dll16,enable_win16)
 WINE_CONFIG_MAKEFILE(dlls/stress.dll16,enable_win16)
-WINE_CONFIG_MAKEFILE(dlls/strmbase)
 WINE_CONFIG_MAKEFILE(dlls/strmdll)
 WINE_CONFIG_MAKEFILE(dlls/svrapi)
 WINE_CONFIG_MAKEFILE(dlls/sxs)
@@ -3526,7 +3522,6 @@ WINE_CONFIG_MAKEFILE(dlls/wevtsvc)
 WINE_CONFIG_MAKEFILE(dlls/wiaservc)
 WINE_CONFIG_MAKEFILE(dlls/wiaservc/tests)
 WINE_CONFIG_MAKEFILE(dlls/wimgapi)
-WINE_CONFIG_MAKEFILE(dlls/win32k.sys)
 WINE_CONFIG_MAKEFILE(dlls/win32s16.dll16,enable_win16)
 WINE_CONFIG_MAKEFILE(dlls/win32u)
 WINE_CONFIG_MAKEFILE(dlls/win32u/tests)
@@ -3542,7 +3537,6 @@ WINE_CONFIG_MAKEFILE(dlls/windows.media.devices)
 WINE_CONFIG_MAKEFILE(dlls/windows.media.devices/tests)
 WINE_CONFIG_MAKEFILE(dlls/windows.media.speech)
 WINE_CONFIG_MAKEFILE(dlls/windows.media.speech/tests)
-WINE_CONFIG_MAKEFILE(dlls/windows.networking.connectivity)
 WINE_CONFIG_MAKEFILE(dlls/windowscodecs)
 WINE_CONFIG_MAKEFILE(dlls/windowscodecs/tests)
 WINE_CONFIG_MAKEFILE(dlls/windowscodecsext)
@@ -3562,7 +3556,6 @@ WINE_CONFIG_MAKEFILE(dlls/wineoss.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps.drv)
 WINE_CONFIG_MAKEFILE(dlls/wineps16.drv16,enable_win16)
 WINE_CONFIG_MAKEFILE(dlls/winepulse.drv)
-WINE_CONFIG_MAKEFILE(dlls/wineqtdecoder)
 WINE_CONFIG_MAKEFILE(dlls/wineusb.sys)
 WINE_CONFIG_MAKEFILE(dlls/winevulkan)
 WINE_CONFIG_MAKEFILE(dlls/winex11.drv)
@@ -3686,6 +3679,7 @@ WINE_CONFIG_MAKEFILE(libs/lcms2)
 WINE_CONFIG_MAKEFILE(libs/mfuuid)
 WINE_CONFIG_MAKEFILE(libs/mpg123)
 WINE_CONFIG_MAKEFILE(libs/png)
+WINE_CONFIG_MAKEFILE(libs/strmbase)
 WINE_CONFIG_MAKEFILE(libs/strmiids)
 WINE_CONFIG_MAKEFILE(libs/tiff)
 WINE_CONFIG_MAKEFILE(libs/uuid)
@@ -3844,22 +3838,62 @@ then
 [wine_fn_output_makedep ()
 {
     AS_MKDIR_P(tools)
-    $CC -I$srcdir/tools -Iinclude -I$srcdir/include -D__WINESRC__ $EXTRACFLAGS $CPPFLAGS $CFLAGS -o tools/makedep$ac_exeext $srcdir/tools/makedep.c $LDFLAGS
+    $CC -I${wine_srcdir}tools -Iinclude -I${wine_srcdir}include -D__WINESRC__ $EXTRACFLAGS $CPPFLAGS $CFLAGS -o tools/makedep$ac_exeext ${wine_srcdir}tools/makedep.c $LDFLAGS
 }])
 fi
 
 AC_CONFIG_COMMANDS([Makefile], [wine_fn_output_makefile Makefile],
 [wine_fn_output_makefile ()
 {
-    cat Make.tmp - <<\_WINE_EOF >\$tmp/makefile && mv -f \$tmp/makefile \$[]1 && rm -f Make.tmp && "$wine_makedep"$makedep_flags && return
-`cat $wine_rules_file`
+    cat <<\_WINE_EOF >\$tmp/makefile && mv -f \$tmp/makefile \$[]1 && "$wine_makedep"$makedep_flags && return
+# This Makefile understands the following targets:
+#
+# all (default):   build wine
+# clean:           remove all intermediate files
+# distclean:       also remove all files created by configure
+# test:            run tests
+# testclean:       clean test results to force running all tests again
+# install-lib:     install libraries needed to run applications
+# install-dev:     install development environment
+# install:         install everything
+# uninstall:       uninstall everything
+# ctags:           create a tags file for vim and others.
+# etags:           create a TAGS file for Emacs.
+# manpages:        compile manpages for Wine API
+# htmlpages:       compile html pages for Wine API
+# sgmlpages:       compile sgml source for the Wine API Guide
+# xmlpages:        compile xml source for the Wine API Guide
+
+m4_set_foreach([_AC_SUBST_VARS],[var],[var = $var
+])$SET_MAKE
+$wine_rules
 _WINE_EOF
     AS_ERROR([could not create Makefile])
 }])
 
-AC_CONFIG_FILES([Make.tmp:Makefile.in])
+dnl Main makefile
 
-dnl Some final makefile rules
+AC_SUBST(SHELL,[/bin/sh])
+
+WINE_APPEND_RULE(
+[all: wine
+	@echo \"Wine build complete.\"
+.INIT: Makefile
+.MAKEFILEDEPS:
+all: Makefile
+Makefile: config.status \$(MAKEDEP)
+	@./config.status Makefile
+depend: \$(MAKEDEP)
+	\$(MAKEDEP)$makedep_flags])
+
+dnl Rules for re-running configure
+
+WINE_APPEND_RULE(
+[config.status: ${wine_srcdir}configure
+	@./config.status --recheck
+include/config.h: include/stamp-h
+include/stamp-h: ${wine_srcdir}include/config.h.in config.status
+	@./config.status include/config.h include/stamp-h])
 
 if test "x$enable_maintainer_mode" = xyes
 then
@@ -3875,14 +3909,16 @@ fi
 if test "x$enable_tools" != xno
 then
     WINE_APPEND_RULE(
-[tools/makedep$ac_exeext: $srcdir/tools/makedep.c include/config.h config.status
+[tools/makedep$ac_exeext: ${wine_srcdir}tools/makedep.c include/config.h config.status
 	@./config.status tools/makedep
 Makefile: tools/makedep$ac_exeext])
 else
     WINE_APPEND_RULE(
 [\$(MAKEDEP):
-	@echo \"You need to run make in $TOOLSDIR first\" && false])
+	@echo \"You need to run make in $toolsdir first\" && false])
 fi
+
+dnl Rules for wineloader
 
 if test -n "$with_wine64"
 then
@@ -3927,6 +3963,44 @@ server/wineserver"
       *) TOP_INSTALL_LIB="$TOP_INSTALL_LIB loader/wine.desktop" ;;
     esac
 fi
+
+dnl Rules for cleaning
+
+WINE_APPEND_RULE(
+[distclean:: clean
+	rm -rf autom4te.cache documentation/html documentation/api-guide documentation/api-guide-xml documentation/man\$(api_manext)])
+
+dnl Rules for API documentation
+
+WINE_APPEND_RULE(
+[install-manpages:: manpages
+	for i in documentation/man\$(api_manext)/*.\$(api_manext); do ${wine_srcdir}tools/install-sh -m 644 \$(INSTALL_DATA_FLAGS) \$\$i \$(DESTDIR)\$(mandir)/\$\$i; done])
+
+dnl Rules for generated source files
+
+WINE_APPEND_RULE(
+[dlls/ntdll/unix/version.c: dummy
+	@version=\`(echo \"wine-6.23.r0.g3f6102080e6\") | sed -n -e '\$\$s/\(.*\)/const char wine_build[[]] = \"\\1  ( TkG Plain Esync )\";/p'\` && (echo \$\$version | cmp -s - \$[@]) || echo \$\$version >\$[@] || (rm -f \$[@] && exit 1)
+programs/winetest/build.rc: dummy
+	@build=\"STRINGTABLE { 1 \\\"\`GIT_DIR=${wine_srcdir}.git git rev-parse HEAD 2>/dev/null\`\\\" }\" && (echo \$\$build | cmp -s - \$[@]) || echo \$\$build >\$[@] || (rm -f \$[@] && exit 1)
+programs/winetest/build.nfo:
+	@-\$(CC) -v 2>\$[@]
+dlls/wineandroid.drv/wine-debug.apk: dlls/wineandroid.drv/build.gradle ${wine_srcdir}dlls/wineandroid.drv/AndroidManifest.xml ${wine_srcdir}dlls/wineandroid.drv/WineActivity.java ${wine_srcdir}dlls/wineandroid.drv/wine.svg
+	cd dlls/wineandroid.drv && gradle -q -Psrcdir=$srcdir assembleDebug
+	mv dlls/wineandroid.drv/build/outputs/apk/wine-debug.apk \$[@]])
+
+dnl Misc rules
+
+AC_SUBST(TAGSFLAGS,["--langmap='c:+.idl.l.rh,make:(Make*.in)'"])
+WINE_APPEND_RULE(
+[TAGS etags:
+	rm -f TAGS
+	(test -d .git && git ls-files || find -L $srcdir -name '*.[[ch]]' -print) | xargs etags -a \$(TAGSFLAGS)
+tags ctags:
+	rm -f tags
+	(test -d .git && git ls-files || find -L $srcdir -name '*.[[ch]]' -print) | xargs ctags -a \$(TAGSFLAGS)
+dummy:
+.PHONY: depend dummy install-manpages])
 
 AS_ECHO(" done") >&AS_MESSAGE_FD
 AC_OUTPUT

@@ -17,7 +17,6 @@
  */
 
 #include "config.h"
-#include "wine/port.h"
 
 #include "dxgi_private.h"
 
@@ -711,7 +710,7 @@ struct dxgi_output *unsafe_impl_from_IDXGIOutput(IDXGIOutput *iface)
     if (!iface)
         return NULL;
     assert(iface->lpVtbl == (IDXGIOutputVtbl *)&dxgi_output_vtbl);
-    return CONTAINING_RECORD((IDXGIOutput6*)iface, struct dxgi_output, IDXGIOutput6_iface);
+    return CONTAINING_RECORD(iface, struct dxgi_output, IDXGIOutput6_iface);
 }
 
 static void dxgi_output_init(struct dxgi_output *output, unsigned int output_idx,

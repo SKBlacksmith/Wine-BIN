@@ -23,7 +23,6 @@
 
 #include <ntdef.h>
 #include <windef.h>
-#include <apiset.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -322,7 +321,7 @@ typedef struct _PEB
     PVOID                        KernelCallbackTable;               /* 02c/058 */
     ULONG                        Reserved;                          /* 030/060 */
     ULONG                        AtlThunkSListPtr32;                /* 034/064 */
-    PAPI_SET_NAMESPACE_ARRAY     ApiSetMap;                         /* 038/068 */
+    PVOID /*PPEB_FREE_BLOCK*/    FreeList;                          /* 038/068 */
     ULONG                        TlsExpansionCounter;               /* 03c/070 */
     PRTL_BITMAP                  TlsBitmap;                         /* 040/078 */
     ULONG                        TlsBitmapBits[2];                  /* 044/080 */
@@ -1081,9 +1080,10 @@ typedef struct _TEB64
 } TEB64;
 
 /* reserved TEB64 TLS slots for Wow64 */
-#define WOW64_TLS_CPURESERVED  1
-#define WOW64_TLS_TEMPLIST     3
-#define WOW64_TLS_FILESYSREDIR 8
+#define WOW64_TLS_CPURESERVED      1
+#define WOW64_TLS_TEMPLIST         3
+#define WOW64_TLS_USERCALLBACKDATA 5
+#define WOW64_TLS_FILESYSREDIR     8
 
 
 /***********************************************************************
@@ -1869,8 +1869,23 @@ typedef enum _THREADINFOCLASS {
     ThreadUmsInformation,
     ThreadCounterProfiling,
     ThreadIdealProcessorEx,
-    ThreadSuspendCount = 35,
-    ThreadDescription = 38,
+    ThreadCpuAccountingInformation,
+    ThreadSuspendCount,
+    ThreadHeterogeneousCpuPolicy,
+    ThreadContainerId,
+    ThreadNameInformation,
+    ThreadSelectedCpuSets,
+    ThreadSystemThreadInformation,
+    ThreadActualGroupAffinity,
+    ThreadDynamicCodePolicyInfo,
+    ThreadExplicitCaseSensitivity,
+    ThreadWorkOnBehalfTicket,
+    ThreadSubsystemInformation,
+    ThreadDbgkWerReportActive,
+    ThreadAttachContainer,
+    ThreadManageWritesToExecutableMemory,
+    ThreadPowerThrottlingState,
+    ThreadWorkloadClass,
     MaxThreadInfoClass
 } THREADINFOCLASS;
 
@@ -1890,10 +1905,10 @@ typedef struct _THREAD_DESCRIPTOR_INFORMATION
     LDT_ENTRY   Entry;
 } THREAD_DESCRIPTOR_INFORMATION, *PTHREAD_DESCRIPTOR_INFORMATION;
 
-typedef struct _THREAD_DESCRIPTION_INFORMATION
+typedef struct _THREAD_NAME_INFORMATION
 {
-    UNICODE_STRING Description;
-} THREAD_DESCRIPTION_INFORMATION, *PTHREAD_DESCRIPTION_INFORMATION;
+    UNICODE_STRING ThreadName;
+} THREAD_NAME_INFORMATION, *PTHREAD_NAME_INFORMATION;
 
 typedef struct _KERNEL_USER_TIMES {
     LARGE_INTEGER  CreateTime;
@@ -2827,7 +2842,6 @@ typedef struct _RTL_ATOM_TABLE
 #define FILE_OVERWRITE                  4
 #define FILE_OVERWRITE_IF               5
 #define FILE_MAXIMUM_DISPOSITION        5
-#define FILE_WINE_PATH                  6
 
 /* Characteristics of a File System */
 #define FILE_REMOVABLE_MEDIA                      0x00000001
@@ -3860,6 +3874,7 @@ NTSYSAPI NTSTATUS  WINAPI NtAdjustGroupsToken(HANDLE,BOOLEAN,PTOKEN_GROUPS,ULONG
 NTSYSAPI NTSTATUS  WINAPI NtAdjustPrivilegesToken(HANDLE,BOOLEAN,PTOKEN_PRIVILEGES,DWORD,PTOKEN_PRIVILEGES,PDWORD);
 NTSYSAPI NTSTATUS  WINAPI NtAlertResumeThread(HANDLE,PULONG);
 NTSYSAPI NTSTATUS  WINAPI NtAlertThread(HANDLE ThreadHandle);
+NTSYSAPI NTSTATUS  WINAPI NtAlertThreadByThreadId(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtAllocateLocallyUniqueId(PLUID lpLuid);
 NTSYSAPI NTSTATUS  WINAPI NtAllocateUuids(PULARGE_INTEGER,PULONG,PULONG,PUCHAR);
 NTSYSAPI NTSTATUS  WINAPI NtAllocateVirtualMemory(HANDLE,PVOID*,ULONG_PTR,SIZE_T*,ULONG,ULONG);
@@ -3873,6 +3888,7 @@ NTSYSAPI NTSTATUS  WINAPI NtCancelTimer(HANDLE, BOOLEAN*);
 NTSYSAPI NTSTATUS  WINAPI NtClearEvent(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtClose(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtCloseObjectAuditAlarm(PUNICODE_STRING,HANDLE,BOOLEAN);
+NTSYSAPI NTSTATUS  WINAPI NtCompareObjects(HANDLE,HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtCompleteConnectPort(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtConnectPort(PHANDLE,PUNICODE_STRING,PSECURITY_QUALITY_OF_SERVICE,PLPC_SECTION_WRITE,PLPC_SECTION_READ,PULONG,PVOID,PULONG);
 NTSYSAPI NTSTATUS  WINAPI NtContinue(PCONTEXT,BOOLEAN);
@@ -4099,6 +4115,7 @@ NTSYSAPI NTSTATUS  WINAPI NtUnlockFile(HANDLE,PIO_STATUS_BLOCK,PLARGE_INTEGER,PL
 NTSYSAPI NTSTATUS  WINAPI NtUnlockVirtualMemory(HANDLE,PVOID*,SIZE_T*,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtUnmapViewOfSection(HANDLE,PVOID);
 NTSYSAPI NTSTATUS  WINAPI NtVdmControl(ULONG,PVOID);
+NTSYSAPI NTSTATUS  WINAPI NtWaitForAlertByThreadId(const void*,const LARGE_INTEGER*);
 NTSYSAPI NTSTATUS  WINAPI NtWaitForDebugEvent(HANDLE,BOOLEAN,LARGE_INTEGER*,DBGUI_WAIT_STATE_CHANGE*);
 NTSYSAPI NTSTATUS  WINAPI NtWaitForKeyedEvent(HANDLE,const void*,BOOLEAN,const LARGE_INTEGER*);
 NTSYSAPI NTSTATUS  WINAPI NtWaitForSingleObject(HANDLE,BOOLEAN,const LARGE_INTEGER*);

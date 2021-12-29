@@ -22,15 +22,12 @@
  * the other drivers. */
 
 #include "config.h"
-#include "wine/port.h"
-#include "macdrv.h"
 
 #include <stdarg.h>
 #include <stdio.h>
+#include <dlfcn.h>
 
-#include "windef.h"
-#include "winbase.h"
-
+#include "macdrv.h"
 #include "wine/debug.h"
 #include "wine/heap.h"
 
@@ -592,8 +589,6 @@ static VkSurfaceKHR macdrv_wine_get_native_surface(VkSurfaceKHR surface)
 
 static const struct vulkan_funcs vulkan_funcs =
 {
-    NULL,
-    NULL,
     macdrv_vkCreateInstance,
     macdrv_vkCreateSwapchainKHR,
     macdrv_vkCreateWin32SurfaceKHR,

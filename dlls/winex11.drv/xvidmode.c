@@ -20,12 +20,12 @@
  */
 
 #include "config.h"
-#include "wine/port.h"
 
 #include <assert.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <dlfcn.h>
 
 #define NONAMELESSSTRUCT
 #define NONAMELESSUNION
@@ -43,7 +43,6 @@
 #include "wingdi.h"
 #include "wine/debug.h"
 #include "wine/heap.h"
-#include "wine/unicode.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(xvidmode);
 
@@ -314,7 +313,6 @@ void X11DRV_XF86VM_Init(void)
   xf86vm_handler.free_modes = xf86vm_free_modes;
   xf86vm_handler.get_current_mode = xf86vm_get_current_mode;
   xf86vm_handler.set_current_mode = xf86vm_set_current_mode;
-  xf86vm_handler.convert_coordinates = NULL;
   X11DRV_Settings_SetHandler(&xf86vm_handler);
   return;
 

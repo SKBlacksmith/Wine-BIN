@@ -486,8 +486,7 @@ enum apc_type
     APC_MAP_VIEW,
     APC_UNMAP_VIEW,
     APC_CREATE_THREAD,
-    APC_DUP_HANDLE,
-    APC_BREAK_PROCESS
+    APC_DUP_HANDLE
 };
 
 typedef struct
@@ -1122,6 +1121,13 @@ typedef struct
 @END
 
 
+/* Test if two handles refer to the same object */
+@REQ(compare_objects)
+    obj_handle_t first;         /* first object handle */
+    obj_handle_t second;        /* second object handle */
+@END
+
+
 /* Make an object temporary */
 @REQ(make_temporary)
     obj_handle_t handle;       /* handle to the object */
@@ -1340,7 +1346,6 @@ enum event_op { PULSE_EVENT, SET_EVENT, RESET_EVENT };
 /* Get the Unix name from a file handle */
 @REQ(get_handle_unix_name)
     obj_handle_t   handle;      /* file handle */
-    int            nofollow;    /* do not follow symlinks (return the link) */
 @REPLY
     data_size_t    name_len;    /* unix name length */
     VARARG(name,string);        /* unix name */
@@ -1360,7 +1365,6 @@ enum server_fd_type
 {
     FD_TYPE_INVALID,  /* invalid file (no associated fd) */
     FD_TYPE_FILE,     /* regular file */
-    FD_TYPE_SYMLINK,  /* symbolic link */
     FD_TYPE_DIR,      /* directory */
     FD_TYPE_SOCKET,   /* socket */
     FD_TYPE_SERIAL,   /* serial port */
@@ -2044,7 +2048,6 @@ enum message_type
     VARARG(keystate,bytes);    /* global state array for all the keys */
 @END
 #define SEND_HWMSG_INJECTED    0x01
-#define SEND_HWMSG_RAWINPUT    0x02
 
 
 /* Get a message from the current queue */
@@ -2493,13 +2496,6 @@ enum coords_relative
 @REQ(set_window_region)
     user_handle_t  window;        /* handle to the window */
     int            redraw;        /* redraw the window? */
-    VARARG(region,rectangles);    /* list of rectangles for the region (in window coords) */
-@END
-
-
-/* Set the layer region */
-@REQ(set_layer_region)
-    user_handle_t  window;        /* handle to the window */
     VARARG(region,rectangles);    /* list of rectangles for the region (in window coords) */
 @END
 
@@ -3735,6 +3731,7 @@ struct handle_info
     obj_handle_t handle;       /* process handle */
 @END
 
+
 /* Iterate thread list for process */
 @REQ(get_next_thread)
     obj_handle_t process;      /* process handle */
@@ -3797,4 +3794,58 @@ enum esync_type
 
 /* Retrieve the fd to wait on for user APCs. */
 @REQ(get_esync_apc_fd)
+@END
+
+enum fsync_type
+{
+    FSYNC_SEMAPHORE = 1,
+    FSYNC_AUTO_EVENT,
+    FSYNC_MANUAL_EVENT,
+    FSYNC_MUTEX,
+    FSYNC_AUTO_SERVER,
+    FSYNC_MANUAL_SERVER,
+    FSYNC_QUEUE,
+};
+
+/* Create a new futex-based synchronization object */
+@REQ(create_fsync)
+    unsigned int access;        /* wanted access rights */
+    int low;                    /* initial value of low word */
+    int high;                   /* initial value of high word */
+    int type;                   /* type of fsync object */
+    VARARG(objattr,object_attributes); /* object attributes */
+@REPLY
+    obj_handle_t handle;        /* handle to the object */
+    int type;                   /* type of fsync object */
+    unsigned int shm_idx;       /* this object's index into the shm section */
+@END
+
+/* Open an fsync object */
+@REQ(open_fsync)
+    unsigned int access;        /* wanted access rights */
+    unsigned int attributes;    /* object attributes */
+    obj_handle_t rootdir;       /* root directory */
+    int          type;          /* type of fsync object */
+    VARARG(name,unicode_str);   /* object name */
+@REPLY
+    obj_handle_t handle;        /* handle to the event */
+    int          type;          /* type of fsync object */
+    unsigned int shm_idx;       /* this object's index into the shm section */
+@END
+
+/* Retrieve the shm index for an object. */
+@REQ(get_fsync_idx)
+    obj_handle_t handle;        /* handle to the object */
+@REPLY
+    int          type;
+    unsigned int shm_idx;
+@END
+
+@REQ(fsync_msgwait)
+    int          in_msgwait;    /* are we in a message wait? */
+@END
+
+@REQ(get_fsync_apc_idx)
+@REPLY
+    unsigned int shm_idx;
 @END

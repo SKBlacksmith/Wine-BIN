@@ -168,9 +168,9 @@ struct info_modules
 
 static void module_print_info(const struct info_module *module, BOOL is_embedded)
 {
-    dbg_printf("%*.*s-%*.*s\t%-16s%s\n",
-               ADDRWIDTH, ADDRWIDTH, wine_dbgstr_longlong(module->mi.BaseOfImage),
-               ADDRWIDTH, ADDRWIDTH, wine_dbgstr_longlong(module->mi.BaseOfImage + module->mi.ImageSize),
+    dbg_printf("%*.*I64x-%*.*I64x\t%-16s%s\n",
+               ADDRWIDTH, ADDRWIDTH, module->mi.BaseOfImage,
+               ADDRWIDTH, ADDRWIDTH, module->mi.BaseOfImage + module->mi.ImageSize,
                is_embedded ? "\\" : get_symtype_str(&module->mi), module->name);
 }
 
@@ -392,7 +392,7 @@ static void info_window(HWND hWnd, int indent)
         if (!GetWindowTextA(hWnd, wndName, sizeof(wndName)))
             strcpy(wndName, "-- Empty --");
 
-        dbg_printf("%*s%08lx%*s %-17.17s %08x %0*lx %08x %.14s\n",
+        dbg_printf("%*s%08Ix%*s %-17.17s %08x %0*Ix %08x %.14s\n",
                    indent, "", (DWORD_PTR)hWnd, 12 - indent, "",
                    clsName, GetWindowLongW(hWnd, GWL_STYLE),
                    ADDRWIDTH, (ULONG_PTR)GetWindowLongPtrW(hWnd, GWLP_WNDPROC),
@@ -434,7 +434,7 @@ void info_win32_window(HWND hWnd, BOOL detailed)
 
     /* FIXME missing fields: hmemTaskQ, hrgnUpdate, dce, flags, pProp, scroll */
     dbg_printf("next=%p  child=%p  parent=%p  owner=%p  class='%s'\n"
-               "inst=%p  active=%p  idmenu=%08lx\n"
+               "inst=%p  active=%p  idmenu=%08Ix\n"
                "style=0x%08x  exstyle=0x%08x  wndproc=%p  text='%s'\n"
                "client=%d,%d-%d,%d  window=%d,%d-%d,%d sysmenu=%p\n",
                GetWindow(hWnd, GW_HWNDNEXT),
@@ -581,103 +581,6 @@ static BOOL get_process_name(DWORD pid, PROCESSENTRY32* entry)
     return ret;
 }
 
-static BOOL read_process_memory(HANDLE process, const void *ptr, void *buffer, SIZE_T length)
-{
-    SIZE_T read;
-    return ReadProcessMemory(process, ptr, buffer, length, &read) && (read == length);
-}
-
-static BOOL get_process_cmdline(HANDLE process, PEB *peb, UNICODE_STRING *cmdline)
-{
-    RTL_USER_PROCESS_PARAMETERS *params;
-
-    if (!read_process_memory(process, &peb->ProcessParameters, &params, sizeof(params)))
-        return FALSE;
-
-    if (!read_process_memory(process, &params->CommandLine, cmdline, sizeof(*cmdline)))
-        return FALSE;
-
-    return TRUE;
-}
-
-static BOOL get_process_cmdline_wow64(HANDLE process, PEB *peb, UNICODE_STRING *cmdline)
-{
-    DWORD params;
-    struct
-    {
-        USHORT Length;
-        USHORT MaximumLength;
-        DWORD  Buffer;
-    } cmdline32;
-
-    /* &peb->ProcessParameters */
-    if (!read_process_memory(process, (char *)peb + 0x10, &params, sizeof(params)))
-        return FALSE;
-
-    /* &params->CommandLine */
-    if (!read_process_memory(process, (char *)(DWORD_PTR)params + 0x40, &cmdline32, sizeof(cmdline32)))
-        return FALSE;
-
-    cmdline->Length = cmdline32.Length;
-    cmdline->MaximumLength = cmdline32.MaximumLength;
-    cmdline->Buffer = (WCHAR *)(DWORD_PTR)cmdline32.Buffer;
-    return TRUE;
-}
-
-static char *get_process_args(DWORD pid)
-{
-    PROCESS_BASIC_INFORMATION info;
-    BOOL self_wow64, process_wow64;
-    UNICODE_STRING cmdline;
-    WCHAR *tempW = NULL;
-    char *args = NULL;
-    HANDLE process;
-    DWORD len;
-    BOOL ret;
-
-    if (!(process = OpenProcess(PROCESS_QUERY_INFORMATION|PROCESS_VM_READ, FALSE, pid)))
-        return FALSE;
-    if (NtQueryInformationProcess(process, ProcessBasicInformation, &info, sizeof(info), NULL))
-        goto done;
-
-    IsWow64Process(GetCurrentProcess(), &self_wow64);
-    if (!IsWow64Process(process, &process_wow64))
-        goto done;
-
-    if (process_wow64 == self_wow64)
-        ret = get_process_cmdline(process, info.PebBaseAddress, &cmdline);
-    else if (!self_wow64 && process_wow64)
-        ret = get_process_cmdline_wow64(process, info.PebBaseAddress, &cmdline);
-    else
-        ret = FALSE; /* can't read process args of 64-bit process with 32-bit winedbg */
-
-    if (!ret) goto done;
-
-    /* protect against malicious content */
-    if (cmdline.Length > 4096 || (cmdline.Length & 1))
-        goto done;
-
-    if (!(tempW = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, cmdline.Length + 2)))
-        goto done;
-    if (!read_process_memory(process, cmdline.Buffer, tempW, cmdline.Length))
-        goto done;
-
-    if (!(len = WideCharToMultiByte(CP_ACP, 0, tempW, -1, NULL, 0, NULL, NULL)))
-        goto done;
-    if (!(args = HeapAlloc(GetProcessHeap(), 0, len)))
-        goto done;
-    if (!WideCharToMultiByte(CP_ACP, 0, tempW, -1, args, len, NULL, NULL))
-    {
-        HeapFree(GetProcessHeap(), 0, args);
-        args = NULL;
-    }
-
-done:
-    HeapFree(GetProcessHeap(), 0, tempW);
-    CloseHandle(process);
-    return args;
-}
-
 void info_win32_threads(void)
 {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
@@ -705,7 +608,6 @@ void info_win32_threads(void)
 		    struct dbg_process*	p = dbg_get_process(entry.th32OwnerProcessID);
                     PROCESSENTRY32 pcs_entry;
                     const char* exename;
-                    char *args;
 
                     if (p)
                         exename = dbg_W2A(p->imageName, -1);
@@ -714,13 +616,8 @@ void info_win32_threads(void)
                     else
                         exename = "";
 
-                    dbg_printf("%08x%s %s\n", entry.th32OwnerProcessID, p ? " (D)" : "", exename);
-                    args = get_process_args(entry.th32OwnerProcessID);
-                    if (args)
-                    {
-                        dbg_printf("\t[%s]\n", args);
-                        HeapFree(GetProcessHeap(), 0, args);
-                    }
+		    dbg_printf("%08x%s %s\n",
+                               entry.th32OwnerProcessID, p ? " (D)" : "", exename);
                     lastProcessId = entry.th32OwnerProcessID;
 		}
                 dbg_printf("\t%08x %4d%s\n",
@@ -894,7 +791,7 @@ void info_win32_virtual(DWORD pid)
             type = "";
             prot[0] = '\0';
         }
-        dbg_printf("%0*lx %0*lx %s %s %s\n",
+        dbg_printf("%0*Ix %0*Ix %s %s %s\n",
                    ADDRWIDTH, (DWORD_PTR)addr, ADDRWIDTH, (DWORD_PTR)addr + mbi.RegionSize - 1, state, type, prot);
         if (addr + mbi.RegionSize < addr) /* wrap around ? */
             break;
@@ -996,7 +893,7 @@ void info_win32_exception(void)
         break;
     case EXCEPTION_ACCESS_VIOLATION:
         if (rec->NumberParameters == 2)
-            dbg_printf("page fault on %s access to 0x%0*lx",
+            dbg_printf("page fault on %s access to 0x%0*Ix",
                        rec->ExceptionInformation[0] == EXCEPTION_WRITE_FAULT ? "write" :
                        rec->ExceptionInformation[0] == EXCEPTION_EXECUTE_FAULT ? "execute" : "read",
                        ADDRWIDTH, rec->ExceptionInformation[1]);
@@ -1034,7 +931,7 @@ void info_win32_exception(void)
                                   (void*)rec->ExceptionInformation[1], TRUE, FALSE,
                                   name, sizeof(name));
             else
-                sprintf( name, "%ld", rec->ExceptionInformation[1] );
+                sprintf( name, "%Id", rec->ExceptionInformation[1] );
             dbg_printf("unimplemented function %s.%s called", dll, name);
         }
         break;
@@ -1064,14 +961,14 @@ void info_win32_exception(void)
         break;
     case EXCEPTION_WINE_CXX_EXCEPTION:
         if(rec->NumberParameters == 3 && rec->ExceptionInformation[0] == EXCEPTION_WINE_CXX_FRAME_MAGIC)
-            dbg_printf("C++ exception(object = 0x%0*lx, type = 0x%0*lx)",
+            dbg_printf("C++ exception(object = 0x%0*Ix, type = 0x%0*Ix)",
                        ADDRWIDTH, rec->ExceptionInformation[1], ADDRWIDTH, rec->ExceptionInformation[2]);
         else if(rec->NumberParameters == 4 && rec->ExceptionInformation[0] == EXCEPTION_WINE_CXX_FRAME_MAGIC)
             dbg_printf("C++ exception(object = %p, type = %p, base = %p)",
                        (void*)rec->ExceptionInformation[1], (void*)rec->ExceptionInformation[2],
                        (void*)rec->ExceptionInformation[3]);
         else
-            dbg_printf("C++ exception with strange parameter count %d or magic 0x%0*lx",
+            dbg_printf("C++ exception with strange parameter count %d or magic 0x%0*Ix",
                        rec->NumberParameters, ADDRWIDTH, rec->ExceptionInformation[0]);
         break;
     default:

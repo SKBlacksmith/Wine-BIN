@@ -19,19 +19,14 @@
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
 
-#include <stdarg.h>
 #include <string.h>
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
-#include "windef.h"
-#include "winbase.h"
-#include "wingdi.h"
-#include "winerror.h"
-#include "wine/server.h"
-#include "controls.h"
 #include "user_private.h"
-#include "wine/gdi_driver.h"
+#include "winerror.h"
+#include "controls.h"
 #include "win.h"
+#include "wine/server.h"
 #include "wine/debug.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(win);
@@ -1144,8 +1139,8 @@ static BOOL show_window( HWND hwnd, INT cmd )
     }
     swp = new_swp;
 
-    if ((style & WS_CHILD) && (parent = GetAncestor( hwnd, GA_PARENT )) &&
-        !IsWindowVisible( parent ) && !(swp & SWP_STATECHANGED))
+    parent = GetAncestor( hwnd, GA_PARENT );
+    if (parent && !IsWindowVisible( parent ) && !(swp & SWP_STATECHANGED))
     {
         /* if parent is not visible simply toggle WS_VISIBLE and return */
         if (showFlag) WIN_SetStyle( hwnd, WS_VISIBLE, 0 );
@@ -2042,11 +2037,8 @@ static BOOL fixup_flags( WINDOWPOS *winpos, const RECT *old_window_rect, int par
     if (winpos->cy < 0) winpos->cy = 0;
     else if (winpos->cy > 32767) winpos->cy = 32767;
 
-    if (wndPtr->dwStyle & WS_CHILD)
-    {
-        parent = GetAncestor( winpos->hwnd, GA_PARENT );
-        if (!IsWindowVisible( parent )) winpos->flags |= SWP_NOREDRAW;
-    }
+    parent = GetAncestor( winpos->hwnd, GA_PARENT );
+    if (!IsWindowVisible( parent )) winpos->flags |= SWP_NOREDRAW;
 
     if (wndPtr->dwStyle & WS_VISIBLE) winpos->flags &= ~SWP_SHOWWINDOW;
     else
@@ -2202,7 +2194,7 @@ BOOL set_window_pos( HWND hwnd, HWND insert_after, UINT swp_flags,
     /* create or update window surface for top-level windows if the driver doesn't implement WindowPosChanging */
     if (!ret && new_surface && !IsRectEmpty( &visible_rect ) &&
         (!(GetWindowLongW( hwnd, GWL_EXSTYLE ) & WS_EX_LAYERED) ||
-           GetLayeredWindowAttributes( hwnd, NULL, NULL, NULL )))
+           NtUserGetLayeredWindowAttributes( hwnd, NULL, NULL, NULL )))
     {
         window_surface_release( new_surface );
         if ((new_surface = win->surface)) window_surface_add_ref( new_surface );

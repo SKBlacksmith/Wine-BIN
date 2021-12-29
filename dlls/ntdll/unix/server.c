@@ -55,12 +55,6 @@
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
-#ifdef HAVE_SYS_IOCTL_H
-#include <sys/ioctl.h>
-#endif
-#ifdef HAVE_LINUX_IOCTL_H
-#include <linux/ioctl.h>
-#endif
 #ifdef HAVE_SYS_PRCTL_H
 # include <sys/prctl.h>
 #endif
@@ -95,22 +89,6 @@
 #include "ddk/wdm.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(server);
-
-/* just in case... */
-#undef EXT2_IOC_GETFLAGS
-#undef EXT2_IOC_SETFLAGS
-#undef EXT4_CASEFOLD_FL
-
-#ifdef __linux__
-
-/* Define the ext2 ioctls for handling extra attributes */
-#define EXT2_IOC_GETFLAGS _IOR('f', 1, long)
-#define EXT2_IOC_SETFLAGS _IOW('f', 2, long)
-
-/* Case-insensitivity attribute */
-#define EXT4_CASEFOLD_FL 0x40000000
-
-#endif
 
 #ifndef MSG_CMSG_CLOEXEC
 #define MSG_CMSG_CLOEXEC 0
@@ -304,16 +282,8 @@ unsigned int server_call_unlocked( void *req_ptr )
  */
 unsigned int CDECL wine_server_call( void *req_ptr )
 {
-    struct __server_request_info * const req = req_ptr;
     sigset_t old_set;
     unsigned int ret;
-
-    /* trigger write watches, otherwise read() might return EFAULT */
-    if (req->u.req.request_header.reply_size &&
-        !virtual_check_buffer_for_write( req->reply_data, req->u.req.request_header.reply_size ))
-    {
-        return STATUS_ACCESS_VIOLATION;
-    }
 
     pthread_sigmask( SIG_BLOCK, &server_block_set, &old_set );
     ret = server_call_unlocked( req_ptr );
@@ -606,17 +576,6 @@ static void invoke_system_apc( const apc_call_t *call, apc_result_t *result, BOO
         if (!self) NtClose( wine_server_ptr_handle(call->dup_handle.dst_process) );
         break;
     }
-    case APC_BREAK_PROCESS:
-    {
-        HANDLE handle;
-
-        result->type = APC_BREAK_PROCESS;
-        result->break_process.status = NtCreateThreadEx( &handle, THREAD_ALL_ACCESS, NULL,
-                                                         NtCurrentProcess(), pDbgUiRemoteBreakin, NULL,
-                                                         0, 0, 0, 0, NULL );
-        if (!result->break_process.status) NtClose( handle );
-        break;
-    }
     default:
         server_protocol_error( "get_apc_request: bad type %d\n", call->type );
         break;
@@ -628,8 +587,7 @@ static void invoke_system_apc( const apc_call_t *call, apc_result_t *result, BOO
  *              server_select
  */
 unsigned int server_select( const select_op_t *select_op, data_size_t size, UINT flags,
-                            timeout_t abs_timeout, context_t *context, pthread_mutex_t *mutex,
-                            user_apc_t *user_apc )
+                            timeout_t abs_timeout, context_t *context, user_apc_t *user_apc )
 {
     unsigned int ret;
     int cookie;
@@ -678,11 +636,6 @@ unsigned int server_select( const select_op_t *select_op, data_size_t size, UINT
                 size = offsetof( select_op_t, signal_and_wait.signal );
         }
         pthread_sigmask( SIG_SETMASK, &old_set, NULL );
-        if (mutex)
-        {
-            mutex_unlock( mutex );
-            mutex = NULL;
-        }
         if (signaled) break;
 
         ret = wait_select_reply( &cookie );
@@ -712,7 +665,7 @@ unsigned int server_wait( const select_op_t *select_op, data_size_t size, UINT f
         abs_timeout -= now.QuadPart;
     }
 
-    ret = server_select( select_op, size, flags, abs_timeout, NULL, NULL, &apc );
+    ret = server_select( select_op, size, flags, abs_timeout, NULL, &apc );
     if (ret == STATUS_USER_APC) return invoke_user_apc( NULL, &apc, ret );
 
     /* A test on Windows 2000 shows that Windows always yields during
@@ -733,7 +686,7 @@ NTSTATUS WINAPI NtContinue( CONTEXT *context, BOOLEAN alertable )
 
     if (alertable)
     {
-        status = server_select( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, 0, NULL, NULL, &apc );
+        status = server_select( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, 0, NULL, &apc );
         if (status == STATUS_USER_APC) return invoke_user_apc( context, &apc, status );
     }
     return signal_set_full_context( context );
@@ -748,7 +701,7 @@ NTSTATUS WINAPI NtTestAlert(void)
     user_apc_t apc;
     NTSTATUS status;
 
-    status = server_select( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, 0, NULL, NULL, &apc );
+    status = server_select( NULL, 0, SELECT_INTERRUPTIBLE | SELECT_ALERTABLE, 0, NULL, &apc );
     if (status == STATUS_USER_APC) invoke_user_apc( NULL, &apc, STATUS_SUCCESS );
     return STATUS_SUCCESS;
 }
@@ -1187,28 +1140,6 @@ static const char *init_server_dir( dev_t dev, ino_t ino )
 
 
 /***********************************************************************
- *           set_case_insensitive
- *
- * Make the supplied directory case insensitive, if available.
- */
-static void set_case_insensitive(const char *dir)
-{
-#if defined(EXT2_IOC_GETFLAGS) && defined(EXT2_IOC_SETFLAGS) && defined(EXT4_CASEFOLD_FL)
-    int flags, fd;
-
-    if ((fd = open(dir, O_RDONLY | O_NONBLOCK | O_LARGEFILE)) == -1)
-        return;
-    if (ioctl(fd, EXT2_IOC_GETFLAGS, &flags) != -1 && !(flags & EXT4_CASEFOLD_FL))
-    {
-        flags |= EXT4_CASEFOLD_FL;
-        ioctl(fd, EXT2_IOC_SETFLAGS, &flags);
-    }
-    close(fd);
-#endif
-}
-
-
-/***********************************************************************
  *           setup_config_dir
  *
  * Setup the wine configuration dir.
@@ -1244,7 +1175,6 @@ static int setup_config_dir(void)
     if (!mkdir( "dosdevices", 0777 ))
     {
         mkdir( "drive_c", 0777 );
-        set_case_insensitive( "drive_c" );
         symlink( "../drive_c", "dosdevices/c:" );
         symlink( "/", "dosdevices/z:" );
     }
@@ -1621,6 +1551,7 @@ size_t server_init_process(void)
 void server_init_process_done(void)
 {
     void *entry, *teb;
+    struct cpu_topology_override *cpu_override = get_cpu_topology_override();
     NTSTATUS status;
     int suspend, needs_close, unixdir;
 
@@ -1650,6 +1581,8 @@ void server_init_process_done(void)
     /* Signal the parent process to continue */
     SERVER_START_REQ( init_process_done )
     {
+        if (cpu_override)
+            wine_server_add_data( req, cpu_override, sizeof(*cpu_override) );
         req->teb      = wine_server_client_ptr( teb );
         req->peb      = NtCurrentTeb64() ? NtCurrentTeb64()->Peb : wine_server_client_ptr( peb );
 #ifdef __i386__
@@ -1691,23 +1624,6 @@ void server_init_thread( void *entry_point, BOOL *suspend )
     }
     SERVER_END_REQ;
     close( reply_pipe );
-}
-
-
-/***********************************************************************
- *           DbgUiIssueRemoteBreakin
- */
-NTSTATUS WINAPI DbgUiIssueRemoteBreakin( HANDLE process )
-{
-    apc_call_t call;
-    apc_result_t result;
-    NTSTATUS status;
-
-    memset( &call, 0, sizeof(call) );
-    call.type = APC_BREAK_PROCESS;
-    status = server_queue_process_apc( process, &call, &result );
-    if (status) return status;
-    return result.break_process.status;
 }
 
 
@@ -1770,6 +1686,25 @@ NTSTATUS WINAPI NtDuplicateObject( HANDLE source_process, HANDLE source, HANDLE 
 
     if (fd != -1) close( fd );
     return ret;
+}
+
+
+/**************************************************************************
+ *           NtCompareObjects   (NTDLL.@)
+ */
+NTSTATUS WINAPI NtCompareObjects( HANDLE first, HANDLE second )
+{
+    NTSTATUS status;
+
+    SERVER_START_REQ( compare_objects )
+    {
+        req->first = wine_server_obj_handle( first );
+        req->second = wine_server_obj_handle( second );
+        status = wine_server_call( req );
+    }
+    SERVER_END_REQ;
+
+    return status;
 }
 
 

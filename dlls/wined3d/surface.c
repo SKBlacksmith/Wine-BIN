@@ -27,7 +27,6 @@
  */
 
 #include "config.h"
-#include "wine/port.h"
 #include "wined3d_private.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(d3d);
@@ -275,25 +274,6 @@ static void convert_yuy2_r5g6b5(const BYTE *src, BYTE *dst,
     }
 }
 
-static void convert_x8r8g8b8_l8(const BYTE *src, BYTE *dst,
-        DWORD pitch_in, DWORD pitch_out, unsigned int w, unsigned int h)
-{
-    unsigned int x, y;
-
-    TRACE("Converting %ux%u pixels, pitches %u %u.\n", w, h, pitch_in, pitch_out);
-
-    for (y = 0; y < h; ++y)
-    {
-        const DWORD *src_line = (const DWORD *)(src + y * pitch_in);
-        BYTE *dst_line = (BYTE *)(dst + y * pitch_out);
-
-        for (x = 0; x < w; ++x)
-        {
-            dst_line[x] = src_line[x] & 0x000000ff;
-        }
-    }
-}
-
 struct d3dfmt_converter_desc
 {
     enum wined3d_format_id from, to;
@@ -308,7 +288,6 @@ static const struct d3dfmt_converter_desc converters[] =
     {WINED3DFMT_B8G8R8X8_UNORM, WINED3DFMT_B8G8R8A8_UNORM,  convert_a8r8g8b8_x8r8g8b8},
     {WINED3DFMT_YUY2,           WINED3DFMT_B8G8R8X8_UNORM,  convert_yuy2_x8r8g8b8},
     {WINED3DFMT_YUY2,           WINED3DFMT_B5G6R5_UNORM,    convert_yuy2_r5g6b5},
-    {WINED3DFMT_B8G8R8X8_UNORM, WINED3DFMT_L8_UNORM,        convert_x8r8g8b8_l8},
 };
 
 static inline const struct d3dfmt_converter_desc *find_converter(enum wined3d_format_id from,
@@ -439,10 +418,12 @@ void texture2d_read_from_framebuffer(struct wined3d_texture *texture, unsigned i
     unsigned int restore_idx;
     BYTE *row, *top, *bottom;
     BOOL src_is_upside_down;
+    BYTE *mem = NULL;
+    uint8_t *offset;
     unsigned int i;
-    BYTE *mem;
 
     wined3d_texture_get_memory(texture, sub_resource_idx, &data, dst_location);
+    offset = data.addr;
 
     restore_texture = context->current_rt.texture;
     restore_idx = context->current_rt.sub_resource_idx;
@@ -489,7 +470,13 @@ void texture2d_read_from_framebuffer(struct wined3d_texture *texture, unsigned i
 
     if (data.buffer_object)
     {
-        GL_EXTCALL(glBindBuffer(GL_PIXEL_PACK_BUFFER, ((struct wined3d_bo_gl *)data.buffer_object)->id));
+        GL_EXTCALL(glBindBuffer(GL_PIXEL_PACK_BUFFER, wined3d_bo_gl(data.buffer_object)->id));
+        checkGLcall("glBindBuffer");
+        offset += data.buffer_object->buffer_offset;
+    }
+    else
+    {
+        GL_EXTCALL(glBindBuffer(GL_PIXEL_PACK_BUFFER, 0));
         checkGLcall("glBindBuffer");
     }
 
@@ -504,7 +491,7 @@ void texture2d_read_from_framebuffer(struct wined3d_texture *texture, unsigned i
     width = wined3d_texture_get_level_width(texture, level);
     height = wined3d_texture_get_level_height(texture, level);
     gl_info->gl_ops.gl.p_glReadPixels(0, 0, width, height,
-            format_gl->format, format_gl->type, data.addr);
+            format_gl->format, format_gl->type, offset);
     checkGLcall("glReadPixels");
 
     /* Reset previous pixel store pack state */
@@ -524,8 +511,7 @@ void texture2d_read_from_framebuffer(struct wined3d_texture *texture, unsigned i
             mem = GL_EXTCALL(glMapBuffer(GL_PIXEL_PACK_BUFFER, GL_READ_WRITE));
             checkGLcall("glMapBuffer");
         }
-        else
-            mem = data.addr;
+        mem += (uintptr_t)offset;
 
         top = mem;
         bottom = mem + row_pitch * (height - 1);
@@ -547,7 +533,7 @@ error:
     if (data.buffer_object)
     {
         GL_EXTCALL(glBindBuffer(GL_PIXEL_PACK_BUFFER, 0));
-        wined3d_context_gl_reference_bo(context_gl, (struct wined3d_bo_gl *)data.buffer_object);
+        wined3d_context_gl_reference_bo(context_gl, wined3d_bo_gl(data.buffer_object));
         checkGLcall("glBindBuffer");
     }
 
@@ -873,8 +859,7 @@ static HRESULT surface_cpu_blt(struct wined3d_texture *dst_texture, unsigned int
             && (src_width != dst_width || src_height != dst_height))
     {
         /* Can happen when d3d9 apps do a StretchRect() call which isn't handled in GL. */
-        static int once;
-        if (!once++) FIXME("Filter %s not supported in software blit.\n", debug_d3dtexturefiltertype(filter));
+        FIXME("Filter %s not supported in software blit.\n", debug_d3dtexturefiltertype(filter));
     }
 
     xinc = (src_width << 16) / dst_width;

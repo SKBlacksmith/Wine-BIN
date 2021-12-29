@@ -15,7 +15,6 @@ SOURCES = \
 	amsi.idl \
 	amstream.idl \
 	amvideo.idl \
-	apiset.h \
 	appcompatapi.h \
 	appmgmt.h \
 	appmodel.h \
@@ -96,9 +95,7 @@ SOURCES = \
 	cryptuiapi.h \
 	ctfutb.idl \
 	ctxtcall.idl \
-	cuda.h \
 	custcntl.h \
-	cuviddec.h \
 	cvconst.h \
 	cvttyp.idl \
 	d2d1.idl \
@@ -248,6 +245,7 @@ SOURCES = \
 	dmusics.h \
 	docobj.idl \
 	docobjectservice.idl \
+	documenttarget.idl \
 	downloadmgr.idl \
 	dpaddr.h \
 	dpfilter.h \
@@ -305,6 +303,7 @@ SOURCES = \
 	exposeenums2managed.h \
 	fci.h \
 	fdi.h \
+	featurestagingapi.h \
 	fileapi.h \
 	filter.idl \
 	fltdefs.h \
@@ -411,6 +410,7 @@ SOURCES = \
 	mediaobj.idl \
 	metahost.idl \
 	mfapi.h \
+	mfd3d12.idl \
 	mferror.h \
 	mfidl.idl \
 	mfmediaengine.idl \
@@ -551,16 +551,12 @@ SOURCES = \
 	ntdef.h \
 	ntdsapi.h \
 	ntgdi.h \
-	ntifs.h \
 	ntlsa.h \
 	ntquery.h \
 	ntsecapi.h \
 	ntsecpkg.h \
 	ntstatus.h \
 	ntuser.h \
-	nvapi.h \
-	nvcuvid.h \
-	nvencodeapi.h \
 	oaidl.idl \
 	objbase.h \
 	objectarray.idl \
@@ -690,8 +686,6 @@ SOURCES = \
 	srcrst.idl \
 	srrestoreptapi.h \
 	sspi.h \
-	stdole2.idl \
-	stdole32.idl \
 	stgprop.h \
 	sti.h \
 	storage.h \
@@ -720,6 +714,7 @@ SOURCES = \
 	tpcshrd.h \
 	traffic.h \
 	transact.idl \
+	trnjoi.idl \
 	twain.h \
 	txcoord.idl \
 	txdtc.idl \
@@ -783,9 +778,8 @@ SOURCES = \
 	windows.globalization.idl \
 	windows.h \
 	windows.media.devices.idl \
+	windows.media.idl \
 	windows.media.speechsynthesis.idl \
-	windows.networking.idl \
-	windows.networking.connectivity.idl \
 	windows.storage.streams.idl \
 	windows.system.idl \
 	windows.system.userprofile.idl \

@@ -36,6 +36,23 @@
 #endif
 #include <unistd.h>
 #include <poll.h>
+#ifdef HAVE_SYS_PARAM_H
+# include <sys/param.h>
+#endif
+#ifdef HAVE_SYS_QUEUE_H
+# include <sys/queue.h>
+#endif
+#ifdef HAVE_SYS_SYSCTL_H
+# include <sys/sysctl.h>
+#endif
+#ifdef HAVE_SYS_USER_H
+# define thread __unix_thread
+# include <sys/user.h>
+# undef thread
+#endif
+#ifdef HAVE_LIBPROCSTAT
+# include <libprocstat.h>
+#endif
 
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
@@ -85,6 +102,7 @@ static void process_destroy( struct object *obj );
 static int process_get_esync_fd( struct object *obj, enum esync_type *type );
 static unsigned int process_get_fsync_idx( struct object *obj, enum fsync_type *type );
 static void terminate_process( struct process *process, struct thread *skip, int exit_code );
+static void set_process_affinity( struct process *process, affinity_t affinity );
 
 static const struct object_ops process_ops =
 {
@@ -605,10 +623,20 @@ static void process_died( struct process *process )
 static void process_sigkill( void *private )
 {
     struct process *process = private;
+    int signal = 0;
 
-    process->sigkill_timeout = NULL;
-    kill( process->unix_pid, SIGKILL );
-    process_died( process );
+    process->sigkill_delay *= 2;
+    if (process->sigkill_delay >= TICKS_PER_SEC / 2)
+        signal = SIGKILL;
+
+    if (!kill( process->unix_pid, signal ) && !signal)
+        process->sigkill_timeout = add_timeout_user( -process->sigkill_delay, process_sigkill, process );
+    else
+    {
+        process->sigkill_delay = TICKS_PER_SEC / 64;
+        process->sigkill_timeout = NULL;
+        process_died( process );
+    }
 }
 
 /* start the sigkill timer for a process upon exit */
@@ -616,7 +644,7 @@ static void start_sigkill_timer( struct process *process )
 {
     grab_object( process );
     if (process->unix_pid != -1)
-        process->sigkill_timeout = add_timeout_user( -TICKS_PER_SEC, process_sigkill, process );
+        process->sigkill_timeout = add_timeout_user( -process->sigkill_delay, process_sigkill, process );
     else
         process_died( process );
 }
@@ -640,6 +668,7 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     process->handles         = NULL;
     process->msg_fd          = NULL;
     process->sigkill_timeout = NULL;
+    process->sigkill_delay   = TICKS_PER_SEC / 64;
     process->unix_pid        = -1;
     process->exit_code       = STILL_ACTIVE;
     process->running_threads = 0;
@@ -666,6 +695,7 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     process->rawinput_kbd    = NULL;
     process->esync_fd        = -1;
     process->fsync_idx       = 0;
+    process->cpu_override.cpu_count = 0;
     list_init( &process->kernel_object );
     list_init( &process->thread_list );
     list_init( &process->locks );
@@ -693,7 +723,7 @@ struct process *create_process( int fd, struct process *parent, unsigned int fla
     if (!parent)
     {
         process->handles = alloc_handle_table( process, 0 );
-        process->token = token_create_admin( TRUE, -1, TokenElevationTypeLimited, default_session_id );
+        process->token = token_create_admin( TRUE, -1, TokenElevationTypeFull, default_session_id );
         process->affinity = ~0;
     }
     else
@@ -1428,6 +1458,8 @@ DECL_HANDLER(get_startup_info)
 DECL_HANDLER(init_process_done)
 {
     struct process *process = current->process;
+    const struct cpu_topology_override *cpu_override = get_req_data();
+    unsigned int have_cpu_override = get_req_data_size() / sizeof(*cpu_override);
     struct memory_view *view;
     client_ptr_t base;
     const pe_image_info_t *image_info;
@@ -1460,6 +1492,9 @@ DECL_HANDLER(init_process_done)
     if (process->debug_obj) set_process_debug_flag( process, 1 );
     reply->entry = current->entry_point;
     reply->suspend = (current->suspend || process->suspend);
+
+    if (have_cpu_override)
+        process->cpu_override = *cpu_override;
 }
 
 /* open a handle to a process */
@@ -1572,9 +1607,9 @@ DECL_HANDLER(get_process_vm_counters)
     struct process *process = get_process_from_handle( req->handle, PROCESS_QUERY_LIMITED_INFORMATION );
 
     if (!process) return;
-#ifdef linux
     if (process->unix_pid != -1)
     {
+#ifdef linux
         FILE *f;
         char proc_path[32], line[256];
         unsigned long value;
@@ -1601,9 +1636,28 @@ DECL_HANDLER(get_process_vm_counters)
             fclose( f );
         }
         else set_error( STATUS_ACCESS_DENIED );
+#elif defined(HAVE_LIBPROCSTAT)
+        struct procstat *procstat;
+        unsigned int count;
+
+        if ((procstat = procstat_open_sysctl()))
+        {
+            struct kinfo_proc *kp = procstat_getprocs( procstat, KERN_PROC_PID, process->unix_pid, &count );
+            if (kp)
+            {
+                reply->virtual_size = kp->ki_size;
+                reply->peak_virtual_size = reply->virtual_size;
+                reply->working_set_size = kp->ki_rssize << PAGE_SHIFT;
+                reply->peak_working_set_size = kp->ki_rusage.ru_maxrss * 1024;
+                procstat_freeprocs( procstat, kp );
+            }
+            else set_error( STATUS_ACCESS_DENIED );
+            procstat_close( procstat );
+        }
+        else set_error( STATUS_ACCESS_DENIED );
+#endif
     }
     else set_error( STATUS_ACCESS_DENIED );
-#endif
     release_object( process );
 }
 

@@ -63,7 +63,6 @@ int gl_surface_mode = GL_SURFACE_IN_FRONT_OPAQUE;
 int retina_enabled = FALSE;
 HMODULE macdrv_module = 0;
 int enable_app_nap = FALSE;
-BOOL force_backing_store = FALSE;
 
 CFDictionaryRef localized_strings;
 
@@ -214,9 +213,6 @@ static void setup_options(void)
     if (!get_config_key(hkey, appkey, "EnableAppNap", buffer, sizeof(buffer)))
         enable_app_nap = IS_OPTION_TRUE(buffer[0]);
 
-    if (!get_config_key(hkey, appkey, "ForceOpenGLBackingStore", buffer, sizeof(buffer)))
-        force_backing_store = IS_OPTION_TRUE(buffer[0]);
-
     /* Don't use appkey.  The DPI and monitor sizes should be consistent for all
        processes in the prefix. */
     if (!get_config_key(hkey, NULL, "RetinaMode", buffer, sizeof(buffer)))
@@ -303,6 +299,7 @@ static BOOL process_attach(void)
         return FALSE;
     }
 
+    init_user_driver();
     macdrv_init_display_devices(FALSE);
 
     return TRUE;

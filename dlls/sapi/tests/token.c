@@ -185,11 +185,11 @@ static void test_object_token(void)
     ok( hr == S_OK, "got %08x\n", hr );
 
     hr = ISpObjectToken_GetId( token, NULL );
-    ok( hr == SPERR_UNINITIALIZED, "got %08x\n", hr );
+    todo_wine ok( hr == SPERR_UNINITIALIZED, "got %08x\n", hr );
 
     tempW = (LPWSTR)0xdeadbeef;
     hr = ISpObjectToken_GetId( token, &tempW );
-    ok( hr == SPERR_UNINITIALIZED, "got %08x\n", hr );
+    todo_wine ok( hr == SPERR_UNINITIALIZED, "got %08x\n", hr );
     ok( tempW == (LPWSTR)0xdeadbeef, "got %s\n", wine_dbgstr_w(tempW) );
 
     hr = ISpObjectToken_GetCategory( token, NULL );
@@ -220,7 +220,7 @@ static void test_object_token(void)
     ok( hr == SPERR_ALREADY_INITIALIZED, "got %08x\n", hr );
 
     hr = ISpObjectToken_GetId( token, NULL );
-    ok( hr == E_POINTER, "got %08x\n", hr );
+    todo_wine ok( hr == E_POINTER, "got %08x\n", hr );
 
     hr = ISpObjectToken_GetCategory( token, NULL );
     todo_wine ok( hr == E_POINTER, "got %08x\n", hr );
@@ -296,7 +296,6 @@ static void test_object_token(void)
 
     ISpObjectToken_Release( token );
 }
-
 
 START_TEST(token)
 {

@@ -417,7 +417,7 @@ HRESULT SHELL32_GetItemAttributes (IShellFolder2 *psf, LPCITEMIDLIST pidl, LPDWO
     } else if (_ILGetDataPointer (pidl)) {
 	DWORD file_attr = _ILGetFileAttributes (pidl, NULL, 0);
 
-        if (!file_attr && has_guid) {
+        if (!file_attr) {
 	    WCHAR path[MAX_PATH];
 	    STRRET strret;
 
@@ -438,23 +438,7 @@ HRESULT SHELL32_GetItemAttributes (IShellFolder2 *psf, LPCITEMIDLIST pidl, LPDWO
                           SFGAO_CANRENAME | SFGAO_CANLINK | SFGAO_CANMOVE | SFGAO_CANCOPY;
 
 	if (file_attr & FILE_ATTRIBUTE_DIRECTORY)
-        {
-            IEnumIDList *enum_list;
-            IShellFolder *child;
-
-            *pdwAttributes |= (SFGAO_FOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_STORAGE);
-
-            if (SUCCEEDED(IShellFolder2_BindToObject(psf, pidl, NULL, &IID_IShellFolder, (void **)&child)))
-            {
-                if (IShellFolder_EnumObjects(child, NULL, SHCONTF_FOLDERS|SHCONTF_INCLUDEHIDDEN, &enum_list) == S_OK)
-                {
-                    if (IEnumIDList_Skip(enum_list, 1) != S_OK)
-                        *pdwAttributes &= ~SFGAO_HASSUBFOLDER;
-                    IEnumIDList_Release(enum_list);
-                }
-                IShellFolder_Release(child);
-            }
-        }
+	    *pdwAttributes |=  (SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_STORAGE);
 	else
         {
 	    *pdwAttributes &= ~(SFGAO_FOLDER | SFGAO_HASSUBFOLDER | SFGAO_FILESYSANCESTOR | SFGAO_STORAGEANCESTOR | SFGAO_STORAGE);

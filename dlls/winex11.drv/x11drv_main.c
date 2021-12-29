@@ -20,7 +20,6 @@
  */
 
 #include "config.h"
-#include "wine/port.h"
 
 #include <fcntl.h>
 #include <stdarg.h>
@@ -33,6 +32,7 @@
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
 #endif
+#include <dlfcn.h>
 #include <X11/cursorfont.h>
 #include <X11/Xlib.h>
 #ifdef HAVE_XKB
@@ -66,7 +66,7 @@ Colormap default_colormap = None;
 XPixmapFormatValues **pixmap_formats;
 unsigned int screen_bpp;
 Window root_window;
-BOOL usexvidmode = FALSE;
+BOOL usexvidmode = TRUE;
 BOOL usexrandr = TRUE;
 BOOL usexcomposite = TRUE;
 BOOL use_xkb = TRUE;
@@ -85,7 +85,6 @@ BOOL client_side_with_render = TRUE;
 BOOL shape_layered_windows = TRUE;
 int copy_default_colors = 128;
 int alloc_system_colors = 256;
-int limit_number_of_resolutions = 0;
 DWORD thread_data_tls_index = TLS_OUT_OF_INDEXES;
 int xrender_error_base = 0;
 HMODULE x11drv_module = 0;
@@ -140,6 +139,7 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
 {
     "CLIPBOARD",
     "COMPOUND_TEXT",
+    "EDID",
     "INCR",
     "MANAGER",
     "MULTIPLE",
@@ -148,7 +148,6 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "TEXT",
     "TIMESTAMP",
     "UTF8_STRING",
-    "STRING",
     "RAW_ASCENT",
     "RAW_DESCENT",
     "RAW_CAP_HEIGHT",
@@ -156,7 +155,6 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "Rel Y",
     "WM_PROTOCOLS",
     "WM_DELETE_WINDOW",
-    "WM_NAME",
     "WM_STATE",
     "WM_TAKE_FOCUS",
     "DndProtocol",
@@ -166,7 +164,6 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "_NET_STARTUP_INFO_BEGIN",
     "_NET_STARTUP_INFO",
     "_NET_SUPPORTED",
-    "_NET_SUPPORTING_WM_CHECK",
     "_NET_SYSTEM_TRAY_OPCODE",
     "_NET_SYSTEM_TRAY_S0",
     "_NET_SYSTEM_TRAY_VISUAL",
@@ -218,7 +215,6 @@ static const char * const atom_names[NB_XATOMS - FIRST_XATOM] =
     "WCF_SYLK",
     "WCF_TIFF",
     "WCF_WAVE",
-    "WINDOW",
     "image/bmp",
     "image/gif",
     "image/jpeg",
@@ -323,9 +319,6 @@ static int error_handler( Display *display, XErrorEvent *error_evt )
              error_evt->serial, error_evt->request_code );
         DebugBreak();  /* force an entry in the debugger */
     }
-    TRACE("passing on error %d req %d:%d res 0x%lx\n",
-            error_evt->error_code, error_evt->request_code,
-            error_evt->minor_code, error_evt->resourceid);
     old_error_handler( display, error_evt );
     return 0;
 }
@@ -457,9 +450,6 @@ static void setup_options(void)
 
     if (!get_config_key( hkey, appkey, "AllocSystemColors", buffer, sizeof(buffer) ))
         alloc_system_colors = atoi(buffer);
-
-    if (!get_config_key( hkey, appkey, "LimitNumberOfResolutions", buffer, sizeof(buffer) ))
-        limit_number_of_resolutions = atoi(buffer);
 
     get_config_key( hkey, appkey, "InputStyle", input_style, sizeof(input_style) );
 
@@ -598,13 +588,6 @@ static BOOL process_attach(void)
     dlopen( SONAME_LIBXEXT, RTLD_NOW|RTLD_GLOBAL );
 #endif
 
-    {
-        const char *e = getenv("WINE_ALLOW_XIM");
-        if(e){
-            use_xim = IS_OPTION_TRUE(*e);
-        }
-    }
-
     setup_options();
 
     if ((thread_data_tls_index = TlsAlloc()) == TLS_OUT_OF_INDEXES) return FALSE;
@@ -642,17 +625,15 @@ static BOOL process_attach(void)
 #ifdef SONAME_LIBXCOMPOSITE
     X11DRV_XComposite_Init();
 #endif
-    x11drv_xinput_load();
+    X11DRV_XInput2_Init();
 
 #ifdef HAVE_XKB
     if (use_xkb) use_xkb = XkbUseExtension( gdi_display, NULL, NULL );
 #endif
     X11DRV_InitKeyboard( gdi_display );
-    X11DRV_InitMouse( gdi_display );
     if (use_xim) use_xim = X11DRV_InitXIM( input_style );
 
-    fs_hack_init();
-
+    init_user_driver();
     X11DRV_DisplayDevices_Init(FALSE);
     return TRUE;
 }
@@ -667,8 +648,7 @@ void CDECL X11DRV_ThreadDetach(void)
 
     if (data)
     {
-        if (GetWindowThreadProcessId( GetDesktopWindow(), NULL ) == GetCurrentThreadId())
-            x11drv_xinput_disable( data->display, DefaultRootWindow( data->display ), PointerMotionMask );
+        vulkan_thread_detach();
         if (data->xim) XCloseIM( data->xim );
         if (data->font_set) XFreeFontSet( data->display, data->font_set );
         XCloseDisplay( data->display );
@@ -738,10 +718,6 @@ struct x11drv_thread_data *x11drv_init_thread_data(void)
     TlsSetValue( thread_data_tls_index, data );
 
     if (use_xim) X11DRV_SetupXIM();
-
-    x11drv_xinput_init();
-    if (GetWindowThreadProcessId( GetDesktopWindow(), NULL ) == GetCurrentThreadId())
-        x11drv_xinput_enable( data->display, DefaultRootWindow( data->display ), PointerMotionMask );
 
     return data;
 }

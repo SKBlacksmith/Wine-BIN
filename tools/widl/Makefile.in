@@ -15,8 +15,7 @@ C_SRCS = \
 	utils.c \
 	widl.c \
 	wpp.c \
-	write_msft.c \
-	write_sltg.c
+	write_msft.c
 
 LEX_SRCS = \
 	parser.l \
@@ -30,6 +29,8 @@ MANPAGES = widl.man.in
 
 widl_EXTRADEFS = \
 	-DINCLUDEDIR="\"${includedir}\"" \
-	-DBIN_TO_INCLUDEDIR=\"`${MAKEDEP} -R ${bindir} ${includedir}`\"
+	-DDLLDIR="\"${dlldir}\"" \
+	-DBIN_TO_INCLUDEDIR=\"`${MAKEDEP} -R ${bindir} ${includedir}`\" \
+	-DBIN_TO_DLLDIR=\"`${MAKEDEP} -R ${bindir} ${dlldir}`\"
 
 INSTALL_DEV = $(PROGRAMS)

@@ -411,21 +411,11 @@ HRESULT WINAPI QueryPathOfRegTypeLib( REFGUID guid, WORD wMaj, WORD wMin, LCID l
  *    Success: S_OK
  *    Failure: Status
  */
-HRESULT WINAPI CreateTypeLib(SYSKIND syskind, LPCOLESTR file, ICreateTypeLib **ctlib)
-{
-    ICreateTypeLib2 *typelib2;
-    HRESULT hres;
-
-    FIXME("(%d, %s, %p): forwarding to CreateTypeLib2\n", syskind, debugstr_w(file), ctlib);
-
-    hres = CreateTypeLib2(syskind, file, &typelib2);
-    if(SUCCEEDED(hres))
-    {
-        hres = ICreateTypeLib2_QueryInterface(typelib2, &IID_ICreateTypeLib, (void **)ctlib);
-        ICreateTypeLib2_Release(typelib2);
-    }
-
-    return hres;
+HRESULT WINAPI CreateTypeLib(
+	SYSKIND syskind, LPCOLESTR szFile, ICreateTypeLib** ppctlib
+) {
+    FIXME("(%d,%s,%p), stub!\n",syskind,debugstr_w(szFile),ppctlib);
+    return E_FAIL;
 }
 
 /******************************************************************************
@@ -3686,87 +3676,6 @@ static BOOL TLB_GUIDFromString(const char *str, GUID *guid)
   return TRUE;
 }
 
-struct bitstream
-{
-    const BYTE *buffer;
-    DWORD       length;
-    WORD        current;
-};
-
-static const char *lookup_code(const BYTE *table, DWORD table_size, struct bitstream *bits)
-{
-    const BYTE *p = table;
-
-    while (p < table + table_size && *p == 0x80)
-    {
-        if (p + 2 >= table + table_size) return NULL;
-
-        if (!(bits->current & 0xff))
-        {
-            if (!bits->length) return NULL;
-            bits->current = (*bits->buffer << 8) | 1;
-            bits->buffer++;
-            bits->length--;
-        }
-
-        if (bits->current & 0x8000)
-        {
-            p += 3;
-        }
-        else
-        {
-            p = table + (*(p + 2) | (*(p + 1) << 8));
-        }
-
-        bits->current <<= 1;
-    }
-
-    if (p + 1 < table + table_size && *(p + 1))
-    {
-        /* FIXME: Whats the meaning of *p? */
-        const BYTE *q = p + 1;
-        while (q < table + table_size && *q) q++;
-        return (q < table + table_size) ? (const char *)(p + 1) : NULL;
-    }
-
-    return NULL;
-}
-
-static const TLBString *decode_string(const BYTE *table, const char *stream, DWORD stream_length, ITypeLibImpl *lib)
-{
-    DWORD buf_size, table_size;
-    const char *p;
-    struct bitstream bits;
-    BSTR buf;
-    TLBString *tlbstr;
-
-    if (!stream_length) return NULL;
-
-    bits.buffer = (const BYTE *)stream;
-    bits.length = stream_length;
-    bits.current = 0;
-
-    buf_size = *(const WORD *)table;
-    table += sizeof(WORD);
-    table_size = *(const DWORD *)table;
-    table += sizeof(DWORD);
-
-    buf = SysAllocStringLen(NULL, buf_size);
-    buf[0] = 0;
-
-    while ((p = lookup_code(table, table_size, &bits)))
-    {
-        static const WCHAR spaceW[] = { ' ',0 };
-        if (buf[0]) lstrcatW(buf, spaceW);
-        MultiByteToWideChar(CP_ACP, 0, p, -1, buf + lstrlenW(buf), buf_size - lstrlenW(buf));
-    }
-
-    tlbstr = TLB_append_str(&lib->string_list, buf);
-    SysFreeString(buf);
-
-    return tlbstr;
-}
-
 static WORD SLTG_ReadString(const char *ptr, const TLBString **pStr, ITypeLibImpl *lib)
 {
     WORD bytelen;
@@ -4098,7 +4007,7 @@ static char *SLTG_DoImpls(char *pBlk, ITypeInfoImpl *pTI,
 }
 
 static void SLTG_DoVars(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI, unsigned short cVars,
-			const char *pNameTable, const sltg_ref_lookup_t *ref_lookup, const BYTE *hlp_strings)
+			const char *pNameTable, const sltg_ref_lookup_t *ref_lookup)
 {
   TLBVarDesc *pVarDesc;
   const TLBString *prevName = NULL;
@@ -4127,12 +4036,6 @@ static void SLTG_DoVars(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI, unsign
       TRACE_(typelib)("name: %s\n", debugstr_w(TLB_get_bstr(pVarDesc->Name)));
       TRACE_(typelib)("byte_offs = 0x%x\n", pItem->byte_offs);
       TRACE_(typelib)("memid = 0x%x\n", pItem->memid);
-
-      if (pItem->helpstring != 0xffff)
-      {
-          pVarDesc->HelpString = decode_string(hlp_strings, pBlk + pItem->helpstring, pNameTable - pBlk, pTI->pTypeLib);
-          TRACE_(typelib)("helpstring = %s\n", debugstr_w(pVarDesc->HelpString->str));
-      }
 
       if(pItem->flags & 0x02)
 	  pType = &pItem->type;
@@ -4215,8 +4118,7 @@ static void SLTG_DoVars(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI, unsign
 }
 
 static void SLTG_DoFuncs(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI,
-			 unsigned short cFuncs, char *pNameTable, const sltg_ref_lookup_t *ref_lookup,
-			 const BYTE *hlp_strings)
+			 unsigned short cFuncs, char *pNameTable, const sltg_ref_lookup_t *ref_lookup)
 {
     SLTG_Function *pFunc;
     unsigned short i;
@@ -4257,9 +4159,6 @@ static void SLTG_DoFuncs(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI,
         else
 	    pFuncDesc->funcdesc.oVft = (pFunc->vtblpos & ~1) * sizeof(void *) / pTI->pTypeLib->ptr_size;
 
-	if (pFunc->helpstring != 0xffff)
-		pFuncDesc->HelpString = decode_string(hlp_strings, pBlk + pFunc->helpstring, pNameTable - pBlk, pTI->pTypeLib);
-
 	if(pFunc->magic & SLTG_FUNCTION_FLAGS_PRESENT)
 	    pFuncDesc->funcdesc.wFuncFlags = pFunc->funcflags;
 
@@ -4277,7 +4176,7 @@ static void SLTG_DoFuncs(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI,
 	pArg = (WORD*)(pBlk + pFunc->arg_off);
 
 	for(param = 0; param < pFuncDesc->funcdesc.cParams; param++) {
-	    char *paramName = pNameTable + (*pArg & ~1);
+	    char *paramName = pNameTable + *pArg;
 	    BOOL HaveOffs;
 	    /* If arg type follows then paramName points to the 2nd
 	       letter of the name, else the next WORD is an offset to
@@ -4288,14 +4187,17 @@ static void SLTG_DoFuncs(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI,
 	       meaning that the next WORD is the type, the latter
 	       meaning that the next WORD is an offset to the type. */
 
-	    if(*pArg == 0xffff || *pArg == 0xfffe)
+	    HaveOffs = FALSE;
+	    if(*pArg == 0xffff)
 	        paramName = NULL;
+	    else if(*pArg == 0xfffe) {
+	        paramName = NULL;
+		HaveOffs = TRUE;
+	    }
+	    else if(paramName[-1] && !isalnum(paramName[-1]))
+	        HaveOffs = TRUE;
 
-	    HaveOffs = !(*pArg & 1);
 	    pArg++;
-
-            TRACE_(typelib)("param %d: paramName %s, *pArg %#x\n",
-                param, debugstr_a(paramName), *pArg);
 
 	    if(HaveOffs) { /* the next word is an offset to type */
 	        pType = (WORD*)(pBlk + *pArg);
@@ -4303,6 +4205,8 @@ static void SLTG_DoFuncs(char *pBlk, char *pFirstItem, ITypeInfoImpl *pTI,
 			    &pFuncDesc->funcdesc.lprgelemdescParam[param], ref_lookup);
 		pArg++;
 	    } else {
+		if(paramName)
+		  paramName--;
 		pArg = SLTG_DoElem(pArg, pBlk,
                                    &pFuncDesc->funcdesc.lprgelemdescParam[param], ref_lookup);
 	    }
@@ -4346,7 +4250,7 @@ static void SLTG_ProcessCoClass(char *pBlk, ITypeInfoImpl *pTI,
 
 static void SLTG_ProcessInterface(char *pBlk, ITypeInfoImpl *pTI,
 				  char *pNameTable, SLTG_TypeInfoHeader *pTIHeader,
-				  const SLTG_TypeInfoTail *pTITail, const BYTE *hlp_strings)
+				  const SLTG_TypeInfoTail *pTITail)
 {
     char *pFirstItem;
     sltg_ref_lookup_t *ref_lookup = NULL;
@@ -4363,7 +4267,7 @@ static void SLTG_ProcessInterface(char *pBlk, ITypeInfoImpl *pTI,
     }
 
     if (pTITail->funcs_off != 0xffff)
-        SLTG_DoFuncs(pBlk, pBlk + pTITail->funcs_off, pTI, pTITail->cFuncs, pNameTable, ref_lookup, hlp_strings);
+        SLTG_DoFuncs(pBlk, pBlk + pTITail->funcs_off, pTI, pTITail->cFuncs, pNameTable, ref_lookup);
 
     heap_free(ref_lookup);
 
@@ -4373,9 +4277,9 @@ static void SLTG_ProcessInterface(char *pBlk, ITypeInfoImpl *pTI,
 
 static void SLTG_ProcessRecord(char *pBlk, ITypeInfoImpl *pTI,
 			       const char *pNameTable, SLTG_TypeInfoHeader *pTIHeader,
-			       const SLTG_TypeInfoTail *pTITail, const BYTE *hlp_strings)
+			       const SLTG_TypeInfoTail *pTITail)
 {
-  SLTG_DoVars(pBlk, pBlk + pTITail->vars_off, pTI, pTITail->cVars, pNameTable, NULL, hlp_strings);
+  SLTG_DoVars(pBlk, pBlk + pTITail->vars_off, pTI, pTITail->cVars, pNameTable, NULL);
 }
 
 static void SLTG_ProcessAlias(char *pBlk, ITypeInfoImpl *pTI,
@@ -4408,7 +4312,7 @@ static void SLTG_ProcessAlias(char *pBlk, ITypeInfoImpl *pTI,
 
 static void SLTG_ProcessDispatch(char *pBlk, ITypeInfoImpl *pTI,
 				 char *pNameTable, SLTG_TypeInfoHeader *pTIHeader,
-				 const SLTG_TypeInfoTail *pTITail, const BYTE *hlp_strings)
+				 const SLTG_TypeInfoTail *pTITail)
 {
   sltg_ref_lookup_t *ref_lookup = NULL;
   if (pTIHeader->href_table != 0xffffffff)
@@ -4416,10 +4320,10 @@ static void SLTG_ProcessDispatch(char *pBlk, ITypeInfoImpl *pTI,
                                   pNameTable);
 
   if (pTITail->vars_off != 0xffff)
-    SLTG_DoVars(pBlk, pBlk + pTITail->vars_off, pTI, pTITail->cVars, pNameTable, ref_lookup, hlp_strings);
+    SLTG_DoVars(pBlk, pBlk + pTITail->vars_off, pTI, pTITail->cVars, pNameTable, ref_lookup);
 
   if (pTITail->funcs_off != 0xffff)
-    SLTG_DoFuncs(pBlk, pBlk + pTITail->funcs_off, pTI, pTITail->cFuncs, pNameTable, ref_lookup, hlp_strings);
+    SLTG_DoFuncs(pBlk, pBlk + pTITail->funcs_off, pTI, pTITail->cFuncs, pNameTable, ref_lookup);
 
   if (pTITail->impls_off != 0xffff)
     SLTG_DoImpls(pBlk + pTITail->impls_off, pTI, FALSE, ref_lookup);
@@ -4436,14 +4340,14 @@ static void SLTG_ProcessDispatch(char *pBlk, ITypeInfoImpl *pTI,
 
 static void SLTG_ProcessEnum(char *pBlk, ITypeInfoImpl *pTI,
 			     const char *pNameTable, SLTG_TypeInfoHeader *pTIHeader,
-			     const SLTG_TypeInfoTail *pTITail, const BYTE *hlp_strings)
+			     const SLTG_TypeInfoTail *pTITail)
 {
-  SLTG_DoVars(pBlk, pBlk + pTITail->vars_off, pTI, pTITail->cVars, pNameTable, NULL, hlp_strings);
+  SLTG_DoVars(pBlk, pBlk + pTITail->vars_off, pTI, pTITail->cVars, pNameTable, NULL);
 }
 
 static void SLTG_ProcessModule(char *pBlk, ITypeInfoImpl *pTI,
 			       char *pNameTable, SLTG_TypeInfoHeader *pTIHeader,
-			       const SLTG_TypeInfoTail *pTITail, const BYTE *hlp_strings)
+			       const SLTG_TypeInfoTail *pTITail)
 {
   sltg_ref_lookup_t *ref_lookup = NULL;
   if (pTIHeader->href_table != 0xffffffff)
@@ -4451,10 +4355,10 @@ static void SLTG_ProcessModule(char *pBlk, ITypeInfoImpl *pTI,
                                   pNameTable);
 
   if (pTITail->vars_off != 0xffff)
-    SLTG_DoVars(pBlk, pBlk + pTITail->vars_off, pTI, pTITail->cVars, pNameTable, ref_lookup, hlp_strings);
+    SLTG_DoVars(pBlk, pBlk + pTITail->vars_off, pTI, pTITail->cVars, pNameTable, ref_lookup);
 
   if (pTITail->funcs_off != 0xffff)
-    SLTG_DoFuncs(pBlk, pBlk + pTITail->funcs_off, pTI, pTITail->cFuncs, pNameTable, ref_lookup, hlp_strings);
+    SLTG_DoFuncs(pBlk, pBlk + pTITail->funcs_off, pTI, pTITail->cFuncs, pNameTable, ref_lookup);
   heap_free(ref_lookup);
   if (TRACE_ON(typelib))
     dump_TypeInfo(pTI);
@@ -4463,17 +4367,17 @@ static void SLTG_ProcessModule(char *pBlk, ITypeInfoImpl *pTI,
 /* Because SLTG_OtherTypeInfo is such a painful struct, we make a more
    manageable copy of it into this */
 typedef struct {
+  WORD small_no;
   char *index_name;
   char *other_name;
   WORD res1a;
   WORD name_offs;
-  WORD hlpstr_len;
+  WORD more_bytes;
   char *extra;
   WORD res20;
   DWORD helpcontext;
   WORD res26;
   GUID uuid;
-  WORD typekind;
 } SLTG_InternalOtherTypeInfo;
 
 /****************************************************************************
@@ -4492,8 +4396,8 @@ static ITypeLib2* ITypeLib2_Constructor_SLTG(LPVOID pLib, DWORD dwTLBLength)
     LPVOID pBlk, pFirstBlk;
     SLTG_LibBlk *pLibBlk;
     SLTG_InternalOtherTypeInfo *pOtherTypeInfoBlks;
+    char *pAfterOTIBlks = NULL;
     char *pNameTable, *ptr;
-    const BYTE *hlp_strings;
     int i;
     DWORD len, order;
     ITypeInfoImpl **ppTypeInfoImpl;
@@ -4559,10 +4463,9 @@ static ITypeLib2* ITypeLib2_Constructor_SLTG(LPVOID pLib, DWORD dwTLBLength)
     len += 0x40;
 
     /* And now TypeInfoCount of SLTG_OtherTypeInfo */
-    pTypeLibImpl->TypeInfoCount = *(WORD *)((char *)pLibBlk + len);
-    len += sizeof(WORD);
 
     pOtherTypeInfoBlks = heap_alloc_zero(sizeof(*pOtherTypeInfoBlks) * pTypeLibImpl->TypeInfoCount);
+
 
     ptr = (char*)pLibBlk + len;
 
@@ -4570,44 +4473,43 @@ static ITypeLib2* ITypeLib2_Constructor_SLTG(LPVOID pLib, DWORD dwTLBLength)
 	WORD w, extra;
 	len = 0;
 
-	w = *(WORD*)ptr;
+	pOtherTypeInfoBlks[i].small_no = *(WORD*)ptr;
+
+	w = *(WORD*)(ptr + 2);
 	if(w != 0xffff) {
 	    len += w;
 	    pOtherTypeInfoBlks[i].index_name = heap_alloc(w+1);
-	    memcpy(pOtherTypeInfoBlks[i].index_name, ptr + 2, w);
+	    memcpy(pOtherTypeInfoBlks[i].index_name, ptr + 4, w);
 	    pOtherTypeInfoBlks[i].index_name[w] = '\0';
 	}
-	w = *(WORD*)(ptr + 2 + len);
+	w = *(WORD*)(ptr + 4 + len);
 	if(w != 0xffff) {
-	    TRACE_(typelib)("\twith %s\n", debugstr_an(ptr + 4 + len, w));
-	    pOtherTypeInfoBlks[i].other_name = heap_alloc(w+1);
-	    memcpy(pOtherTypeInfoBlks[i].other_name, ptr + 4 + len, w);
-	    pOtherTypeInfoBlks[i].other_name[w] = '\0';
+	    TRACE_(typelib)("\twith %s\n", debugstr_an(ptr + 6 + len, w));
 	    len += w;
+	    pOtherTypeInfoBlks[i].other_name = heap_alloc(w+1);
+	    memcpy(pOtherTypeInfoBlks[i].other_name, ptr + 6 + len, w);
+	    pOtherTypeInfoBlks[i].other_name[w] = '\0';
 	}
-	pOtherTypeInfoBlks[i].res1a = *(WORD*)(ptr + 4 + len);
-	pOtherTypeInfoBlks[i].name_offs = *(WORD*)(ptr + 6 + len);
-	extra = pOtherTypeInfoBlks[i].hlpstr_len = *(WORD*)(ptr + 8 + len);
+	pOtherTypeInfoBlks[i].res1a = *(WORD*)(ptr + len + 6);
+	pOtherTypeInfoBlks[i].name_offs = *(WORD*)(ptr + len + 8);
+	extra = pOtherTypeInfoBlks[i].more_bytes = *(WORD*)(ptr + 10 + len);
 	if(extra) {
 	    pOtherTypeInfoBlks[i].extra = heap_alloc(extra);
-	    memcpy(pOtherTypeInfoBlks[i].extra, ptr + 10 + len, extra);
+	    memcpy(pOtherTypeInfoBlks[i].extra, ptr + 12, extra);
 	    len += extra;
 	}
-	pOtherTypeInfoBlks[i].res20 = *(WORD*)(ptr + 10 + len);
-	pOtherTypeInfoBlks[i].helpcontext = *(DWORD*)(ptr + 12 + len);
-	pOtherTypeInfoBlks[i].res26 = *(WORD*)(ptr + 16 + len);
-	memcpy(&pOtherTypeInfoBlks[i].uuid, ptr + 18 + len, sizeof(GUID));
-	pOtherTypeInfoBlks[i].typekind = *(WORD*)(ptr + 18 + sizeof(GUID) + len);
+	pOtherTypeInfoBlks[i].res20 = *(WORD*)(ptr + 12 + len);
+	pOtherTypeInfoBlks[i].helpcontext = *(DWORD*)(ptr + 14 + len);
+	pOtherTypeInfoBlks[i].res26 = *(WORD*)(ptr + 18 + len);
+	memcpy(&pOtherTypeInfoBlks[i].uuid, ptr + 20 + len, sizeof(GUID));
 	len += sizeof(SLTG_OtherTypeInfo);
 	ptr += len;
     }
 
-    /* Get the next DWORD */
-    len = *(DWORD*)ptr;
+    pAfterOTIBlks = ptr;
 
-    hlp_strings = (const BYTE *)ptr + sizeof(DWORD);
-    TRACE("max help string length %#x, help strings length %#x\n",
-        *(WORD *)hlp_strings, *(DWORD *)(hlp_strings + 2));
+    /* Skip this WORD and get the next DWORD */
+    len = *(DWORD*)(pAfterOTIBlks + 2);
 
     /* Now add this to pLibBLk look at what we're pointing at and
        possibly add 0x20, then add 0x216, sprinkle a bit a magic
@@ -4673,7 +4575,6 @@ static ITypeLib2* ITypeLib2_Constructor_SLTG(LPVOID pLib, DWORD dwTLBLength)
       (*ppTypeInfoImpl)->index = i;
       (*ppTypeInfoImpl)->Name = SLTG_ReadName(pNameTable, pOtherTypeInfoBlks[i].name_offs, pTypeLibImpl);
       (*ppTypeInfoImpl)->dwHelpContext = pOtherTypeInfoBlks[i].helpcontext;
-      (*ppTypeInfoImpl)->DocString = decode_string(hlp_strings, pOtherTypeInfoBlks[i].extra, pOtherTypeInfoBlks[i].hlpstr_len, pTypeLibImpl);
       (*ppTypeInfoImpl)->guid = TLB_append_guid(&pTypeLibImpl->guid_list, &pOtherTypeInfoBlks[i].uuid, 2);
       (*ppTypeInfoImpl)->typeattr.typekind = pTIHeader->typekind;
       (*ppTypeInfoImpl)->typeattr.wMajorVerNum = pTIHeader->major_version;
@@ -4706,17 +4607,17 @@ static ITypeLib2* ITypeLib2_Constructor_SLTG(LPVOID pLib, DWORD dwTLBLength)
       switch(pTIHeader->typekind) {
       case TKIND_ENUM:
 	SLTG_ProcessEnum((char *)(pMemHeader + 1), *ppTypeInfoImpl, pNameTable,
-                         pTIHeader, pTITail, hlp_strings);
+                         pTIHeader, pTITail);
 	break;
 
       case TKIND_RECORD:
 	SLTG_ProcessRecord((char *)(pMemHeader + 1), *ppTypeInfoImpl, pNameTable,
-                           pTIHeader, pTITail, hlp_strings);
+                           pTIHeader, pTITail);
 	break;
 
       case TKIND_INTERFACE:
 	SLTG_ProcessInterface((char *)(pMemHeader + 1), *ppTypeInfoImpl, pNameTable,
-                              pTIHeader, pTITail, hlp_strings);
+                              pTIHeader, pTITail);
 	break;
 
       case TKIND_COCLASS:
@@ -4731,12 +4632,12 @@ static ITypeLib2* ITypeLib2_Constructor_SLTG(LPVOID pLib, DWORD dwTLBLength)
 
       case TKIND_DISPATCH:
 	SLTG_ProcessDispatch((char *)(pMemHeader + 1), *ppTypeInfoImpl, pNameTable,
-                             pTIHeader, pTITail, hlp_strings);
+                             pTIHeader, pTITail);
 	break;
 
       case TKIND_MODULE:
 	SLTG_ProcessModule((char *)(pMemHeader + 1), *ppTypeInfoImpl, pNameTable,
-                           pTIHeader, pTITail, hlp_strings);
+                           pTIHeader, pTITail);
 	break;
 
       default:
@@ -7977,44 +7878,6 @@ static HRESULT ITypeInfoImpl_GetDispatchRefTypeInfo( ITypeInfo *iface,
         return E_FAIL;
 }
 
-struct search_res_tlb_params
-{
-    const GUID *guid;
-    ITypeLib *pTLib;
-};
-
-static BOOL CALLBACK search_res_tlb(HMODULE hModule, LPCWSTR lpszType, LPWSTR lpszName, LONG_PTR lParam)
-{
-    struct search_res_tlb_params *params = (LPVOID)lParam;
-    WCHAR szPath[MAX_PATH+1];
-    ITypeLib *pTLib = NULL;
-    HRESULT ret;
-    DWORD len;
-
-    if (IS_INTRESOURCE(lpszName) == FALSE)
-        return TRUE;
-
-    if (!(len = GetModuleFileNameW(hModule, szPath, MAX_PATH)))
-        return TRUE;
-
-    if (swprintf(szPath + len, ARRAY_SIZE(szPath) - len, L"\\%d", LOWORD(lpszName)) < 0)
-        return TRUE;
-
-    ret = LoadTypeLibEx(szPath, REGKIND_NONE, &pTLib);
-    if (SUCCEEDED(ret))
-    {
-        ITypeLibImpl *impl = impl_from_ITypeLib(pTLib);
-        if (IsEqualGUID(params->guid, impl->guid))
-        {
-            params->pTLib = pTLib;
-            return FALSE; /* stop enumeration */
-        }
-        ITypeLib_Release(pTLib);
-    }
-
-    return TRUE;
-}
-
 /* ITypeInfo::GetRefTypeInfo
  *
  * If a type description references other type descriptions, it retrieves
@@ -8131,23 +7994,6 @@ static HRESULT WINAPI ITypeInfo_fnGetRefTypeInfo(
                     }
                 }
                 LeaveCriticalSection(&cache_section);
-
-                if (!pTLib)
-                {
-                    struct search_res_tlb_params params;
-
-                    TRACE("typeinfo in imported typelib that isn't already loaded\n");
-
-                    /* Search in resource table */
-                    params.guid  = TLB_get_guid_null(ref_type->pImpTLInfo->guid);
-                    params.pTLib = NULL;
-                    EnumResourceNamesW(NULL, L"TYPELIB", search_res_tlb, (LONG_PTR)&params);
-                    if(params.pTLib)
-                    {
-                        pTLib  = params.pTLib;
-                        result = S_OK;
-                    }
-                }
 
                 if (!pTLib)
                 {

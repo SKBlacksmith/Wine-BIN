@@ -776,6 +776,12 @@ typedef struct DECLSPEC_ALIGN(8) MEM_EXTENDED_PARAMETER {
     } DUMMYUNIONNAME;
 } MEM_EXTENDED_PARAMETER, *PMEM_EXTENDED_PARAMETER;
 
+typedef struct _WIN32_MEMORY_RANGE_ENTRY
+{
+    PVOID  VirtualAddress;
+    SIZE_T NumberOfBytes;
+} WIN32_MEMORY_RANGE_ENTRY, *PWIN32_MEMORY_RANGE_ENTRY;
+
 #define	PAGE_NOACCESS		0x01
 #define	PAGE_READONLY		0x02
 #define	PAGE_READWRITE		0x04
@@ -834,14 +840,8 @@ typedef struct DECLSPEC_ALIGN(8) MEM_EXTENDED_PARAMETER {
 #define RTL_FIELD_SIZE(type, field) (sizeof(((type *)0)->field))
 #define RTL_SIZEOF_THROUGH_FIELD(type, field) (FIELD_OFFSET(type, field) + RTL_FIELD_SIZE(type, field))
 
-#ifdef __GNUC__
-# define CONTAINING_RECORD(address, type, field) ({     \
-   const typeof(((type *)0)->field) *__ptr = (address); \
-   (type *)((PCHAR)__ptr - offsetof(type, field)); })
-#else
-# define CONTAINING_RECORD(address, type, field) \
-   ((type *)((PCHAR)(address) - offsetof(type, field)))
-#endif
+#define CONTAINING_RECORD(address, type, field) \
+  ((type *)((PCHAR)(address) - offsetof(type, field)))
 
 #define ARRAYSIZE(x) (sizeof(x) / sizeof((x)[0]))
 #ifdef __WINESRC__
@@ -2239,7 +2239,6 @@ extern struct _TEB * WINAPI NtCurrentTeb(void);
 #define IO_REPARSE_TAG_CLOUD_MASK       __MSABI_LONG(0x0000F000)
 #define IO_REPARSE_TAG_APPEXECLINK      __MSABI_LONG(0x8000001B)
 #define IO_REPARSE_TAG_GVFS             __MSABI_LONG(0x9000001C)
-#define IO_REPARSE_TAG_LX_SYMLINK       __MSABI_LONG(0xA000001D)
 #define IO_REPARSE_TAG_STORAGE_SYNC     __MSABI_LONG(0x8000001E)
 #define IO_REPARSE_TAG_WCI_TOMBSTONE    __MSABI_LONG(0xA000001F)
 #define IO_REPARSE_TAG_UNHANDLED        __MSABI_LONG(0x80000020)
@@ -6352,7 +6351,7 @@ long      _InterlockedIncrement(long volatile*);
 short     _InterlockedIncrement16(short volatile*);
 long      _InterlockedOr(long volatile *,long);
 
-#ifndef __i386__
+#if !defined(__i386__) || _MSC_VER >= 1600
 
 #pragma intrinsic(_InterlockedCompareExchangePointer)
 #pragma intrinsic(_InterlockedExchangePointer)

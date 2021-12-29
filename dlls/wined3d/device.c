@@ -25,11 +25,6 @@
  */
 
 #include "config.h"
-#include "wine/port.h"
-
-#ifdef HAVE_FLOAT_H
-# include <float.h>
-#endif
 
 #include "wined3d_private.h"
 
@@ -657,9 +652,9 @@ bool wined3d_device_vk_create_null_resources(struct wined3d_device_vk *device_vk
     memory_type = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
     if (!wined3d_context_vk_create_bo(context_vk, 16, usage, memory_type, &r->bo))
         return false;
-    VK_CALL(vkCmdFillBuffer(vk_command_buffer, r->bo.vk_buffer, r->bo.buffer_offset, r->bo.size, 0x00000000u));
+    VK_CALL(vkCmdFillBuffer(vk_command_buffer, r->bo.vk_buffer, r->bo.b.buffer_offset, r->bo.size, 0x00000000u));
     r->buffer_info.buffer = r->bo.vk_buffer;
-    r->buffer_info.offset = r->bo.buffer_offset;
+    r->buffer_info.offset = r->bo.b.buffer_offset;
     r->buffer_info.range = r->bo.size;
 
     if (!wined3d_null_image_vk_init(&r->image_1d, context_vk, vk_command_buffer, VK_IMAGE_TYPE_1D, 1, 1))
@@ -735,7 +730,7 @@ bool wined3d_device_vk_create_null_views(struct wined3d_device_vk *device_vk, st
     buffer_create_info.flags = 0;
     buffer_create_info.buffer = r->bo.vk_buffer;
     buffer_create_info.format = VK_FORMAT_R32_UINT;
-    buffer_create_info.offset = r->bo.buffer_offset;
+    buffer_create_info.offset = r->bo.b.buffer_offset;
     buffer_create_info.range = r->bo.size;
 
     if ((vr = VK_CALL(vkCreateBufferView(device_vk->vk_device,
@@ -1239,29 +1234,6 @@ UINT CDECL wined3d_device_get_available_texture_mem(const struct wined3d_device 
     TRACE("device %p.\n", device);
 
     driver_info = &device->adapter->driver_info;
-
-    /* We can not acquire the context unless there is a swapchain. */
-    /*
-    if (device->swapchains && gl_info->supported[NVX_GPU_MEMORY_INFO] &&
-            !wined3d_settings.emulated_textureram)
-    {
-        GLint vram_free_kb;
-        UINT64 vram_free;
-
-        struct wined3d_context *context = context_acquire(device, NULL, 0);
-        gl_info->gl_ops.gl.p_glGetIntegerv(GL_GPU_MEMORY_INFO_CURRENT_AVAILABLE_VIDMEM_NVX, &vram_free_kb);
-        vram_free = (UINT64)vram_free_kb * 1024;
-        context_release(context);
-
-        TRACE("Total 0x%s bytes. emulation 0x%s left, driver 0x%s left.\n",
-                wine_dbgstr_longlong(device->adapter->vram_bytes),
-                wine_dbgstr_longlong(device->adapter->vram_bytes - device->adapter->vram_bytes_used),
-                wine_dbgstr_longlong(vram_free));
-
-        vram_free = min(vram_free, device->adapter->vram_bytes - device->adapter->vram_bytes_used);
-        return min(UINT_MAX, vram_free);
-    }
-    */
 
     TRACE("Emulating 0x%s bytes. 0x%s used, returning 0x%s left.\n",
             wine_dbgstr_longlong(driver_info->vram_bytes),
@@ -1946,14 +1918,6 @@ void CDECL wined3d_device_context_set_rasterizer_state(struct wined3d_device_con
         wined3d_rasterizer_state_decref(prev);
 out:
     wined3d_device_context_unlock(context);
-}
-
-void CDECL wined3d_device_context_set_depth_bounds(struct wined3d_device_context *context,
-        BOOL enable, float min, float max)
-{
-    TRACE("context %p, enable %d, min %.8e, max %.8e.\n", context, enable, min, max);
-
-    wined3d_device_context_emit_set_depth_bounds(context, enable, min, max);
 }
 
 void CDECL wined3d_device_context_set_viewports(struct wined3d_device_context *context, unsigned int viewport_count,
@@ -3676,13 +3640,12 @@ static void wined3d_device_set_texture(struct wined3d_device *device,
 void CDECL wined3d_device_apply_stateblock(struct wined3d_device *device,
         struct wined3d_stateblock *stateblock)
 {
-    bool set_blend_state = false, set_depth_stencil_state = false, set_rasterizer_state = false,
-            set_depth_bounds = false;
+    BOOL set_blend_state = FALSE, set_depth_stencil_state = FALSE, set_rasterizer_state = FALSE;
     const struct wined3d_stateblock_state *state = &stateblock->stateblock_state;
     const struct wined3d_saved_states *changed = &stateblock->changed;
     const unsigned int word_bit_count = sizeof(DWORD) * CHAR_BIT;
     struct wined3d_device_context *context = &device->cs->c;
-    unsigned int i, j, start, idx, vs_uniform_count;
+    unsigned int i, j, start, idx;
     struct wined3d_range range;
     uint32_t map;
 
@@ -3693,11 +3656,9 @@ void CDECL wined3d_device_apply_stateblock(struct wined3d_device *device,
     if (changed->pixelShader)
         wined3d_device_context_set_shader(context, WINED3D_SHADER_TYPE_PIXEL, state->ps);
 
-    vs_uniform_count = wined3d_device_get_vs_uniform_count(device);
-
     for (start = 0; ; start = range.offset + range.size)
     {
-        if (!wined3d_bitmap_get_range(changed->vs_consts_f, vs_uniform_count, start, &range))
+        if (!wined3d_bitmap_get_range(changed->vs_consts_f, WINED3D_MAX_VS_CONSTS_F, start, &range))
             break;
 
         wined3d_device_set_vs_consts_f(device, range.offset, range.size, &state->vs_consts_f[range.offset]);
@@ -3785,7 +3746,7 @@ void CDECL wined3d_device_apply_stateblock(struct wined3d_device *device,
                 case WINED3D_RS_COLORWRITEENABLE1:
                 case WINED3D_RS_COLORWRITEENABLE2:
                 case WINED3D_RS_COLORWRITEENABLE3:
-                    set_blend_state = true;
+                    set_blend_state = TRUE;
                     break;
 
                 case WINED3D_RS_BACK_STENCILFAIL:
@@ -3804,7 +3765,7 @@ void CDECL wined3d_device_apply_stateblock(struct wined3d_device *device,
                 case WINED3D_RS_ZENABLE:
                 case WINED3D_RS_ZFUNC:
                 case WINED3D_RS_ZWRITEENABLE:
-                    set_depth_stencil_state = true;
+                    set_depth_stencil_state = TRUE;
                     break;
 
                 case WINED3D_RS_FILLMODE:
@@ -3813,14 +3774,8 @@ void CDECL wined3d_device_apply_stateblock(struct wined3d_device *device,
                 case WINED3D_RS_DEPTHBIAS:
                 case WINED3D_RS_SCISSORTESTENABLE:
                 case WINED3D_RS_ANTIALIASEDLINEENABLE:
-                    set_rasterizer_state = true;
+                    set_rasterizer_state = TRUE;
                     break;
-
-                case WINED3D_RS_ADAPTIVETESS_X:
-                case WINED3D_RS_ADAPTIVETESS_Z:
-                case WINED3D_RS_ADAPTIVETESS_W:
-                    set_depth_bounds = true;
-                    /* fall through */
 
                 default:
                     wined3d_device_set_render_state(device, idx, state->rs[idx]);
@@ -4010,20 +3965,6 @@ void CDECL wined3d_device_apply_stateblock(struct wined3d_device *device,
         }
     }
 
-    if (set_depth_bounds)
-    {
-        union
-        {
-            DWORD d;
-            float f;
-        } zmin, zmax;
-
-        zmin.d = state->rs[WINED3D_RS_ADAPTIVETESS_Z];
-        zmax.d = state->rs[WINED3D_RS_ADAPTIVETESS_W];
-        wined3d_device_context_set_depth_bounds(context,
-                state->rs[WINED3D_RS_ADAPTIVETESS_X] == WINED3DFMT_NVDB, zmin.f, zmax.f);
-    }
-
     for (i = 0; i < ARRAY_SIZE(changed->textureState); ++i)
     {
         map = changed->textureState[i];
@@ -4098,22 +4039,9 @@ void CDECL wined3d_device_apply_stateblock(struct wined3d_device *device,
 
 HRESULT CDECL wined3d_device_get_device_caps(const struct wined3d_device *device, struct wined3d_caps *caps)
 {
-    struct wined3d_vertex_caps vertex_caps;
-    HRESULT hr;
-
     TRACE("device %p, caps %p.\n", device, caps);
 
-    if (FAILED(hr = wined3d_get_device_caps(device->adapter, device->create_parms.device_type, caps)))
-        return hr;
-
-    if (device->create_parms.flags & WINED3DCREATE_SOFTWARE_VERTEXPROCESSING)
-        caps->MaxVertexShaderConst = device->adapter->d3d_info.limits.vs_uniform_count_swvp;
-
-    device->adapter->vertex_pipe->vp_get_caps(device->adapter, &vertex_caps);
-    caps->MaxVertexBlendMatrixIndex = vertex_caps.max_vertex_blend_matrix_index;
-    if (!wined3d_device_is_swvp_mode(device))
-        caps->MaxVertexBlendMatrixIndex = min(caps->MaxVertexBlendMatrixIndex, 8);
-    return hr;
+    return wined3d_get_device_caps(device->adapter, device->create_parms.device_type, caps);
 }
 
 HRESULT CDECL wined3d_device_get_display_mode(const struct wined3d_device *device, UINT swapchain_idx,
@@ -4467,14 +4395,6 @@ void CDECL wined3d_device_set_software_vertex_processing(struct wined3d_device *
         warned = TRUE;
     }
 
-    wined3d_cs_finish(device->cs, WINED3D_CS_QUEUE_DEFAULT);
-    if (!device->softwareVertexProcessing != !software)
-    {
-        unsigned int i;
-
-        for (i = 0; i < device->context_count; ++i)
-            device->contexts[i]->constant_update_mask |= WINED3D_SHADER_CONST_VS_F;
-    }
     device->softwareVertexProcessing = software;
 }
 
@@ -6013,32 +5933,6 @@ LRESULT device_process_message(struct wined3d_device *device, HWND window, BOOL 
             else
                 DefWindowProcA(window, message, wparam, lparam);
         }
-    }
-
-    /* Testing shows we shouldn't hook that message, but doing it allows us
-     * to create fullscreen exclusive windows without altering window styles. */
-    if (message == WM_NCCALCSIZE && wparam == TRUE)
-    {
-        unsigned int i = device->swapchain_count;
-        NCCALCSIZE_PARAMS params = *(NCCALCSIZE_PARAMS*)lparam;
-        LRESULT res;
-
-        if (unicode)
-            res = CallWindowProcW(proc, window, message, wparam, lparam);
-        else
-            res = CallWindowProcA(proc, window, message, wparam, lparam);
-
-        while (i--)
-        {
-            if (device->swapchains[i]->state.device_window == window &&
-                !device->swapchains[i]->state.desc.windowed)
-            {
-                *(NCCALCSIZE_PARAMS*)lparam = params;
-                return 0;
-            }
-        }
-
-        return res;
     }
 
     if (unicode)

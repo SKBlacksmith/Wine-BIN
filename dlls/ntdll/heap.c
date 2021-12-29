@@ -1337,7 +1337,7 @@ static BOOL HEAP_IsRealArena( HEAP *heapPtr,   /* [in] ptr to the heap */
     flags |= heapPtr->flags;
     /* calling HeapLock may result in infinite recursion, so do the critsect directly */
     if (!(flags & HEAP_NO_SERIALIZE))
-        enter_critical_section( &heapPtr->critSection );
+        RtlEnterCriticalSection( &heapPtr->critSection );
 
     if (block)  /* only check this single memory block */
     {
@@ -1383,7 +1383,7 @@ static BOOL HEAP_IsRealArena( HEAP *heapPtr,   /* [in] ptr to the heap */
     ret = TRUE;
 
 done:
-    if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
     return ret;
 }
 
@@ -1552,9 +1552,9 @@ HANDLE WINAPI RtlCreateHeap( ULONG flags, PVOID addr, SIZE_T totalSize, SIZE_T c
     if (processHeap)
     {
         HEAP *heapPtr = subheap->heap;
-        enter_critical_section( &processHeap->critSection );
+        RtlEnterCriticalSection( &processHeap->critSection );
         list_add_head( &processHeap->entry, &heapPtr->entry );
-        leave_critical_section( &processHeap->critSection );
+        RtlLeaveCriticalSection( &processHeap->critSection );
     }
     else if (!addr)
     {
@@ -1598,9 +1598,9 @@ HANDLE WINAPI RtlDestroyHeap( HANDLE heap )
     if (heap == processHeap) return heap; /* cannot delete the main process heap */
 
     /* remove it from the per-process list */
-    enter_critical_section( &processHeap->critSection );
+    RtlEnterCriticalSection( &processHeap->critSection );
     list_remove( &heapPtr->entry );
-    leave_critical_section( &processHeap->critSection );
+    RtlLeaveCriticalSection( &processHeap->critSection );
 
     heapPtr->critSection.DebugInfo->Spare[0] = 0;
     RtlDeleteCriticalSection( &heapPtr->critSection );
@@ -1668,12 +1668,12 @@ void * WINAPI DECLSPEC_HOTPATCH RtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_
     }
     if (rounded_size < HEAP_MIN_DATA_SIZE) rounded_size = HEAP_MIN_DATA_SIZE;
 
-    if (!(flags & HEAP_NO_SERIALIZE)) enter_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlEnterCriticalSection( &heapPtr->critSection );
 
     if (rounded_size >= HEAP_MIN_LARGE_BLOCK_SIZE && (flags & HEAP_GROWABLE))
     {
         void *ret = allocate_large_block( heap, flags, size );
-        if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+        if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
         if (!ret && (flags & HEAP_GENERATE_EXCEPTIONS)) RtlRaiseStatus( STATUS_NO_MEMORY );
         TRACE("(%p,%08x,%08lx): returning %p\n", heap, flags, size, ret );
         return ret;
@@ -1685,7 +1685,7 @@ void * WINAPI DECLSPEC_HOTPATCH RtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_
     {
         TRACE("(%p,%08x,%08lx): returning NULL\n",
                   heap, flags, size  );
-        if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+        if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
         if (flags & HEAP_GENERATE_EXCEPTIONS) RtlRaiseStatus( STATUS_NO_MEMORY );
         return NULL;
     }
@@ -1711,7 +1711,7 @@ void * WINAPI DECLSPEC_HOTPATCH RtlAllocateHeap( HANDLE heap, ULONG flags, SIZE_
     notify_alloc( pInUse + 1, size, flags & HEAP_ZERO_MEMORY );
     initialize_block( pInUse + 1, size, pInUse->unused_bytes, flags );
 
-    if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
 
     TRACE("(%p,%08x,%08lx): returning %p\n", heap, flags, size, pInUse + 1 );
     return pInUse + 1;
@@ -1751,7 +1751,7 @@ BOOLEAN WINAPI DECLSPEC_HOTPATCH RtlFreeHeap( HANDLE heap, ULONG flags, void *pt
 
     flags &= HEAP_NO_SERIALIZE;
     flags |= heapPtr->flags;
-    if (!(flags & HEAP_NO_SERIALIZE)) enter_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlEnterCriticalSection( &heapPtr->critSection );
 
     /* Inform valgrind we are trying to free memory, so it can throw up an error message */
     notify_free( ptr );
@@ -1765,12 +1765,12 @@ BOOLEAN WINAPI DECLSPEC_HOTPATCH RtlFreeHeap( HANDLE heap, ULONG flags, void *pt
     else
         HEAP_MakeInUseBlockFree( subheap, pInUse );
 
-    if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
     TRACE("(%p,%08x,%p): returning TRUE\n", heap, flags, ptr );
     return TRUE;
 
 error:
-    if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
     RtlSetLastWin32ErrorAndNtStatusFromNtStatus( STATUS_INVALID_PARAMETER );
     TRACE("(%p,%08x,%p): returning FALSE\n", heap, flags, ptr );
     return FALSE;
@@ -1812,7 +1812,7 @@ PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size
     flags &= HEAP_GENERATE_EXCEPTIONS | HEAP_NO_SERIALIZE | HEAP_ZERO_MEMORY |
              HEAP_REALLOC_IN_PLACE_ONLY;
     flags |= heapPtr->flags;
-    if (!(flags & HEAP_NO_SERIALIZE)) enter_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlEnterCriticalSection( &heapPtr->critSection );
 
     rounded_size = ROUND_SIZE(size) + HEAP_TAIL_EXTRA_SIZE;
     if (rounded_size < size) goto oom;  /* overflow */
@@ -1906,19 +1906,19 @@ PVOID WINAPI RtlReAllocateHeap( HANDLE heap, ULONG flags, PVOID ptr, SIZE_T size
 
     ret = pArena + 1;
 done:
-    if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
     TRACE("(%p,%08x,%p,%08lx): returning %p\n", heap, flags, ptr, size, ret );
     return ret;
 
 oom:
-    if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
     if (flags & HEAP_GENERATE_EXCEPTIONS) RtlRaiseStatus( STATUS_NO_MEMORY );
     RtlSetLastWin32ErrorAndNtStatusFromNtStatus( STATUS_NO_MEMORY );
     TRACE("(%p,%08x,%p,%08lx): returning NULL\n", heap, flags, ptr, size );
     return NULL;
 
 error:
-    if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
     RtlSetLastWin32ErrorAndNtStatusFromNtStatus( STATUS_INVALID_PARAMETER );
     TRACE("(%p,%08x,%p,%08lx): returning NULL\n", heap, flags, ptr, size );
     return NULL;
@@ -1964,7 +1964,7 @@ BOOLEAN WINAPI RtlLockHeap( HANDLE heap )
 {
     HEAP *heapPtr = HEAP_GetPtr( heap );
     if (!heapPtr) return FALSE;
-    enter_critical_section( &heapPtr->critSection );
+    RtlEnterCriticalSection( &heapPtr->critSection );
     return TRUE;
 }
 
@@ -1985,7 +1985,7 @@ BOOLEAN WINAPI RtlUnlockHeap( HANDLE heap )
 {
     HEAP *heapPtr = HEAP_GetPtr( heap );
     if (!heapPtr) return FALSE;
-    leave_critical_section( &heapPtr->critSection );
+    RtlLeaveCriticalSection( &heapPtr->critSection );
     return TRUE;
 }
 
@@ -2021,7 +2021,7 @@ SIZE_T WINAPI RtlSizeHeap( HANDLE heap, ULONG flags, const void *ptr )
     }
     flags &= HEAP_NO_SERIALIZE;
     flags |= heapPtr->flags;
-    if (!(flags & HEAP_NO_SERIALIZE)) enter_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlEnterCriticalSection( &heapPtr->critSection );
 
     pArena = (const ARENA_INUSE *)ptr - 1;
     if (!validate_block_pointer( heapPtr, &subheap, pArena ))
@@ -2038,7 +2038,7 @@ SIZE_T WINAPI RtlSizeHeap( HANDLE heap, ULONG flags, const void *ptr )
     {
         ret = (pArena->size & ARENA_SIZE_MASK) - pArena->unused_bytes;
     }
-    if (!(flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
 
     TRACE("(%p,%08x,%p): returning %08lx\n", heap, flags, ptr, ret );
     return ret;
@@ -2085,7 +2085,7 @@ NTSTATUS WINAPI RtlWalkHeap( HANDLE heap, PVOID entry_ptr )
 
     if (!heapPtr || !entry) return STATUS_INVALID_PARAMETER;
 
-    if (!(heapPtr->flags & HEAP_NO_SERIALIZE)) enter_critical_section( &heapPtr->critSection );
+    if (!(heapPtr->flags & HEAP_NO_SERIALIZE)) RtlEnterCriticalSection( &heapPtr->critSection );
 
     /* FIXME: enumerate large blocks too */
 
@@ -2190,7 +2190,7 @@ NTSTATUS WINAPI RtlWalkHeap( HANDLE heap, PVOID entry_ptr )
     if (TRACE_ON(heap)) HEAP_DumpEntry(entry);
 
 HW_end:
-    if (!(heapPtr->flags & HEAP_NO_SERIALIZE)) leave_critical_section( &heapPtr->critSection );
+    if (!(heapPtr->flags & HEAP_NO_SERIALIZE)) RtlLeaveCriticalSection( &heapPtr->critSection );
     return ret;
 }
 
@@ -2213,7 +2213,7 @@ ULONG WINAPI RtlGetProcessHeaps( ULONG count, HANDLE *heaps )
     ULONG total = 1;  /* main heap */
     struct list *ptr;
 
-    enter_critical_section( &processHeap->critSection );
+    RtlEnterCriticalSection( &processHeap->critSection );
     LIST_FOR_EACH( ptr, &processHeap->entry ) total++;
     if (total <= count)
     {
@@ -2221,7 +2221,7 @@ ULONG WINAPI RtlGetProcessHeaps( ULONG count, HANDLE *heaps )
         LIST_FOR_EACH( ptr, &processHeap->entry )
             *heaps++ = LIST_ENTRY( ptr, HEAP, entry );
     }
-    leave_critical_section( &processHeap->critSection );
+    RtlLeaveCriticalSection( &processHeap->critSection );
     return total;
 }
 

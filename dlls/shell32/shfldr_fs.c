@@ -867,8 +867,9 @@ IShellFolder_fnGetDisplayNameOf (IShellFolder2 * iface, LPCITEMIDLIST pidl,
         if ((GET_SHGDN_FOR(dwFlags) & SHGDN_FORPARSING) &&
             (GET_SHGDN_RELATION(dwFlags) != SHGDN_INFOLDER))
         {
-            get_display_name( pszPath, This->sPathTarget, pidl,
-                              IsEqualCLSID( This->pclsid, &CLSID_UnixFolder ));
+            if (This->sPathTarget)
+                get_display_name( pszPath, This->sPathTarget, pidl,
+                                  IsEqualCLSID( This->pclsid, &CLSID_UnixFolder ));
         } else {
             /* pidl has to contain exactly one non null SHITEMID */
             hr = E_INVALIDARG;
@@ -1256,7 +1257,7 @@ static WCHAR *build_paths_list(LPCWSTR wszBasePath, int cidl, const LPCITEMIDLIS
  * deletes items in folder
  */
 static HRESULT WINAPI
-ISFHelper_fnDeleteItems (ISFHelper *iface, UINT cidl, LPCITEMIDLIST *apidl, BOOL confirm)
+ISFHelper_fnDeleteItems (ISFHelper * iface, UINT cidl, LPCITEMIDLIST * apidl)
 {
     IGenericSFImpl *This = impl_from_ISFHelper(iface);
     UINT i;
@@ -1281,7 +1282,6 @@ ISFHelper_fnDeleteItems (ISFHelper *iface, UINT cidl, LPCITEMIDLIST *apidl, BOOL
     op.wFunc = FO_DELETE;
     op.pFrom = wszPathsList;
     op.fFlags = FOF_ALLOWUNDO;
-    if (!confirm) op.fFlags |= FOF_NOCONFIRMATION;
     if (SHFileOperationW(&op))
     {
         WARN("SHFileOperation failed\n");

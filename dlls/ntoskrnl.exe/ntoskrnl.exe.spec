@@ -354,6 +354,7 @@
 @ stub IoConnectInterrupt
 @ stub IoCreateController
 @ stdcall IoCreateDevice(ptr long ptr long long long ptr)
+@ stdcall IoCreateDeviceSecure(ptr long ptr long long long ptr ptr ptr)
 @ stub IoCreateDisk
 @ stdcall IoCreateDriver(ptr ptr)
 @ stdcall IoCreateFile(ptr long ptr ptr ptr long long long long ptr long long ptr long)
@@ -396,7 +397,7 @@
 @ stub IoGetBootDiskInformation
 @ stdcall IoGetConfigurationInformation()
 @ stdcall IoGetCurrentProcess()
-@ stdcall IoGetDeviceAttachmentBaseRef(ptr)
+@ stub IoGetDeviceAttachmentBaseRef
 @ stub IoGetDeviceInterfaceAlias
 @ stdcall IoGetDeviceInterfaces(ptr ptr long ptr)
 @ stdcall IoGetDeviceObjectPointer(ptr long ptr ptr)
@@ -718,7 +719,7 @@
 @ stub MmLockPagableImageSection
 @ stdcall MmLockPagableSectionByHandle(ptr)
 @ stdcall MmMapIoSpace(int64 long long)
-@ stdcall MmMapLockedPages(ptr long)
+@ stub MmMapLockedPages
 @ stdcall MmMapLockedPagesSpecifyCache(ptr long long ptr long long)
 @ stub MmMapLockedPagesWithReservedMapping
 @ stub MmMapMemoryDumpMdl
@@ -1097,7 +1098,7 @@
 @ stdcall RtlGetControlSecurityDescriptor(ptr ptr ptr)
 @ stdcall RtlGetDaclSecurityDescriptor(ptr ptr ptr ptr)
 @ stub RtlGetDefaultCodePage
-@ stub RtlGetElementGenericTable
+@ stdcall RtlGetElementGenericTable(ptr long)
 @ stub RtlGetElementGenericTableAvl
 @ stdcall RtlGetExtendedContextLength(long ptr)
 @ stdcall RtlGetExtendedContextLength2(long ptr int64)
@@ -1182,7 +1183,7 @@
 @ stdcall RtlLocateLegacyContext(ptr ptr)
 @ stub RtlLockBootStatusData
 @ stdcall RtlLookupAtomInAtomTable(ptr wstr ptr)
-@ stub RtlLookupElementGenericTable
+@ stdcall RtlLookupElementGenericTable(ptr ptr)
 @ stub RtlLookupElementGenericTableAvl
 @ stub RtlLookupElementGenericTableFull
 @ stub RtlLookupElementGenericTableFullAvl

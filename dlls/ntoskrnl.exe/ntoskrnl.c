@@ -1610,6 +1610,21 @@ static struct _OBJECT_TYPE device_type =
 
 POBJECT_TYPE IoDeviceObjectType = &device_type;
 
+/***********************************************************************
+ *           IoCreateDeviceSecure   (NTOSKRNL.EXE.@)
+ */
+NTSTATUS WINAPI IoCreateDeviceSecure( DRIVER_OBJECT *driver, ULONG ext_size,
+                                      UNICODE_STRING *name, DEVICE_TYPE type,
+                                      ULONG characteristics, BOOLEAN exclusive,
+                                      PCUNICODE_STRING sddl, LPCGUID guid,
+                                      DEVICE_OBJECT **ret_device )
+{
+    FIXME( "(%p, %u, %s, %u, %x, %u, %s, %s, %p): semi-stub\n",
+           driver, ext_size, debugstr_us(name), type, characteristics, exclusive,
+           debugstr_us(sddl), wine_dbgstr_guid(guid), ret_device );
+
+    return IoCreateDevice( driver, ext_size, name, type, characteristics, exclusive, ret_device );
+}
 
 /***********************************************************************
  *           IoCreateDevice   (NTOSKRNL.EXE.@)
@@ -1788,16 +1803,6 @@ NTSTATUS WINAPI IoDeleteSymbolicLink( UNICODE_STRING *name )
     }
     return status;
 }
-
-/***********************************************************************
- *           IoGetDeviceAttachmentBaseRef   (NTOSKRNL.EXE.@)
- */
-PDEVICE_OBJECT WINAPI IoGetDeviceAttachmentBaseRef( PDEVICE_OBJECT device )
-{
-    FIXME( "(%p): stub\n", device );
-    return NULL;
-}
-
 
 /***********************************************************************
  *           IoGetDeviceInterfaces   (NTOSKRNL.EXE.@)
@@ -2846,16 +2851,6 @@ VOID WINAPI MmLockPagableSectionByHandle(PVOID ImageSectionHandle)
 {
     FIXME("stub %p\n", ImageSectionHandle);
 }
-
- /***********************************************************************
- *           MmMapLockedPages   (NTOSKRNL.EXE.@)
- */
-PVOID WINAPI MmMapLockedPages(PMDL MemoryDescriptorList, KPROCESSOR_MODE AccessMode)
-{
-    TRACE("%p %d\n", MemoryDescriptorList, AccessMode);
-    return MemoryDescriptorList->MappedSystemVa;
-}
-
 
 /***********************************************************************
  *           MmMapLockedPagesSpecifyCache  (NTOSKRNL.EXE.@)

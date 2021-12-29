@@ -143,6 +143,7 @@ DECL_HANDLER(get_apc_result);
 DECL_HANDLER(close_handle);
 DECL_HANDLER(set_handle_info);
 DECL_HANDLER(dup_handle);
+DECL_HANDLER(compare_objects);
 DECL_HANDLER(make_temporary);
 DECL_HANDLER(open_process);
 DECL_HANDLER(open_thread);
@@ -268,7 +269,6 @@ DECL_HANDLER(get_visible_region);
 DECL_HANDLER(get_surface_region);
 DECL_HANDLER(get_window_region);
 DECL_HANDLER(set_window_region);
-DECL_HANDLER(set_layer_region);
 DECL_HANDLER(get_update_region);
 DECL_HANDLER(update_window_zorder);
 DECL_HANDLER(redraw_window);
@@ -434,6 +434,7 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_close_handle,
     (req_handler)req_set_handle_info,
     (req_handler)req_dup_handle,
+    (req_handler)req_compare_objects,
     (req_handler)req_make_temporary,
     (req_handler)req_open_process,
     (req_handler)req_open_thread,
@@ -559,7 +560,6 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_get_surface_region,
     (req_handler)req_get_window_region,
     (req_handler)req_set_window_region,
-    (req_handler)req_set_layer_region,
     (req_handler)req_get_update_region,
     (req_handler)req_update_window_zorder,
     (req_handler)req_redraw_window,
@@ -896,6 +896,9 @@ C_ASSERT( FIELD_OFFSET(struct dup_handle_request, options) == 32 );
 C_ASSERT( sizeof(struct dup_handle_request) == 40 );
 C_ASSERT( FIELD_OFFSET(struct dup_handle_reply, handle) == 8 );
 C_ASSERT( sizeof(struct dup_handle_reply) == 16 );
+C_ASSERT( FIELD_OFFSET(struct compare_objects_request, first) == 12 );
+C_ASSERT( FIELD_OFFSET(struct compare_objects_request, second) == 16 );
+C_ASSERT( sizeof(struct compare_objects_request) == 24 );
 C_ASSERT( FIELD_OFFSET(struct make_temporary_request, handle) == 12 );
 C_ASSERT( sizeof(struct make_temporary_request) == 16 );
 C_ASSERT( FIELD_OFFSET(struct open_process_request, pid) == 12 );
@@ -1018,8 +1021,7 @@ C_ASSERT( sizeof(struct alloc_file_handle_request) == 24 );
 C_ASSERT( FIELD_OFFSET(struct alloc_file_handle_reply, handle) == 8 );
 C_ASSERT( sizeof(struct alloc_file_handle_reply) == 16 );
 C_ASSERT( FIELD_OFFSET(struct get_handle_unix_name_request, handle) == 12 );
-C_ASSERT( FIELD_OFFSET(struct get_handle_unix_name_request, nofollow) == 16 );
-C_ASSERT( sizeof(struct get_handle_unix_name_request) == 24 );
+C_ASSERT( sizeof(struct get_handle_unix_name_request) == 16 );
 C_ASSERT( FIELD_OFFSET(struct get_handle_unix_name_reply, name_len) == 8 );
 C_ASSERT( sizeof(struct get_handle_unix_name_reply) == 16 );
 C_ASSERT( FIELD_OFFSET(struct get_handle_fd_request, handle) == 12 );
@@ -1611,8 +1613,6 @@ C_ASSERT( sizeof(struct get_window_region_reply) == 16 );
 C_ASSERT( FIELD_OFFSET(struct set_window_region_request, window) == 12 );
 C_ASSERT( FIELD_OFFSET(struct set_window_region_request, redraw) == 16 );
 C_ASSERT( sizeof(struct set_window_region_request) == 24 );
-C_ASSERT( FIELD_OFFSET(struct set_layer_region_request, window) == 12 );
-C_ASSERT( sizeof(struct set_layer_region_request) == 16 );
 C_ASSERT( FIELD_OFFSET(struct get_update_region_request, window) == 12 );
 C_ASSERT( FIELD_OFFSET(struct get_update_region_request, from_child) == 16 );
 C_ASSERT( FIELD_OFFSET(struct get_update_region_request, flags) == 20 );

@@ -215,6 +215,7 @@ static const struct column col_networkadapterconfig[] =
     { L"DefaultIPGateway",     CIM_STRING|CIM_FLAG_ARRAY|COL_FLAG_DYNAMIC },
     { L"Description",          CIM_STRING|COL_FLAG_DYNAMIC },
     { L"DHCPEnabled",          CIM_BOOLEAN },
+    { L"DNSDomain",            CIM_STRING },
     { L"DNSHostName",          CIM_STRING|COL_FLAG_DYNAMIC },
     { L"DNSServerSearchOrder", CIM_STRING|CIM_FLAG_ARRAY|COL_FLAG_DYNAMIC },
     { L"Index",                CIM_UINT32|COL_FLAG_KEY },
@@ -356,6 +357,10 @@ static const struct column col_quickfixengineering[] =
 {
     { L"Caption",  CIM_STRING },
     { L"HotFixID", CIM_STRING|COL_FLAG_KEY },
+};
+static const struct column col_rawsmbiostables[] =
+{
+    { L"SMBiosData", CIM_UINT8|CIM_FLAG_ARRAY },
 };
 static const struct column col_service[] =
 {
@@ -632,6 +637,7 @@ struct record_networkadapterconfig
     const struct array *defaultipgateway;
     const WCHAR        *description;
     int                 dhcpenabled;
+    const WCHAR        *dnsdomain;
     const WCHAR        *dnshostname;
     const struct array *dnsserversearchorder;
     UINT32              index;
@@ -773,6 +779,10 @@ struct record_quickfixengineering
 {
     const WCHAR *caption;
     const WCHAR *hotfixid;
+};
+struct record_rawsmbiostables
+{
+    const struct array *smbiosdata;
 };
 struct record_service
 {
@@ -951,11 +961,18 @@ static const struct record_physicalmedia data_physicalmedia[] =
 {
     { L"WINEHDISK", L"\\\\.\\PHYSICALDRIVE0" }
 };
+
+static const struct record_rawsmbiostables data_rawsmbiostables[] =
+{
+    { 0 },
+};
+
 static const struct record_qualifier data_qualifier[] =
 {
     { L"__WIN32_PROCESS_GETOWNER_OUT", L"User", CIM_SINT32, FLAVOR_ID, L"ID", 0 },
     { L"__WIN32_PROCESS_GETOWNER_OUT", L"Domain", CIM_SINT32, FLAVOR_ID, L"ID", 1 }
 };
+
 static const struct record_quickfixengineering data_quickfixengineering[] =
 {
     { L"http://winehq.org", L"KB1234567" },
@@ -2989,6 +3006,7 @@ static enum fill_status fill_networkadapterconfig( struct table *table, const st
         rec->defaultipgateway     = get_defaultipgateway( aa->FirstGatewayAddress );
         rec->description          = heap_strdupW( aa->Description );
         rec->dhcpenabled          = -1;
+        rec->dnsdomain            = L"";
         rec->dnshostname          = get_dnshostname( aa->FirstUnicastAddress );
         rec->dnsserversearchorder = get_dnsserversearchorder( aa->FirstDnsServerAddress );
         rec->index                = aa->u.s.IfIndex;
@@ -4125,6 +4143,11 @@ static struct table cimv2_builtin_classes[] =
     { L"Win32_VideoController", C(col_videocontroller), 0, 0, NULL, fill_videocontroller },
     { L"Win32_WinSAT", C(col_winsat), D(data_winsat) },
 };
+
+static struct table wmi_builtin_classes[] =
+{
+    { L"MSSMBios_RawSMBiosTables", C(col_rawsmbiostables), D(data_rawsmbiostables) },
+};
 #undef C
 #undef D
 
@@ -4138,7 +4161,7 @@ builtin_namespaces[WBEMPROX_NAMESPACE_LAST] =
 {
     {L"cimv2", cimv2_builtin_classes, ARRAY_SIZE(cimv2_builtin_classes)},
     {L"Microsoft\\Windows\\Storage", NULL, 0},
-    {L"wmi", NULL, 0},
+    {L"wmi", wmi_builtin_classes, ARRAY_SIZE(wmi_builtin_classes)},
 };
 
 void init_table_list( void )

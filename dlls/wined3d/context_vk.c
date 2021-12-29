@@ -23,7 +23,6 @@
  */
 
 #include "config.h"
-#include "wine/port.h"
 
 #include "wined3d_private.h"
 
@@ -456,8 +455,8 @@ static bool wined3d_context_vk_create_slab_bo(struct wined3d_context_vk *context
     *bo = slab->bo;
     bo->memory = NULL;
     bo->slab = slab;
-    bo->buffer_offset = idx * object_size;
-    bo->b.memory_offset = slab->bo.b.memory_offset + bo->buffer_offset;
+    bo->b.buffer_offset = idx * object_size;
+    bo->b.memory_offset = slab->bo.b.memory_offset + bo->b.buffer_offset;
     bo->size = size;
     list_init(&bo->b.users);
     bo->command_buffer_id = 0;
@@ -465,7 +464,7 @@ static bool wined3d_context_vk_create_slab_bo(struct wined3d_context_vk *context
 
     TRACE("Using buffer 0x%s, memory 0x%s, offset 0x%s for bo %p.\n",
             wine_dbgstr_longlong(bo->vk_buffer), wine_dbgstr_longlong(bo->vk_memory),
-            wine_dbgstr_longlong(bo->buffer_offset), bo);
+            wine_dbgstr_longlong(bo->b.buffer_offset), bo);
 
     return true;
 }
@@ -534,7 +533,7 @@ BOOL wined3d_context_vk_create_bo(struct wined3d_context_vk *context_vk, VkDevic
     }
 
     bo->b.map_ptr = NULL;
-    bo->buffer_offset = 0;
+    bo->b.buffer_offset = 0;
     bo->size = size;
     bo->usage = usage;
     bo->memory_type = adapter_vk->memory_properties.memoryTypes[memory_type_idx].propertyFlags;
@@ -961,7 +960,7 @@ void wined3d_context_vk_destroy_bo(struct wined3d_context_vk *context_vk, const 
         if (bo->b.map_ptr)
             wined3d_bo_slab_vk_unmap(slab_vk, context_vk);
         object_size = slab_vk->bo.size / 32;
-        idx = bo->buffer_offset / object_size;
+        idx = bo->b.buffer_offset / object_size;
         wined3d_context_vk_destroy_bo_slab_slice(context_vk, slab_vk, idx, bo->command_buffer_id);
         return;
     }
@@ -2519,7 +2518,7 @@ static void wined3d_context_vk_bind_vertex_buffers(struct wined3d_context_vk *co
         {
             buffer_vk = wined3d_buffer_vk(buffer);
             buffer_info = wined3d_buffer_vk_get_buffer_info(buffer_vk);
-            wined3d_context_vk_reference_bo(context_vk, (struct wined3d_bo_vk *)buffer->buffer_object);
+            wined3d_context_vk_reference_bo(context_vk, wined3d_bo_vk(buffer->buffer_object));
             buffers[count] = buffer_info->buffer;
             offsets[count] = buffer_info->offset + stream->offset;
             ++count;
@@ -2558,7 +2557,7 @@ static void wined3d_context_vk_bind_stream_output_buffers(struct wined3d_context
         {
             buffer_vk = wined3d_buffer_vk(buffer);
             buffer_info = wined3d_buffer_vk_get_buffer_info(buffer_vk);
-            wined3d_context_vk_reference_bo(context_vk, (struct wined3d_bo_vk *)buffer->buffer_object);
+            wined3d_context_vk_reference_bo(context_vk, wined3d_bo_vk(buffer->buffer_object));
             buffers[count] = buffer_info->buffer;
             if ((offsets[count] = stream->offset) == ~0u)
             {
@@ -2760,7 +2759,7 @@ static bool wined3d_shader_descriptor_writes_vk_add_cbv_write(struct wined3d_sha
     if (!wined3d_shader_descriptor_writes_vk_add_write(writes, vk_descriptor_set,
             binding->binding_idx, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, buffer_info, NULL, NULL))
         return false;
-    wined3d_context_vk_reference_bo(context_vk, (struct wined3d_bo_vk *)buffer->buffer_object);
+    wined3d_context_vk_reference_bo(context_vk, wined3d_bo_vk(buffer->buffer_object));
     return true;
 }
 
@@ -3408,7 +3407,7 @@ VkCommandBuffer wined3d_context_vk_apply_draw_state(struct wined3d_context_vk *c
             idx_type = VK_INDEX_TYPE_UINT32;
         buffer_vk = wined3d_buffer_vk(state->index_buffer);
         buffer_info = wined3d_buffer_vk_get_buffer_info(buffer_vk);
-        wined3d_context_vk_reference_bo(context_vk, (struct wined3d_bo_vk *)buffer_vk->b.buffer_object);
+        wined3d_context_vk_reference_bo(context_vk, wined3d_bo_vk(buffer_vk->b.buffer_object));
         VK_CALL(vkCmdBindIndexBuffer(vk_command_buffer, buffer_info->buffer,
                 buffer_info->offset + state->index_offset, idx_type));
     }

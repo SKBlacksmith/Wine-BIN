@@ -26,7 +26,6 @@
 #include "winnt.h"
 #include "winternl.h"
 #include "unixlib.h"
-#include "wine/debug.h"
 #include "wine/asm.h"
 
 #define DECLARE_CRITICAL_SECTION(cs) \
@@ -53,6 +52,7 @@ extern void WINAPI LdrInitializeThunk(CONTEXT*,ULONG_PTR,ULONG_PTR,ULONG_PTR) DE
 extern NTSTATUS WINAPI KiUserExceptionDispatcher(EXCEPTION_RECORD*,CONTEXT*) DECLSPEC_HIDDEN;
 extern void WINAPI KiUserApcDispatcher(CONTEXT*,ULONG_PTR,ULONG_PTR,ULONG_PTR,PNTAPCFUNC) DECLSPEC_HIDDEN;
 extern void WINAPI KiUserCallbackDispatcher(ULONG,void*,ULONG) DECLSPEC_HIDDEN;
+extern void (WINAPI *pWow64PrepareForException)( EXCEPTION_RECORD *rec, CONTEXT *context ) DECLSPEC_HIDDEN;
 
 #if defined(__x86_64__) || defined(__arm__) || defined(__aarch64__)
 extern RUNTIME_FUNCTION *lookup_function_info( ULONG_PTR pc, ULONG_PTR *base, LDR_DATA_TABLE_ENTRY **module ) DECLSPEC_HIDDEN;
@@ -89,39 +89,6 @@ extern struct _KUSER_SHARED_DATA *user_shared_data DECLSPEC_HIDDEN;
 extern int CDECL NTDLL__vsnprintf( char *str, SIZE_T len, const char *format, va_list args ) DECLSPEC_HIDDEN;
 extern int CDECL NTDLL__vsnwprintf( WCHAR *str, SIZE_T len, const WCHAR *format, va_list args ) DECLSPEC_HIDDEN;
 
-/* inline version of RtlEnterCriticalSection */
-static inline void enter_critical_section( RTL_CRITICAL_SECTION *crit )
-{
-    if (InterlockedIncrement( &crit->LockCount ))
-    {
-        if (crit->OwningThread == ULongToHandle(GetCurrentThreadId()))
-        {
-            crit->RecursionCount++;
-            return;
-        }
-        RtlpWaitForCriticalSection( crit );
-    }
-    crit->OwningThread   = ULongToHandle(GetCurrentThreadId());
-    crit->RecursionCount = 1;
-}
-
-/* inline version of RtlLeaveCriticalSection */
-static inline void leave_critical_section( RTL_CRITICAL_SECTION *crit )
-{
-    WINE_DECLARE_DEBUG_CHANNEL(ntdll);
-    if (--crit->RecursionCount)
-    {
-        if (crit->RecursionCount > 0) InterlockedDecrement( &crit->LockCount );
-        else ERR_(ntdll)( "section %p is not acquired\n", crit );
-    }
-    else
-    {
-        crit->OwningThread = 0;
-        if (InterlockedDecrement( &crit->LockCount ) >= 0)
-            RtlpUnWaitCriticalSection( crit );
-    }
-}
-
 struct dllredirect_data
 {
     ULONG size;
@@ -148,11 +115,6 @@ static inline TEB64 *NtCurrentTeb64(void) { return (TEB64 *)NtCurrentTeb()->GdiB
 #define HASH_STRING_ALGORITHM_INVALID  0xffffffff
 
 NTSTATUS WINAPI RtlHashUnicodeString(PCUNICODE_STRING,BOOLEAN,ULONG,ULONG*);
-
-/* version */
-extern const char * CDECL wine_get_version(void);
-extern const char * CDECL wine_get_build_id(void);
-extern void CDECL wine_get_host_version( const char **sysname, const char **release );
 
 /* convert from straight ASCII to Unicode without depending on the current codepage */
 static inline void ascii_to_unicode( WCHAR *dst, const char *src, size_t len )
