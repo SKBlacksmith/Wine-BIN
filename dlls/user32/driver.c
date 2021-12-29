@@ -300,6 +300,11 @@ static BOOL CDECL loaderdrv_UpdateLayeredWindow( HWND hwnd, const UPDATELAYEREDW
     return load_driver()->pUpdateLayeredWindow( hwnd, info, window_rect );
 }
 
+static void CDECL loaderdrv_UpdateCandidatePos( HWND hwnd, const RECT *caret_rect )
+{
+    load_driver()->pUpdateCandidatePos( hwnd, caret_rect );
+}
+
 static struct user_driver_funcs lazy_load_driver =
 {
     { NULL },
@@ -350,6 +355,8 @@ static struct user_driver_funcs lazy_load_driver =
     nulldrv_WindowPosChanged,
     /* system parameters */
     nulldrv_SystemParametersInfo,
+    /* candidate pos functions */
+    loaderdrv_UpdateCandidatePos,
     /* thread management */
     nulldrv_ThreadDetach
 };
