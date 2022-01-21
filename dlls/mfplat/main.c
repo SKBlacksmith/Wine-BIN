@@ -2134,6 +2134,12 @@ static const char *debugstr_eventid(DWORD event)
         X(MEAudioSessionFormatChanged),
         X(MEAudioSessionDisconnected),
         X(MEAudioSessionExclusiveModeOverride),
+        X(MECaptureAudioSessionVolumeChanged),
+        X(MECaptureAudioSessionDeviceRemoved),
+        X(MECaptureAudioSessionFormatChanged),
+        X(MECaptureAudioSessionDisconnected),
+        X(MECaptureAudioSessionExclusiveModeOverride),
+        X(MECaptureAudioSessionServerShutdown),
         X(METrustUnknown),
         X(MEPolicyChanged),
         X(MEContentProtectionMessage),
@@ -8940,6 +8946,8 @@ HRESULT WINAPI MFCreateDXGIDeviceManager(UINT *token, IMFDXGIDeviceManager **man
     struct dxgi_device_manager *object;
 
     TRACE("%p, %p.\n", token, manager);
+
+    return E_NOTIMPL;
 
     if (!token || !manager)
         return E_POINTER;

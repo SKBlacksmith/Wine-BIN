@@ -95,6 +95,7 @@ static const LONG teb_offset = 0x2000;
 #define FILE_USE_FILE_POINTER_POSITION ((LONGLONG)-2)
 
 /* callbacks to PE ntdll from the Unix side */
+extern void     (WINAPI *pDbgUiRemoteBreakin)( void *arg ) DECLSPEC_HIDDEN;
 extern NTSTATUS (WINAPI *pKiRaiseUserExceptionDispatcher)(void) DECLSPEC_HIDDEN;
 extern NTSTATUS (WINAPI *pKiUserExceptionDispatcher)(EXCEPTION_RECORD*,CONTEXT*) DECLSPEC_HIDDEN;
 extern void     (WINAPI *pKiUserApcDispatcher)(CONTEXT*,ULONG_PTR,ULONG_PTR,ULONG_PTR,PNTAPCFUNC) DECLSPEC_HIDDEN;
@@ -107,6 +108,8 @@ extern LONGLONG CDECL fast_RtlGetSystemTimePrecise(void) DECLSPEC_HIDDEN;
 
 extern NTSTATUS CDECL unwind_builtin_dll( ULONG type, struct _DISPATCHER_CONTEXT *dispatch,
                                           CONTEXT *context ) DECLSPEC_HIDDEN;
+
+struct _FILE_FS_DEVICE_INFORMATION;
 
 extern const char wine_build[] DECLSPEC_HIDDEN;
 
@@ -275,6 +278,7 @@ extern NTSTATUS get_full_path( const WCHAR *name, const WCHAR *curdir, WCHAR **p
 extern NTSTATUS open_unix_file( HANDLE *handle, const char *unix_name, ACCESS_MASK access,
                                 OBJECT_ATTRIBUTES *attr, ULONG attributes, ULONG sharing, ULONG disposition,
                                 ULONG options, void *ea_buffer, ULONG ea_length ) DECLSPEC_HIDDEN;
+extern NTSTATUS get_device_info( int fd, struct _FILE_FS_DEVICE_INFORMATION *info ) DECLSPEC_HIDDEN;
 extern void init_files(void) DECLSPEC_HIDDEN;
 extern void init_cpu_info(void) DECLSPEC_HIDDEN;
 extern struct cpu_topology_override *get_cpu_topology_override(void) DECLSPEC_HIDDEN;
@@ -351,11 +355,19 @@ static inline NTSTATUS wait_async( HANDLE handle, BOOL alertable )
     return NtWaitForSingleObject( handle, alertable, NULL );
 }
 
+static inline BOOL in_wow64_call(void)
+{
+#ifdef _WIN64
+    return !!NtCurrentTeb()->WowTebOffset;
+#endif
+    return FALSE;
+}
+
 static inline void set_async_iosb( client_ptr_t iosb, NTSTATUS status, ULONG_PTR info )
 {
     if (!iosb) return;
-#ifdef _WIN64
-    if (NtCurrentTeb()->WowTebOffset)
+
+    if (in_wow64_call())
     {
         struct iosb32
         {
@@ -366,7 +378,6 @@ static inline void set_async_iosb( client_ptr_t iosb, NTSTATUS status, ULONG_PTR
         io->Information = info;
     }
     else
-#endif
     {
         IO_STATUS_BLOCK *io = wine_server_get_ptr( iosb );
 #ifdef NONAMELESSUNION
@@ -380,12 +391,10 @@ static inline void set_async_iosb( client_ptr_t iosb, NTSTATUS status, ULONG_PTR
 
 static inline client_ptr_t iosb_client_ptr( IO_STATUS_BLOCK *io )
 {
-#ifdef _WIN64
 #ifdef NONAMELESSUNION
-    if (io && NtCurrentTeb()->WowTebOffset) return wine_server_client_ptr( io->u.Pointer );
+    if (io && in_wow64_call()) return wine_server_client_ptr( io->u.Pointer );
 #else
-    if (io && NtCurrentTeb()->WowTebOffset) return wine_server_client_ptr( io->Pointer );
-#endif
+    if (io && in_wow64_call()) return wine_server_client_ptr( io->Pointer );
 #endif
     return wine_server_client_ptr( io );
 }
