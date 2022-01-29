@@ -24,11 +24,11 @@ jobs:
           mkdir wine32
           mkdir builds
           cd wine64
-          ../configure --prefix="${pkgdir}" --libdir="${pkgdir}/lib" --with-x --without-oss --without-vkd3d --disable-tests --enable-win64 CFLAGS="${CFLAGS}" CC="gcc"
+          ../configure --prefix="${pkgdir}" --libdir="${pkgdir}/lib" --with-x --without-oss --without-vkd3d --disable-tests --enable-win64 CFLAGS="-O2 -ftree-vectorize" CC="gcc"
           make -j2
           cd ..
           cd wine32
-          ../configure --prefix="${pkgdir}" --libdir="${pkgdir}/lib32" --with-x --without-oss --without-vkd3d --disable-tests --with-wine64=../wine64 CFLAGS="${CFLAGS}" CC="gcc"
+          ../configure --prefix="${pkgdir}" --libdir="${pkgdir}/lib32" --with-x --without-oss --without-vkd3d --disable-tests --with-wine64=../wine64 CFLAGS="-O2 -ftree-vectorize" CC="gcc"
           make -j2
           make STRIP=true prefix="${pkgdir}" libdir="${pkgdir}/lib32" dlldir="${pkgdir}/lib32/wine" DESTDIR=../builds/wine-crossroads-ubuntu install
           cd ..
